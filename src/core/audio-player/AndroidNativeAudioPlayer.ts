@@ -226,12 +226,19 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
       }),
     );
 
-    // progressChanged: 仅同步 duration + 派发 timeupdate
-    // **关键**：不更新 _currentTime——避免缓冲期 positionMs=0 假数据导致进度回退
+    // progressChanged: 同步 duration + 派发 timeupdate。
+    // 常规轮询不更新 _currentTime（防缓冲期 0 假数据回退）；authoritative=true 时强制刷新基准。
     this.listenerHandles.push(
       await AndroidNativePlayback.addListener("progressChanged", (event) => {
         const nextDuration = Math.max(0, event.durationMs) / 1000;
         if (nextDuration > 0) this._duration = nextDuration;
+        if (event.authoritative === true) {
+          const safePositionSec = Math.max(0, event.positionMs) / 1000;
+          this._currentTime = safePositionSec;
+          this.lastTimeSyncAt = performance.now();
+          this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKING));
+          this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKED));
+        }
         this.dispatchEvent(new Event(AUDIO_EVENTS.TIME_UPDATE));
       }),
     );

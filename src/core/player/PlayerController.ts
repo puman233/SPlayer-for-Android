@@ -1299,6 +1299,16 @@ class PlayerController {
       await this.playSong({ autoPlay: play });
       return;
     }
+    // 冷启动直接 playSong 未走 setPlayList 时，用当前曲合成单曲列表，防上下首按钮哑火。
+    // 同步 originalPlayList 保 shuffle 簿记完整。
+    if (dataStore.playList.length === 0) {
+      const currentSong = getPlaySongData();
+      if (currentSong && typeof currentSong.id === "number" && currentSong.id !== 0) {
+        await dataStore.setPlayList([currentSong]);
+        await dataStore.setOriginalPlayList([currentSong]);
+        statusStore.playIndex = 0;
+      }
+    }
     // 播放列表是否为空
     const playListLength = dataStore.playList.length;
     if (playListLength === 0) {
@@ -1545,6 +1555,14 @@ class PlayerController {
     audioManager.stop();
     statusStore.resetPlayStatus();
     musicStore.resetMusicData();
+    // Android 硬清理：移除通知栏幽灵卡片、清 native 缓存的 next 源。
+    if (isCapacitorAndroid) {
+      try {
+        await AndroidNativePlayback.cleanup();
+      } catch (error) {
+        console.warn("AndroidNativePlayback.cleanup failed:", error);
+      }
+    }
     // 清空播放列表
     await dataStore.setPlayList([]);
     await dataStore.clearOriginalPlayList();
