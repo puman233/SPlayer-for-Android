@@ -62,6 +62,11 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   }
 
   @PluginMethod
+  public void cleanup(PluginCall call) {
+    resolveOnMainThread(call, () -> PlaybackManager.getInstance(getContext()).cleanup());
+  }
+
+  @PluginMethod
   public void seek(PluginCall call) {
     // Capacitor 从 JS 传 number 时底层是 Double，getLong 会取不到默认返回 0L 导致 seek-to-zero
     long positionMs = (long) (double) call.getDouble("positionMs", 0.0);

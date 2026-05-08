@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -45,6 +46,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.json.JSONObject;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -81,10 +83,14 @@ public final class PlaybackManager {
   private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
 
   private ExoPlayer player;
+  /** 暴露给 MediaSession 的包装 Player：覆写 availableCommands，让系统媒体面板始终展示上一/下一首。 */
+  private Player sessionPlayer;
   private MediaSession mediaSession;
   private PlaybackService service;
   private AndroidNativePlaybackPlugin plugin;
   private Bitmap coverBitmap;
+  /** 封面 JPEG 编码缓存，仅在 coverBitmap 变化时重压。 */
+  private byte[] coverArtworkBytes;
   private Typeface notificationIconTypeface;
 
   private String currentSource = "";
@@ -108,6 +114,21 @@ public final class PlaybackManager {
   private long pendingSeekPositionMs = C.TIME_UNSET;
   private long pendingSeekDeadlineMs = 0L;
   private long lastKnownPositionMs = 0L;
+  /** NEXT 快路径锁：防止 native 快切与 JS autoNext 双线抢跑。 */
+  private boolean pendingNativeNextSync = false;
+  /** 快路径锁超时释放 Runnable。 */
+  private final Runnable pendingNativeNextSyncTimeoutRunnable =
+      () -> {
+        if (pendingNativeNextSync) {
+          android.util.Log.w(
+              TAG,
+              "pendingNativeNextSync timeout (5s without updateQueueContext), force release");
+          pendingNativeNextSync = false;
+        }
+      };
+  private static final long PENDING_NATIVE_NEXT_SYNC_TIMEOUT_MS = 5_000L;
+  /** 已用 ExoPlayer 真实 duration 校准过的 source URL。 */
+  private String durationCalibratedForSource = "";
   /** 悬浮歌词服务实例（运行时绑定） */
   private FloatingLyricService floatingLyricService;
   /** 远程状态同步：JS 端 AudioElementPlayer 驱动播放时，通知栏状态由此控制 */
@@ -132,7 +153,7 @@ public final class PlaybackManager {
             MediaSession session, MediaSession.ControllerInfo controller) {
           return new MediaSession.ConnectionResult.AcceptedResultBuilder(session)
               .setAvailableSessionCommands(buildAvailableSessionCommands())
-              .setAvailablePlayerCommands(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
+              .setAvailablePlayerCommands(buildAvailablePlayerCommands())
               .setCustomLayout(buildCustomLayout())
               .setMediaButtonPreferences(buildMediaButtonPreferences())
               .setSessionActivity(buildContentIntent())
@@ -145,14 +166,17 @@ public final class PlaybackManager {
           switch (playerCommand) {
             case Player.COMMAND_SEEK_TO_NEXT:
             case Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM:
-              return handleSessionAction(PlaybackConstants.ACTION_NEXT)
-                  ? SessionResult.RESULT_SUCCESS
-                  : SessionResult.RESULT_ERROR_NOT_SUPPORTED;
+              // 转发到 JS；返回 SKIPPED 避免控制器缓存 NOT_SUPPORTED 状态误判后续点击。
+              handleSessionAction(PlaybackConstants.ACTION_NEXT);
+              return SessionResult.RESULT_INFO_SKIPPED;
             case Player.COMMAND_SEEK_TO_PREVIOUS:
             case Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM:
-              return handleSessionAction(PlaybackConstants.ACTION_PREVIOUS)
-                  ? SessionResult.RESULT_SUCCESS
-                  : SessionResult.RESULT_ERROR_NOT_SUPPORTED;
+              // 与 NEXT 对齐：无条件转发到 JS，由 JS 自行判断边界（personalFM/列表首尾等）。
+              // 不在 native 端做条件检查 + 返回 NOT_SUPPORTED——某些 Media3 控制器（系统媒体面板/
+              // 锁屏）会缓存 NOT_SUPPORTED 状态，导致后续 setAvailableCommands 重新声明可用后
+              // 按钮点击仍不发命令，直到控制器重连（切歌单等场景）才解锁。
+              handleSessionAction(PlaybackConstants.ACTION_PREVIOUS);
+              return SessionResult.RESULT_INFO_SKIPPED;
             default:
               return MediaSession.Callback.super.onPlayerCommandRequest(
                   session, controller, playerCommand);
@@ -269,6 +293,7 @@ public final class PlaybackManager {
     // 在 IDLE→prepare 转换中可能被丢弃，导致实际从 0 开始播放（UI 显示 seek 位置但音频从头放）
     player.setMediaItem(buildMediaItem(currentSource));
     player.prepare();
+    durationCalibratedForSource = "";
     if (positionMs > 0) {
       player.seekTo(positionMs);
       beginPendingSeek(positionMs);
@@ -298,6 +323,20 @@ public final class PlaybackManager {
 
   public synchronized JSObject stop() {
     ensureInitialized();
+    // 软停止：不清 MediaItem / 通知栏，留给下一次 load() 无缝替换，避免切歌瞬间闪烁。
+    // 进程级清理走 cleanup() / onDestroy。
+    player.pause();
+    player.seekTo(0L);
+    clearPendingSeek();
+    lastKnownPositionMs = 0L;
+    stopProgressUpdates();
+    emitPlaybackState(true);
+    return buildState();
+  }
+
+  /** 硬清理：清播放列表 / 登入登出等场景，清空 MediaItem、通知栏、queuedNext 及快路径锁。 */
+  public synchronized JSObject cleanup() {
+    ensureInitialized();
     player.pause();
     player.seekTo(0L);
     player.stop();
@@ -307,6 +346,9 @@ public final class PlaybackManager {
     lastKnownPositionMs = 0L;
     queuedNextSource = "";
     queuedNextMetadata = null;
+    pendingNativeNextSync = false;
+    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
+    durationCalibratedForSource = "";
     stopProgressUpdates();
     clearNotification();
     emitPlaybackState(true);
@@ -353,6 +395,8 @@ public final class PlaybackManager {
   public synchronized void updateMetadata(TrackMetadata metadata) {
     currentMetadata = metadata == null ? new TrackMetadata() : metadata;
     loadCoverBitmapAsync(currentMetadata.coverUrl);
+    // 把最新元信息推回 ExoPlayer 当前 MediaItem，让锁屏 / 系统媒体面板同步刷新
+    refreshCurrentMediaItemMetadata();
     updateMediaSessionButtons();
     updateNotification();
     emitPlaybackState(true);
@@ -378,9 +422,20 @@ public final class PlaybackManager {
     queuedNextMetadata = nextTrack == null ? null : nextTrack.copy();
     queuedNextSource =
         queuedNextMetadata == null || queuedNextMetadata.url == null ? "" : queuedNextMetadata.url;
+    // JS 端通过 updateQueueContext 推送新的 next 表明已经感知并处理了上一次的 autoNext，
+    // 此时清除快路径锁，让后续 ACTION_NEXT 重新可以走 native 直切。
+    pendingNativeNextSync = false;
+    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
     updateMediaSessionButtons();
     updateNotification();
     emitPlaybackState(false);
+  }
+
+  /** 安排快路径锁超时释放，重复调用会重置计时。 */
+  private void schedulePendingNativeNextSyncTimeout() {
+    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
+    mainHandler.postDelayed(
+        pendingNativeNextSyncTimeoutRunnable, PENDING_NATIVE_NEXT_SYNC_TIMEOUT_MS);
   }
 
   public synchronized void updateNotificationPrefs(
@@ -500,12 +555,30 @@ public final class PlaybackManager {
         }
         break;
       case PlaybackConstants.ACTION_NEXT:
-        emitCustomAction("next", null, null, null, null, true, null);
+        // 后台时 WebView 可能被冻结、JS 响应不及；有预载则 native 直接切歌 + emit autoNext，
+        // 其余场景（personalFM、快路径锁中、无预载）回落到 emit next 由 JS 处理。
+        if (!personalFmMode
+            && !pendingNativeNextSync
+            && queuedNextSource != null
+            && !queuedNextSource.isEmpty()
+            && queuedNextMetadata != null) {
+          TrackMetadata nextMetadata = queuedNextMetadata;
+          boolean nextLiked = nextMetadata.liked;
+          int nextSongId = nextMetadata.songId;
+          startTrackFromState(queuedNextSource, nextMetadata, nextLiked, true);
+          queuedNextMetadata = null;
+          queuedNextSource = "";
+          pendingNativeNextSync = true;
+          emitCustomAction("autoNext", nextSongId, nextLiked, null, null, true, null);
+          // 5s 超时兜底：防 JS 异常路径不调 updateQueueContext 导致锁永久卡住。
+          schedulePendingNativeNextSyncTimeout();
+        } else {
+          emitCustomAction("next", null, null, null, null, true, null);
+        }
         break;
       case PlaybackConstants.ACTION_PREVIOUS:
-        if (canSkipPrevious && !personalFmMode) {
-          emitCustomAction("previous", null, null, null, null, true, null);
-        }
+        // 边界（personalFM、列表为空、playIndex 越界）全交给 JS 的 nextOrPrev("prev")。
+        emitCustomAction("previous", null, null, null, null, true, null);
         break;
       case PlaybackConstants.ACTION_FAVORITE:
         toggleFavoriteAsync();
@@ -542,9 +615,7 @@ public final class PlaybackManager {
         handleNotificationAction(action);
         return true;
       case PlaybackConstants.ACTION_PREVIOUS:
-        if (!canSkipPrevious || personalFmMode) {
-          return false;
-        }
+        // 不返 NOT_SUPPORTED：控制器会缓存该状态导致后续点击哑火。
         handleNotificationAction(action);
         return true;
       case PlaybackConstants.ACTION_FAVORITE:
@@ -608,6 +679,9 @@ public final class PlaybackManager {
               emitEnded();
             } else if (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING) {
               startProgressUpdates();
+              if (playbackState == Player.STATE_READY) {
+                calibrateDurationFromPlayer();
+              }
             }
 
             updateNotification();
@@ -631,7 +705,8 @@ public final class PlaybackManager {
             if (reason == Player.DISCONTINUITY_REASON_SEEK
                 || reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION
                 || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
-              emitProgressChanged(Math.max(0L, newPosition.positionMs));
+              // authoritative：seek/外部拖拽。TS 端需据此强制刷新估算基准。
+              emitProgressChanged(Math.max(0L, newPosition.positionMs), true, true);
               updateNotification();
               emitPlaybackState(true);
             }
@@ -644,8 +719,52 @@ public final class PlaybackManager {
           }
         });
 
+    sessionPlayer =
+        new ForwardingPlayer(player) {
+          @Override
+          public Player.Commands getAvailableCommands() {
+            // 强声明 PREV/NEXT 可用，避免 ExoPlayer 队列只有 1 项时按钮被置灰。
+            return new Player.Commands.Builder()
+                .addAll(super.getAvailableCommands())
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build();
+          }
+
+          @Override
+          public boolean isCommandAvailable(int command) {
+            return getAvailableCommands().contains(command);
+          }
+
+          // 系统媒体面板/锁屏的 PREV/NEXT 点击会直接调这几个方法，底层 1 项队列会全部 no-op；
+          // 在这里劫持后转发到 JS 是唯一能确保按钮可点的位置。
+          // 防呆：native 内部勿调 sessionPlayer.seekTo{Next,Previous}*，会被劫持成 emit 而不推进队列；
+          // 需主动切曲请用 startTrackFromState() / handleSessionAction()。
+          @Override
+          public void seekToPrevious() {
+            handleSessionAction(PlaybackConstants.ACTION_PREVIOUS);
+          }
+
+          @Override
+          public void seekToPreviousMediaItem() {
+            handleSessionAction(PlaybackConstants.ACTION_PREVIOUS);
+          }
+
+          @Override
+          public void seekToNext() {
+            handleSessionAction(PlaybackConstants.ACTION_NEXT);
+          }
+
+          @Override
+          public void seekToNextMediaItem() {
+            handleSessionAction(PlaybackConstants.ACTION_NEXT);
+          }
+        };
+
     mediaSession =
-        new MediaSession.Builder(appContext, player)
+        new MediaSession.Builder(appContext, sessionPlayer)
             .setSessionActivity(buildContentIntent())
             .setCallback(mediaSessionCallback)
             .setCustomLayout(buildCustomLayout())
@@ -654,6 +773,47 @@ public final class PlaybackManager {
             .build();
     updateMediaSessionButtons();
     coverBitmap = BitmapFactory.decodeResource(appContext.getResources(), R.mipmap.ic_launcher);
+    coverArtworkBytes = encodeArtworkBytes(coverBitmap);
+  }
+
+  /** 用 ExoPlayer 真实 duration 校准 metadata；同一 source 只走一次，偏差 ≤ 500ms 跳过。 */
+  private void calibrateDurationFromPlayer() {
+    if (player == null) {
+      return;
+    }
+    if (currentSource == null || currentSource.isEmpty()) {
+      return;
+    }
+    if (currentSource.equals(durationCalibratedForSource)) {
+      return;
+    }
+    long realDurationMs = player.getDuration();
+    if (realDurationMs == C.TIME_UNSET || realDurationMs <= 0L) {
+      return;
+    }
+    durationCalibratedForSource = currentSource;
+    if (Math.abs(realDurationMs - currentMetadata.durationMs) <= 500L) {
+      return;
+    }
+    currentMetadata.durationMs = realDurationMs;
+    refreshCurrentMediaItemMetadata();
+  }
+
+  /** Bitmap → JPEG@90 byte[]，用作 MediaMetadata.artworkData。 */
+  @Nullable
+  private byte[] encodeArtworkBytes(@Nullable Bitmap bitmap) {
+    if (bitmap == null) {
+      return null;
+    }
+    try {
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      if (bitmap.compress(Bitmap.CompressFormat.JPEG, 90, baos)) {
+        return baos.toByteArray();
+      }
+    } catch (Exception e) {
+      Log.w(TAG, "encodeArtworkBytes failed", e);
+    }
+    return null;
   }
 
   private void ensureServiceRunning() {
@@ -682,6 +842,9 @@ public final class PlaybackManager {
     if (currentMetadata.album != null) {
       builder.setAlbumTitle(currentMetadata.album);
     }
+    if (currentMetadata.durationMs > 0) {
+      builder.setDurationMs(currentMetadata.durationMs);
+    }
     if (currentMetadata.coverUrl != null
         && !currentMetadata.coverUrl.isEmpty()
         && !currentMetadata.coverUrl.startsWith("blob:")) {
@@ -690,8 +853,32 @@ public final class PlaybackManager {
       } catch (Exception ignored) {
       }
     }
+    // artworkData 覆盖 blob:/网络不可达场景，蓝牙 AVRCP / Auto 必需这个才有封面。
+    if (coverArtworkBytes != null) {
+      builder.setArtworkData(coverArtworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER);
+    }
 
     return builder.build();
+  }
+
+  /** 不重 prepare、不打断播放地把 metadata 同步到当前 MediaItem。 */
+  private void refreshCurrentMediaItemMetadata() {
+    if (player == null) {
+      return;
+    }
+    MediaItem current = player.getCurrentMediaItem();
+    if (current == null) {
+      return;
+    }
+    try {
+      MediaItem updated = current.buildUpon().setMediaMetadata(buildMediaMetadata()).build();
+      int index = player.getCurrentMediaItemIndex();
+      if (index >= 0 && index < player.getMediaItemCount()) {
+        player.replaceMediaItem(index, updated);
+      }
+    } catch (Exception e) {
+      Log.w(TAG, "refreshCurrentMediaItemMetadata failed", e);
+    }
   }
 
   private boolean handleAutoAdvanceOnEnded() {
@@ -724,6 +911,7 @@ public final class PlaybackManager {
     liked = likedState;
     clearPendingSeek();
     lastKnownPositionMs = 0L;
+    durationCalibratedForSource = "";
     player.setMediaItem(buildMediaItem(currentSource));
     player.prepare();
     player.seekTo(0L);
@@ -741,17 +929,27 @@ public final class PlaybackManager {
   }
 
   private SessionCommands buildAvailableSessionCommands() {
-    SessionCommands.Builder builder = new SessionCommands.Builder().add(nextSessionCommand);
+    // PREV 不随 personalFM 屏蔽：FM 下 prev 交由 JS 走 initPersonalFM，语义一致。
+    SessionCommands.Builder builder =
+        new SessionCommands.Builder().add(nextSessionCommand).add(previousSessionCommand);
 
-    if (canSkipPrevious && !personalFmMode) {
-      builder.add(previousSessionCommand);
-    }
     if (currentMetadata.canLike) {
       builder.add(favoriteSessionCommand);
     }
     if (desktopLyricButtonEnabled) {
       builder.add(desktopLyricSessionCommand);
     }
+
+    return builder.build();
+  }
+
+  private Player.Commands buildAvailablePlayerCommands() {
+    Player.Commands.Builder builder =
+        new Player.Commands.Builder().addAll(MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS);
+    builder.add(Player.COMMAND_SEEK_TO_NEXT);
+    builder.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM);
+    builder.add(Player.COMMAND_SEEK_TO_PREVIOUS);
+    builder.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM);
 
     return builder.build();
   }
@@ -776,14 +974,12 @@ public final class PlaybackManager {
               .build());
     }
 
-    if (canSkipPrevious && !personalFmMode) {
-      buttons.add(
-          new CommandButton.Builder(CommandButton.ICON_PREVIOUS)
-              .setSessionCommand(previousSessionCommand)
-              .setDisplayName(appContext.getString(R.string.playback_notification_previous))
-              .setSlots(CommandButton.SLOT_BACK)
-              .build());
-    }
+    buttons.add(
+        new CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+            .setSessionCommand(previousSessionCommand)
+            .setDisplayName(appContext.getString(R.string.playback_notification_previous))
+            .setSlots(CommandButton.SLOT_BACK)
+            .build());
 
     buttons.add(
         new CommandButton.Builder(CommandButton.ICON_NEXT)
@@ -817,7 +1013,7 @@ public final class PlaybackManager {
     mediaSession.setMediaButtonPreferences(mediaButtonPreferences);
     for (MediaSession.ControllerInfo controller : mediaSession.getConnectedControllers()) {
       mediaSession.setAvailableCommands(
-          controller, sessionCommands, MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS);
+          controller, sessionCommands, buildAvailablePlayerCommands());
     }
   }
 
@@ -872,7 +1068,7 @@ public final class PlaybackManager {
     int actionCount = 0;
     int playPauseActionIndex = 0;
     int nextActionIndex = 0;
-    int previousActionIndex = -1;
+    int previousActionIndex = 0;
 
     if (currentMetadata.canLike) {
       builder.addAction(buildNotificationAction(
@@ -883,15 +1079,13 @@ public final class PlaybackManager {
       actionCount++;
     }
 
-    if (canSkipPrevious && !personalFmMode) {
-      previousActionIndex = actionCount;
-      builder.addAction(buildNotificationAction(
-          ICON_GLYPH_PREVIOUS,
-          android.R.drawable.ic_media_previous,
-          appContext.getString(R.string.playback_notification_previous),
-          PlaybackConstants.ACTION_PREVIOUS));
-      actionCount++;
-    }
+    previousActionIndex = actionCount;
+    builder.addAction(buildNotificationAction(
+        ICON_GLYPH_PREVIOUS,
+        android.R.drawable.ic_media_previous,
+        appContext.getString(R.string.playback_notification_previous),
+        PlaybackConstants.ACTION_PREVIOUS));
+    actionCount++;
 
     playPauseActionIndex = actionCount;
     boolean effectivelyPlaying = isEffectivelyPlaying();
@@ -924,9 +1118,7 @@ public final class PlaybackManager {
     }
 
     int[] compactActionIndices =
-        previousActionIndex >= 0
-            ? new int[] {previousActionIndex, playPauseActionIndex, nextActionIndex}
-            : new int[] {playPauseActionIndex, nextActionIndex};
+        new int[] {previousActionIndex, playPauseActionIndex, nextActionIndex};
 
     builder.setStyle(
         new androidx.media.app.NotificationCompat.MediaStyle()
@@ -1081,10 +1273,12 @@ public final class PlaybackManager {
   }
 
   private void emitProgressChanged(long positionMs) {
-    emitProgressChanged(positionMs, true);
+    emitProgressChanged(positionMs, true, false);
   }
 
-  private void emitProgressChanged(long positionMs, boolean acknowledgePendingSeek) {
+  /** authoritative=true 表示权威 seek，TS 端需据此刷新估算基准；false 是周期轮询。 */
+  private void emitProgressChanged(
+      long positionMs, boolean acknowledgePendingSeek, boolean authoritative) {
     AndroidNativePlaybackPlugin currentPlugin = plugin;
     long safePositionMs = Math.max(0L, positionMs);
     if (acknowledgePendingSeek) {
@@ -1099,6 +1293,9 @@ public final class PlaybackManager {
     JSObject payload = new JSObject();
     payload.put("durationMs", getDurationMs());
     payload.put("positionMs", safePositionMs);
+    if (authoritative) {
+      payload.put("authoritative", true);
+    }
     currentPlugin.emitEvent("progressChanged", payload, true);
   }
 
@@ -1164,6 +1361,7 @@ public final class PlaybackManager {
   private void loadCoverBitmapAsync(String coverUrl) {
     if (coverUrl == null || coverUrl.isEmpty() || coverUrl.startsWith("blob:")) {
       coverBitmap = BitmapFactory.decodeResource(appContext.getResources(), R.mipmap.ic_launcher);
+      coverArtworkBytes = encodeArtworkBytes(coverBitmap);
       updateNotification();
       return;
     }
@@ -1205,9 +1403,13 @@ public final class PlaybackManager {
                   ? bitmap
                   : BitmapFactory.decodeResource(appContext.getResources(), R.mipmap.ic_launcher);
 
+          // JPEG 编码在后台线程完成，避免主线程卡帧。
+          final byte[] encodedBytes = encodeArtworkBytes(resolvedBitmap);
           mainHandler.post(
               () -> {
                 coverBitmap = resolvedBitmap;
+                coverArtworkBytes = encodedBytes;
+                refreshCurrentMediaItemMetadata();
                 updateNotification();
               });
         });

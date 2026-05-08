@@ -59,6 +59,8 @@ export type AndroidNativePlaybackStateEvent = AndroidNativePlaybackState;
 export interface AndroidNativeProgressEvent {
   durationMs: number;
   positionMs: number;
+  /** 权威 seek 标志：true 时 TS 端须强制刷新估算基准；缺省为周期轮询可忽略。 */
+  authoritative?: boolean;
 }
 
 export interface AndroidNativeEndedEvent {
@@ -130,6 +132,8 @@ export interface AndroidNativePlaybackPlugin {
   play(): Promise<AndroidNativePlaybackState>;
   pause(): Promise<AndroidNativePlaybackState>;
   stop(): Promise<AndroidNativePlaybackState>;
+  /** 硬清理：清 MediaItem / 通知栏 / queuedNext。仅用于清场场景，切歌仍用 stop()。 */
+  cleanup(): Promise<AndroidNativePlaybackState>;
   seek(options: { positionMs: number }): Promise<AndroidNativePlaybackState>;
   setVolume(options: { volume: number }): Promise<void>;
   setRate(options: { rate: number }): Promise<void>;
