@@ -1,13 +1,21 @@
 <template>
   <div ref="mobileStart" class="full-player-mobile">
-    <div class="top-bar">
+    <div ref="topBarRef" class="top-bar">
       <div class="btn" @click.stop="statusStore.showFullPlayer = false">
         <SvgIcon name="Down" :size="26" />
       </div>
     </div>
 
+    <!-- 下拉手势捕获区：信息页覆盖顶栏 + 封面区域；歌词页仅顶栏，避免拦截歌词滚动 -->
     <div
-      :class="['mobile-content', { swiping: isSwiping }]"
+      ref="dragHandleRef"
+      class="drag-handle"
+      :style="{ height: dragHandleHeight }"
+      aria-hidden="true"
+    />
+
+    <div
+      :class="['mobile-content', { swiping: isHorizontalSwipe }]"
       :style="{ transform: contentTransform }"
       @click.stop
     >
@@ -167,7 +175,183 @@ const player = usePlayerController();
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const mobileStart = ref<HTMLElement | null>(null);
+const topBarRef = ref<HTMLElement | null>(null);
+const dragHandleRef = ref<HTMLElement | null>(null);
 const pageIndex = ref(0);
+
+// 下拉关闭手势捕获区高度：信息页仅覆盖顶栏 + 封面上半段，避免遮挡下方按钮
+// 歌词页含顶栏 + 歌曲信息条
+const dragHandleHeight = computed(() =>
+  pageIndex.value === 0
+    ? "calc(40px + var(--mobile-safe-top) + 32vh)"
+    : "calc(140px + var(--mobile-safe-top))",
+);
+
+// 顶部区域下拉关闭：整个全屏播放器（含背景蒙层）跟手下移，露出底部主页面
+let dragValue = 0;
+const CLOSE_THRESHOLD = 120;
+const REVEAL_DISTANCE = 480;
+const SPRING_TRANSITION =
+  "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1)";
+
+// 缓存目标元素，避免 touchmove 每帧 DOM 查询
+let parentEl: HTMLElement | null = null;
+let mainEl: HTMLElement | null = null;
+let rafId = 0;
+let pendingDy = 0;
+
+const writeStyles = (dy: number) => {
+  if (parentEl) {
+    if (dy <= 0) {
+      parentEl.style.transform = "";
+    } else {
+      const scale = Math.max(0.92, 1 - dy / 2400);
+      parentEl.style.transform = `translate3d(0, ${dy}px, 0) scale(${scale})`;
+    }
+  }
+  if (mainEl) {
+    if (dy <= 0) {
+      mainEl.style.opacity = "";
+      mainEl.style.transform = "";
+    } else {
+      const progress = Math.min(dy / REVEAL_DISTANCE, 1);
+      mainEl.style.opacity = String(progress);
+      mainEl.style.transform = `scale(${0.9 + progress * 0.1})`;
+    }
+  }
+};
+
+// 通过 rAF 节流，避免 touchmove 高频写样式导致掉帧
+const scheduleFlush = (dy: number) => {
+  pendingDy = dy;
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    writeStyles(pendingDy);
+  });
+};
+
+const beginDrag = () => {
+  parentEl = (mobileStart.value?.parentElement as HTMLElement | null) ?? null;
+  mainEl = document.getElementById("main");
+  // 拖动期间禁用过渡 + 提示合成层，避免每帧重排
+  if (parentEl) {
+    parentEl.style.transition = "none";
+    parentEl.style.willChange = "transform";
+    parentEl.style.transformOrigin = "50% 0";
+    parentEl.style.borderRadius = "28px";
+    parentEl.style.backfaceVisibility = "hidden";
+    parentEl.style.backdropFilter = "blur(48px)";
+    parentEl.style.contain = "paint";
+  }
+  if (mainEl) {
+    mainEl.style.transition = "none";
+    mainEl.style.willChange = "transform, opacity";
+  }
+};
+
+const clearWillChange = () => {
+  if (parentEl) parentEl.style.willChange = "";
+  if (mainEl) mainEl.style.willChange = "";
+};
+
+const resetInlineStyles = () => {
+  if (parentEl) {
+    parentEl.style.transition = "";
+    parentEl.style.transform = "";
+    parentEl.style.borderRadius = "";
+    parentEl.style.transformOrigin = "";
+    parentEl.style.willChange = "";
+    parentEl.style.backfaceVisibility = "";
+    parentEl.style.backdropFilter = "";
+    parentEl.style.contain = "";
+  }
+  if (mainEl) {
+    mainEl.style.transition = "";
+    mainEl.style.opacity = "";
+    mainEl.style.transform = "";
+    mainEl.style.willChange = "";
+  }
+};
+
+// 方向锁，避免左右翻页手势触发下拉
+let directionLock: "h" | "v" | null = null;
+let dragStarted = false;
+const DIRECTION_LOCK_TOLERANCE = 8;
+
+const { lengthX: topLengthX, lengthY: topLengthY } = useSwipe(dragHandleRef, {
+  threshold: 0,
+  onSwipeStart: () => {
+    directionLock = null;
+    dragStarted = false;
+  },
+  onSwipe: () => {
+    // 横向手势锁定后直接放行给翻页 useSwipe 处理
+    if (directionLock === "h") return;
+    if (!directionLock) {
+      const ax = Math.abs(topLengthX.value);
+      const ay = Math.abs(topLengthY.value);
+      if (Math.max(ax, ay) < DIRECTION_LOCK_TOLERANCE) return;
+      directionLock = ay > ax ? "v" : "h";
+      if (directionLock === "h") return;
+    }
+    if (!dragStarted) {
+      beginDrag();
+      dragStarted = true;
+    }
+    // useSwipe 的 lengthY = startY - currentY，下滑时为负值
+    const dy = -topLengthY.value;
+    // 仅允许向下拖动；上滑做强阻尼
+    dragValue = dy >= 0 ? dy : dy * 0.2;
+    scheduleFlush(Math.max(dragValue, 0));
+  },
+  onSwipeEnd: () => {
+    const wasDragging = dragStarted;
+    directionLock = null;
+    dragStarted = false;
+    if (!wasDragging) return;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    if (dragValue > CLOSE_THRESHOLD) {
+      // 触发关闭：清掉 inline transition 让父级 @leave 钩子从当前位移继续滑出
+      if (parentEl) {
+        parentEl.style.transition = "";
+      }
+      // 同步把主页面平滑回到完全可见，避免卡片滑出过程中仍然可见拖动半透明状态
+      if (mainEl) {
+        mainEl.style.transition =
+          "opacity 0.32s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)";
+        mainEl.style.opacity = "1";
+        mainEl.style.transform = "scale(1)";
+      }
+      statusStore.showFullPlayer = false;
+      window.setTimeout(() => {
+        clearWillChange();
+        resetInlineStyles();
+      }, 400);
+    } else {
+      // 取消关闭：弹簧回弹（border-radius 不参与过渡，立即清掉避免末尾突变）
+      if (parentEl) {
+        parentEl.style.transition = SPRING_TRANSITION;
+        parentEl.style.borderRadius = "";
+      }
+      if (mainEl) mainEl.style.transition = SPRING_TRANSITION;
+      writeStyles(0);
+      window.setTimeout(() => {
+        clearWillChange();
+        resetInlineStyles();
+      }, 360);
+    }
+    dragValue = 0;
+  },
+});
+
+onBeforeUnmount(() => {
+  if (rafId) cancelAnimationFrame(rafId);
+  resetInlineStyles();
+});
 
 const hasLyric = computed(() => musicStore.isHasLrc && musicStore.playSong.type !== "radio");
 
@@ -183,10 +367,12 @@ watch(hasLyric, (value) => {
   if (!value) pageIndex.value = 0;
 });
 
-const { direction, isSwiping, lengthX } = useSwipe(mobileStart, {
-  threshold: 10,
+const { direction, isSwiping, lengthX, lengthY } = useSwipe(mobileStart, {
+  threshold: 5,
   onSwipeEnd: () => {
     if (!hasLyric.value) return;
+    // 仅在主方向为水平时触发翻页，避免上下滑动歌词误触
+    if (Math.abs(lengthX.value) <= Math.abs(lengthY.value)) return;
 
     if (direction.value === "left" && lengthX.value > 100) {
       pageIndex.value = 1;
@@ -196,9 +382,14 @@ const { direction, isSwiping, lengthX } = useSwipe(mobileStart, {
   },
 });
 
+// 当前滑动是否为水平方向（用于跟手位移）
+const isHorizontalSwipe = computed(
+  () => isSwiping.value && Math.abs(lengthX.value) > Math.abs(lengthY.value),
+);
+
 const contentTransform = computed(() => {
   const baseOffset = pageIndex.value * 50;
-  if (!isSwiping.value || !hasLyric.value) {
+  if (!isHorizontalSwipe.value || !hasLyric.value) {
     return `translateX(-${baseOffset}%)`;
   }
 
@@ -224,6 +415,17 @@ const contentTransform = computed(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+
+  .drag-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    pointer-events: auto;
+    background: transparent;
+    touch-action: none;
+  }
 
   .top-bar {
     position: absolute;
@@ -471,6 +673,11 @@ const contentTransform = computed(() => {
       margin-bottom: 20px;
       flex-shrink: 0;
       padding-top: 8px;
+      // 喜欢按钮位于下拉手势区上方，需要抬高层级保持可点击
+      .action-btn {
+        position: relative;
+        z-index: 11;
+      }
 
       .lyric-cover {
         width: 50px;

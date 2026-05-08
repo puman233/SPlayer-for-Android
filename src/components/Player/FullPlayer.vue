@@ -1,6 +1,12 @@
 <template>
   <Teleport to="body">
-    <Transition :name="settingStore.playerExpandAnimation" mode="out-in">
+    <Transition
+      :name="useCompactMobilePlayer ? 'mobile-card' : settingStore.playerExpandAnimation"
+      :css="!useCompactMobilePlayer"
+      mode="out-in"
+      @enter="onMobileEnter"
+      @leave="onMobileLeave"
+    >
       <div
         v-if="statusStore.showFullPlayer"
         :style="{
@@ -102,6 +108,77 @@ const settingStore = useSettingStore();
 
 const { isPhonePortrait } = useDevice();
 const useCompactMobilePlayer = computed(() => isPhonePortrait.value);
+
+// 移动端卡片化进出场动画：兼容拖拽中的 inline transform，从当前位置平滑过渡
+const MOBILE_CARD_ENTER =
+  "transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)";
+const MOBILE_CARD_LEAVE = "transform 0.32s cubic-bezier(0.4, 0, 1, 1)";
+
+const onMobileEnter = (el: Element, done: () => void) => {
+  if (!useCompactMobilePlayer.value) {
+    done();
+    return;
+  }
+  // 底栏拖拽开启模式：同步写好起始态再交给 MainPlayer 的拖拽逻辑接管，
+  // 避免出现一帧 “无 transform 全屏可见” 的裸态
+  if ((window as unknown as { __splayerDragOpen?: boolean }).__splayerDragOpen) {
+    const parent = el as HTMLElement;
+    parent.style.transformOrigin = "50% 0";
+    parent.style.willChange = "transform";
+    parent.style.transition = "none";
+    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+    parent.style.borderRadius = "28px";
+    parent.style.backfaceVisibility = "hidden";
+    done();
+    return;
+  }
+  const parent = el as HTMLElement;
+  parent.style.transformOrigin = "50% 0";
+  parent.style.willChange = "transform";
+  parent.style.transition = "none";
+  parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+  parent.style.borderRadius = "28px";
+  parent.style.backfaceVisibility = "hidden";
+  parent.style.backdropFilter = "blur(48px)";
+  parent.style.contain = "paint";
+  // 强制重排，确保起始状态生效
+  parent.getBoundingClientRect();
+  requestAnimationFrame(() => {
+    parent.style.transition = MOBILE_CARD_ENTER;
+    parent.style.transform = "";
+  });
+  window.setTimeout(() => {
+    parent.style.transition = "";
+    parent.style.borderRadius = "";
+    parent.style.willChange = "";
+    parent.style.transformOrigin = "";
+    parent.style.backfaceVisibility = "";
+    parent.style.backdropFilter = "";
+    parent.style.contain = "";
+    done();
+  }, 380);
+};
+
+const onMobileLeave = (el: Element, done: () => void) => {
+  if (!useCompactMobilePlayer.value) {
+    done();
+    return;
+  }
+  const parent = el as HTMLElement;
+  parent.style.transformOrigin = "50% 0";
+  parent.style.willChange = "transform";
+  parent.style.transition = MOBILE_CARD_LEAVE;
+  parent.style.borderRadius = "28px";
+  parent.style.backfaceVisibility = "hidden";
+  parent.style.backdropFilter = "blur(48px)";
+  parent.style.contain = "paint";
+  requestAnimationFrame(() => {
+    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+  });
+  window.setTimeout(() => {
+    done();
+  }, 340);
+};
 
 /** 封面主颜色 */
 const mainCoverColor = useCssVar("--main-cover-color", document.documentElement);

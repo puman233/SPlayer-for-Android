@@ -9,6 +9,10 @@
         'phone-floating': isPhone,
       },
     ]"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerEnd"
+    @pointercancel="onPointerEnd"
   >
     <!-- 进度条 -->
     <PlayerSlider />
@@ -251,7 +255,6 @@ import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/
 import { toLikeSong } from "@/utils/auth";
 import { useTimeFormat } from "@/composables/useTimeFormat";
 import { useDevice } from "@/composables/useDevice";
-import { useSwipe } from "@vueuse/core";
 import { copyData, coverLoaded, renderIcon, getShareUrl } from "@/utils/helper";
 import {
   openAutoClose,
@@ -280,19 +283,244 @@ const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const playerRef = ref<HTMLElement | null>(null);
 
-// 触摸滑动切换歌曲
-const { direction } = useSwipe(playerRef, {
-  threshold: 50,
-  onSwipeEnd: () => {
-    if (direction.value === "left") {
-      // 左滑
-      player.nextOrPrev("next");
-    } else if (direction.value === "right") {
-      // 右滑
-      player.nextOrPrev("prev");
+// 触摸滑动切换歌曲 / 上滑跟手开启全屏播放器（自实现 Pointer 事件，配合 setPointerCapture）
+let dragOpenActive = false;
+let dragOpenLocked: "h" | "v" | null = null;
+let dragOpenParent: HTMLElement | null = null;
+let dragOpenMain: HTMLElement | null = null;
+let dragOpenRaf = 0;
+let dragOpenPending = 0;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragStartTop = 0; // 底栏顶部到视口顶部的距离，作为卡片起始位移
+let dragLastDy = 0;
+let dragOpenTravel = 0;
+let dragOpenResetTimer = 0;
+let dragOpenCloseTimer = 0;
+const OPEN_THRESHOLD = 100;
+
+const setDragOpenFlag = (v: boolean) => {
+  (window as unknown as { __splayerDragOpen?: boolean }).__splayerDragOpen = v;
+};
+
+// 取消上一轮手势遗留的异步清理 timer，避免清掉新手势的 inline 样式
+const cancelDragOpenTimers = () => {
+  if (dragOpenResetTimer) {
+    window.clearTimeout(dragOpenResetTimer);
+    dragOpenResetTimer = 0;
+  }
+  if (dragOpenCloseTimer) {
+    window.clearTimeout(dragOpenCloseTimer);
+    dragOpenCloseTimer = 0;
+  }
+};
+
+const writeDragOpen = (dy: number) => {
+  const progress = Math.max(0, Math.min(1, dy / dragOpenTravel));
+  const translate = (1 - progress) * dragStartTop;
+  const scale = 0.92 + 0.08 * progress;
+  if (dragOpenParent) {
+    dragOpenParent.style.transform = `translate3d(0, ${translate}px, 0) scale(${scale})`;
+  }
+  if (dragOpenMain) {
+    dragOpenMain.style.opacity = String(1 - progress);
+    dragOpenMain.style.transform = `scale(${1 - 0.1 * progress})`;
+  }
+};
+
+const scheduleDragOpenFlush = (dy: number) => {
+  dragOpenPending = dy;
+  if (dragOpenRaf) return;
+  dragOpenRaf = requestAnimationFrame(() => {
+    dragOpenRaf = 0;
+    writeDragOpen(dragOpenPending);
+  });
+};
+
+const initDragOpen = () => {
+  // 取消上一轮手势遗留的清理 timer，避免清掉本次 inline 样式
+  cancelDragOpenTimers();
+  const parent = document.querySelector(".full-player") as HTMLElement | null;
+  const main = document.getElementById("main");
+  if (parent) {
+    dragOpenParent = parent;
+    parent.style.transformOrigin = "50% 0";
+    parent.style.willChange = "transform";
+    parent.style.transition = "none";
+    // 起始放置在底栏顶部位置，让卡片从控制条向上展开
+    parent.style.transform = `translate3d(0, ${dragStartTop}px, 0) scale(0.92)`;
+    parent.style.borderRadius = "28px";
+    parent.style.backfaceVisibility = "hidden";
+    parent.style.backdropFilter = "blur(48px)";
+    parent.style.contain = "paint";
+    // 关键：让 FullPlayer 在拖拽期间不拦截触摸，事件继续命中底栏（playerRef）
+    parent.style.pointerEvents = "none";
+  }
+  if (main) {
+    dragOpenMain = main;
+    main.style.transition = "none";
+    main.style.willChange = "transform, opacity";
+    main.style.opacity = "1";
+    main.style.transform = "scale(1)";
+  }
+};
+
+const resetDragOpen = () => {
+  if (dragOpenRaf) {
+    cancelAnimationFrame(dragOpenRaf);
+    dragOpenRaf = 0;
+  }
+  if (dragOpenParent) {
+    dragOpenParent.style.transition = "";
+    dragOpenParent.style.transform = "";
+    dragOpenParent.style.borderRadius = "";
+    dragOpenParent.style.transformOrigin = "";
+    dragOpenParent.style.willChange = "";
+    dragOpenParent.style.pointerEvents = "";
+    dragOpenParent.style.backfaceVisibility = "";
+    dragOpenParent.style.backdropFilter = "";
+    dragOpenParent.style.contain = "";
+  }
+  if (dragOpenMain) {
+    dragOpenMain.style.transition = "";
+    dragOpenMain.style.transform = "";
+    dragOpenMain.style.opacity = "";
+    dragOpenMain.style.willChange = "";
+  }
+  dragOpenParent = null;
+  dragOpenMain = null;
+  dragOpenActive = false;
+  dragOpenLocked = null;
+  setDragOpenFlag(false);
+};
+
+const finishDragOpen = (dy: number) => {
+  const shouldOpen = dy > OPEN_THRESHOLD;
+  if (dragOpenRaf) {
+    cancelAnimationFrame(dragOpenRaf);
+    dragOpenRaf = 0;
+  }
+  if (shouldOpen) {
+    if (dragOpenParent) {
+      dragOpenParent.style.transition =
+        "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
+      dragOpenParent.style.transform = "";
     }
-  },
-});
+    if (dragOpenMain) {
+      dragOpenMain.style.transition =
+        "opacity 0.28s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
+      dragOpenMain.style.opacity = "";
+      dragOpenMain.style.transform = "";
+    }
+    dragOpenResetTimer = window.setTimeout(() => {
+      dragOpenResetTimer = 0;
+      resetDragOpen();
+    }, 320);
+  } else {
+    if (dragOpenParent) {
+      dragOpenParent.style.transition =
+        "transform 0.24s cubic-bezier(0.4, 0, 1, 1)";
+      dragOpenParent.style.transform = `translate3d(0, ${dragStartTop}px, 0) scale(0.92)`;
+    }
+    if (dragOpenMain) {
+      dragOpenMain.style.transition =
+        "opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1)";
+      dragOpenMain.style.opacity = "1";
+      dragOpenMain.style.transform = "scale(1)";
+    }
+    dragOpenCloseTimer = window.setTimeout(() => {
+      dragOpenCloseTimer = 0;
+      statusStore.showFullPlayer = false;
+      dragOpenResetTimer = window.setTimeout(() => {
+        dragOpenResetTimer = 0;
+        resetDragOpen();
+      }, 360);
+    }, 240);
+  }
+};
+
+let pointerId = -1;
+let pointerActiveTarget: HTMLElement | null = null;
+let horizontalSettled = false;
+let horizontalDirection: "left" | "right" | null = null;
+
+const onPointerDown = (e: PointerEvent) => {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  // 新手势开始前取消上一轮异步清理，防止 timer 把本次样式清掉
+  cancelDragOpenTimers();
+  pointerId = e.pointerId;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  dragLastDy = 0;
+  dragOpenActive = false;
+  dragOpenLocked = null;
+  horizontalSettled = false;
+  horizontalDirection = null;
+  // 仅记录目标，不立即捕获指针，避免影响子元素普通点击
+  pointerActiveTarget = e.currentTarget as HTMLElement;
+};
+
+const onPointerMove = (e: PointerEvent) => {
+  if (e.pointerId !== pointerId) return;
+  const dx = e.clientX - dragStartX;
+  const dy = dragStartY - e.clientY; // 上为正
+  dragLastDy = dy;
+  if (!isPhone.value || (statusStore.showFullPlayer && !dragOpenActive)) return;
+  const ax = Math.abs(dx);
+  const ay = Math.abs(dy);
+  if (!dragOpenLocked) {
+    if (Math.max(ax, ay) < 8) return;
+    if (ay > ax) {
+      // 向上拖拽才进入开启流程
+      if (dy <= 0) {
+        dragOpenLocked = "h";
+        return;
+      }
+      dragOpenLocked = "v";
+      // 锁定方向后再捕获指针，确保 FullPlayer 覆盖后事件仍流向底栏
+      pointerActiveTarget?.setPointerCapture?.(e.pointerId);
+      // 缓存底栏顶部坐标，作为卡片起始位移
+      const rect = playerRef.value?.getBoundingClientRect();
+      dragStartTop = rect ? rect.top : window.innerHeight - 80;
+      dragOpenTravel = Math.max(window.innerHeight * 0.55, 360);
+      setDragOpenFlag(true);
+      dragOpenActive = true;
+      statusStore.showFullPlayer = true;
+      requestAnimationFrame(() => {
+        if (!dragOpenActive) return;
+        initDragOpen();
+        writeDragOpen(Math.max(dy, 0));
+      });
+      return;
+    }
+    dragOpenLocked = "h";
+    horizontalDirection = dx > 0 ? "right" : "left";
+    return;
+  }
+  if (dragOpenLocked === "h") {
+    horizontalDirection = dx > 0 ? "right" : "left";
+    horizontalSettled = ax > 50;
+    return;
+  }
+  if (dragOpenActive) scheduleDragOpenFlush(Math.max(dy, 0));
+};
+
+const onPointerEnd = (e: PointerEvent) => {
+  if (e.pointerId !== pointerId) return;
+  pointerId = -1;
+  if (pointerActiveTarget) {
+    pointerActiveTarget.releasePointerCapture?.(e.pointerId);
+    pointerActiveTarget = null;
+  }
+  if (dragOpenActive) {
+    finishDragOpen(Math.max(dragLastDy, 0));
+    return;
+  }
+  if (dragOpenLocked === "h" && horizontalSettled && horizontalDirection) {
+    if (horizontalDirection === "left") player.nextOrPrev("next");
+    else player.nextOrPrev("prev");
+  }
+};
 
 // 歌曲更多操作
 const songMoreOptions = computed<DropdownOption[]>(() => {
@@ -450,6 +678,8 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
   align-items: center;
   transition: bottom 0.3s;
   z-index: 10;
+  // 接管指针手势，避免浏览器滚动抢占垂直方向触发取消捕获
+  touch-action: pan-x;
   &.show {
     bottom: 0;
   }
