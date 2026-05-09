@@ -227,6 +227,19 @@
   transform: translateY(100%);
 }
 
+// mobile-card：iOS 风格的卡片化弹起 / 落下，与下拉关闭手势对称
+.mobile-card-enter-active,
+.mobile-card-leave-active {
+  transform-origin: 50% 0;
+  transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.mobile-card-enter-from,
+.mobile-card-leave-to {
+  transform: translate3d(0, 100vh, 0) scale(0.92);
+  border-radius: 28px;
+}
+
 // left
 .left-enter-active,
 .left-leave-active {
