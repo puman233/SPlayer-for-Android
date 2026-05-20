@@ -1,5 +1,9 @@
 <template>
-  <div ref="mobileStart" class="full-player-mobile">
+  <div
+    ref="mobileStart"
+    class="full-player-mobile"
+    :style="{ '--lyric-h-offset': lyricHeaderHorizontalPadding }"
+  >
     <div ref="topBarRef" class="top-bar">
       <div class="btn" @click.stop="statusStore.showFullPlayer = false">
         <SvgIcon name="Down" :size="26" />
@@ -174,10 +178,17 @@ const dataStore = useDataStore();
 const player = usePlayerController();
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
+const LYRIC_HEADER_MAX_PADDING = 40;
+
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
 const dragHandleRef = ref<HTMLElement | null>(null);
 const pageIndex = ref(0);
+
+const lyricHeaderHorizontalPadding = computed(() => {
+  const padding = Math.max(0, settingStore.lyricHorizontalOffset);
+  return `${Math.min(padding, LYRIC_HEADER_MAX_PADDING)}px`;
+});
 
 // 下拉关闭手势捕获区高度：信息页仅覆盖顶栏 + 封面上半段，避免遮挡下方按钮
 // 歌词页含顶栏 + 歌曲信息条
@@ -673,6 +684,8 @@ const contentTransform = computed(() => {
       margin-bottom: 20px;
       flex-shrink: 0;
       padding-top: 8px;
+      padding-left: var(--lyric-h-offset, 0px);
+      padding-right: var(--lyric-h-offset, 0px);
       // 喜欢按钮位于下拉手势区上方，需要抬高层级保持可点击
       .action-btn {
         position: relative;
