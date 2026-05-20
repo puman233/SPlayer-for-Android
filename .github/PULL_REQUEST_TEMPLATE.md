@@ -46,7 +46,7 @@ Closes #
 
 ## ✅ 自检清单
 
-- [ ] 本 PR **目标分支为 `master`**
+- [ ] 本 PR **目标分支为 `dev`**
 - [ ] 本地已执行 `pnpm lint` 且无 warning
 - [ ] 本地已执行 `pnpm typecheck` 且无报错
 - [ ] 已在 **至少一台真机** 上构建并验证关键路径
