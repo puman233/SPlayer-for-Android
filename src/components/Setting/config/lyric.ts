@@ -333,9 +333,9 @@ export const useLyricSettings = (): SettingConfig => {
           },
           {
             key: "lyricHorizontalOffset",
-            label: "歌词左侧边距",
+            label: "歌词两侧边距",
             type: "slider",
-            description: "调整全屏模式下歌词的起始位置",
+            description: "调整全屏模式下歌词两侧的水平边距",
             min: 0,
             max: 200,
             step: 1,
