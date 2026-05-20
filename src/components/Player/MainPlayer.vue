@@ -402,8 +402,7 @@ const finishDragOpen = (dy: number) => {
   }
   if (shouldOpen) {
     if (dragOpenParent) {
-      dragOpenParent.style.transition =
-        "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
+      dragOpenParent.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
       dragOpenParent.style.transform = "";
     }
     if (dragOpenMain) {
@@ -418,8 +417,7 @@ const finishDragOpen = (dy: number) => {
     }, 320);
   } else {
     if (dragOpenParent) {
-      dragOpenParent.style.transition =
-        "transform 0.24s cubic-bezier(0.4, 0, 1, 1)";
+      dragOpenParent.style.transition = "transform 0.24s cubic-bezier(0.4, 0, 1, 1)";
       dragOpenParent.style.transform = `translate3d(0, ${dragStartTop}px, 0) scale(0.92)`;
     }
     if (dragOpenMain) {

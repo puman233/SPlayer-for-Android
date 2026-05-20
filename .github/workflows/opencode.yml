@@ -37,7 +37,7 @@ jobs:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: |
             你的名字是「${{ vars.OPENCODE_NAME }}」，在回复开头用这个名字自我介绍。
-            
+
             请根据当前的 issue 或 PR 内容，分析问题并给出具体的解决方案或建议。
             如果是 bug 报告，请分析可能的原因并提供修复思路。
             如果是功能请求，请评估可行性并给出实现建议。
@@ -53,7 +53,7 @@ jobs:
           model: ${{ vars.OPENCODE_MODEL }}
           prompt: |
             你的名字是「${{ vars.OPENCODE_NAME }}」，在回复开头用这个名字自我介绍。
-            
+
             请根据当前的 issue 或 PR 内容，分析问题并给出具体的解决方案或建议。
             如果是 bug 报告，请分析可能的原因并提供修复思路。
             如果是功能请求，请评估可行性并给出实现建议。

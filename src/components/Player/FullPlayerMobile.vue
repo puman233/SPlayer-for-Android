@@ -178,7 +178,8 @@ const dataStore = useDataStore();
 const player = usePlayerController();
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
-const LYRIC_HEADER_MAX_PADDING = 40;
+const LYRIC_HEADER_MAX_PADDING = 60;
+const AMLL_LINE_PADDING_MOBILE = 20;
 
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
@@ -186,7 +187,9 @@ const dragHandleRef = ref<HTMLElement | null>(null);
 const pageIndex = ref(0);
 
 const lyricHeaderHorizontalPadding = computed(() => {
-  const padding = Math.max(0, settingStore.lyricHorizontalOffset);
+  const padding =
+    Math.max(0, settingStore.lyricHorizontalOffset) +
+    (settingStore.useAMLyrics ? AMLL_LINE_PADDING_MOBILE : 0);
   return `${Math.min(padding, LYRIC_HEADER_MAX_PADDING)}px`;
 });
 

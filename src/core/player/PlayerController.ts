@@ -838,10 +838,10 @@ class PlayerController {
       return;
     }
     if (!matchedById) {
-      console.warn(
-        "[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底",
-        { songId, fallbackId: nextSong.id },
-      );
+      console.warn("[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底", {
+        songId,
+        fallbackId: nextSong.id,
+      });
     }
 
     if (typeof liked === "boolean" && typeof nextSong.id === "number") {
@@ -1381,7 +1381,9 @@ class PlayerController {
       knownDuration > 0 ? Math.max(0, Math.min(time, knownDuration)) : Math.max(0, time);
     // 调试：追踪 seek-to-zero
     if (safeTime < 100 && statusStore.currentTime > 3000) {
-      console.warn(`[PC] setSeek BLOCKED: time=${time} safeTime=${safeTime} current=${statusStore.currentTime} stack=${new Error().stack?.split('\n').slice(1,4).join(' <- ')}`);
+      console.warn(
+        `[PC] setSeek BLOCKED: time=${time} safeTime=${safeTime} current=${statusStore.currentTime} stack=${new Error().stack?.split("\n").slice(1, 4).join(" <- ")}`,
+      );
       return;
     }
     this.lastSeekTimestamp = Date.now();

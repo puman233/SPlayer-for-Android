@@ -60,8 +60,22 @@ const tagCacheKey = (config: StreamingServerConfig, path: string) => `${config.i
 // ============ 公共辅助 ============
 
 const AUDIO_EXTS = new Set([
-  "mp3", "flac", "wav", "ogg", "oga", "m4a", "aac", "ape", "wma", "opus", "alac",
-  "dsf", "dff", "dsd", "aiff", "aif",
+  "mp3",
+  "flac",
+  "wav",
+  "ogg",
+  "oga",
+  "m4a",
+  "aac",
+  "ape",
+  "wma",
+  "opus",
+  "alac",
+  "dsf",
+  "dff",
+  "dsd",
+  "aiff",
+  "aif",
 ]);
 
 const isAudioFile = (name: string): boolean => {
@@ -233,11 +247,7 @@ const parsePropfindXml = (xml: string, requestedPath: string): WebDavEntry[] => 
       prop.getElementsByTagNameNS(NS, "displayname")[0]?.textContent?.trim() || "";
 
     // 计算文件名：优先 displayname，否则 href 末段
-    const fallbackName = decodedHref
-      .replace(/\/+$/, "")
-      .split("/")
-      .filter(Boolean)
-      .pop() || "";
+    const fallbackName = decodedHref.replace(/\/+$/, "").split("/").filter(Boolean).pop() || "";
 
     entries.push({
       path: decodedHref,
@@ -265,11 +275,7 @@ const fetchTagsForSong = async (
 ): Promise<CachedTag | null> => {
   const cacheKey = tagCacheKey(config, entry.path);
   const cached = tagCache.get(cacheKey);
-  if (
-    cached &&
-    cached.size === entry.size &&
-    cached.lastModified === entry.lastModified
-  ) {
+  if (cached && cached.size === entry.size && cached.lastModified === entry.lastModified) {
     return cached;
   }
 
@@ -306,10 +312,7 @@ const fetchTagsForSong = async (
       let binary = "";
       const chunk = 0x8000;
       for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(
-          null,
-          Array.from(bytes.subarray(i, i + chunk)),
-        );
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
       }
       coverDataUrl = `data:${pic.format};base64,${btoa(binary)}`;
     }
@@ -531,9 +534,7 @@ export const getRandomSongs = async (
 };
 
 /** 按标签聚合艺术家 */
-export const getArtists = async (
-  config: StreamingServerConfig,
-): Promise<StreamingArtistType[]> => {
+export const getArtists = async (config: StreamingServerConfig): Promise<StreamingArtistType[]> => {
   const all = await getOrBuildIndex(config);
   const map = new Map<string, { name: string; cover: string; albumNames: Set<string> }>();
   for (const song of all) {
@@ -566,9 +567,7 @@ export const getArtists = async (
 };
 
 /** 按标签聚合专辑 */
-export const getAlbums = async (
-  config: StreamingServerConfig,
-): Promise<StreamingAlbumType[]> => {
+export const getAlbums = async (config: StreamingServerConfig): Promise<StreamingAlbumType[]> => {
   const all = await getOrBuildIndex(config);
   const map = new Map<
     string,
@@ -717,12 +716,13 @@ export const search = async (
       typeof s.artists === "string"
         ? s.artists.toLowerCase()
         : Array.isArray(s.artists)
-          ? s.artists.map((a) => a.name).join(" ").toLowerCase()
+          ? s.artists
+              .map((a) => a.name)
+              .join(" ")
+              .toLowerCase()
           : "";
     const album =
-      typeof s.album === "string"
-        ? s.album.toLowerCase()
-        : (s.album?.name || "").toLowerCase();
+      typeof s.album === "string" ? s.album.toLowerCase() : (s.album?.name || "").toLowerCase();
     return name.includes(q) || artist.includes(q) || album.includes(q);
   });
 
@@ -747,10 +747,8 @@ export const search = async (
 };
 
 /** WebDAV 没有歌词接口，留空实现保持接口一致 */
-export const getLyrics = async (
-  _config: StreamingServerConfig,
-  _songId: string,
-): Promise<string> => "";
+export const getLyrics = async (_config: StreamingServerConfig, _songId: string): Promise<string> =>
+  "";
 
 export default {
   ping,

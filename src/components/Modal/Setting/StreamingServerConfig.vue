@@ -51,7 +51,11 @@
         />
       </n-form-item>
 
-      <n-alert v-if="isWebDav && serverForm.webdavAuth === 'digest'" type="warning" :show-icon="true">
+      <n-alert
+        v-if="isWebDav && serverForm.webdavAuth === 'digest'"
+        type="warning"
+        :show-icon="true"
+      >
         Digest Auth 当前不支持。建议改用 Basic Auth；如果服务器强制 Digest，请先在服务器侧切换。
       </n-alert>
       <n-alert v-if="isWebDav" type="info" :show-icon="true" style="margin-top: 8px">
@@ -68,11 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-  StreamingServerConfig,
-  StreamingServerType,
-  WebDavAuthType,
-} from "@/types/streaming";
+import type { StreamingServerConfig, StreamingServerType, WebDavAuthType } from "@/types/streaming";
 import type { FormInst, FormRules } from "naive-ui";
 
 const props = defineProps<{
