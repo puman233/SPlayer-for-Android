@@ -21,6 +21,7 @@
         '--amll-lyric-right-padding': settingStore.lyricAlignRight
           ? `${settingStore.lyricHorizontalOffset}px`
           : '',
+        '--amll-lyric-horizontal-padding': `${settingStore.lyricHorizontalOffset}px`,
       }"
     >
       <div v-if="statusStore.lyricLoading" class="lyric-loading">歌词正在加载中...</div>
@@ -199,8 +200,8 @@ watch(lyricPlayerRef, (player) => {
       margin-left: 0;
       .amll-lyric-player {
         > div {
-          padding-left: 20px;
-          padding-right: 20px;
+          padding-left: var(--amll-lyric-horizontal-padding, 20px);
+          padding-right: var(--amll-lyric-horizontal-padding, 20px);
         }
       }
     }
@@ -213,7 +214,7 @@ watch(lyricPlayerRef, (player) => {
 
       @media (max-width: 990px) {
         padding: 0;
-        margin-right: -20px;
+        margin-right: calc(0px - var(--amll-lyric-horizontal-padding, 20px));
       }
       @media (max-width: 500px) {
         margin-right: 0;

@@ -45,11 +45,7 @@
               @mousemove="playerMove"
             >
               <!-- 左侧封面和数据：内部组件自己负责歌曲信息切换的过渡，外层不再用 :key=playSong.id 的 zoom 动画 -->
-              <div
-                v-if="showLeftContent"
-                class="content-left"
-                :style="layoutStyles.left"
-              >
+              <div v-if="showLeftContent" class="content-left" :style="layoutStyles.left">
                 <PlayerCover />
                 <PlayerData :center="playerDataCenter" />
               </div>
@@ -110,8 +106,7 @@ const { isPhonePortrait } = useDevice();
 const useCompactMobilePlayer = computed(() => isPhonePortrait.value);
 
 // 移动端卡片化进出场动画：兼容拖拽中的 inline transform，从当前位置平滑过渡
-const MOBILE_CARD_ENTER =
-  "transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)";
+const MOBILE_CARD_ENTER = "transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)";
 const MOBILE_CARD_LEAVE = "transform 0.32s cubic-bezier(0.4, 0, 1, 1)";
 
 const onMobileEnter = (el: Element, done: () => void) => {
