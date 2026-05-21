@@ -52,6 +52,8 @@ import type { UpdateInfoType } from "@/types/main";
 import { useStatusStore } from "@/stores";
 import packageJson from "@/../package.json";
 
+import "github-markdown-css/github-markdown.css";
+
 const props = defineProps<{ data: UpdateInfoType }>();
 
 const emit = defineEmits<{ close: [] }>();

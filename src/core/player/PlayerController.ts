@@ -299,9 +299,7 @@ class PlayerController {
     try {
       // 立即停止当前播放 (除非是 Crossfade)
       statusStore.playLoading = true;
-      if (!options.crossfade) {
-        audioManager.stop();
-      }
+      if (!options.crossfade) audioManager.stop();
       // 立即更新 UI（歌曲信息、封面、歌词等），无需等待网络请求
       this.setupSongUI(playSongData, seek);
       const { audioSource, analysis, analysisKind } = await this.prepareAudioSource(
@@ -309,7 +307,9 @@ class PlayerController {
         requestToken,
         { analysis: options.crossfade ? "head" : "none" },
       );
-      if (requestToken !== this.currentRequestToken) return;
+      if (requestToken !== this.currentRequestToken) {
+        return;
+      }
       // Automix 分析应用
       const lastAnalysis = this.currentAnalysis;
       this.currentAnalysis = analysis;
@@ -349,6 +349,7 @@ class PlayerController {
       statusStore.playLoading = false;
     } catch (error) {
       if (requestToken === this.currentRequestToken) {
+        if (audioManager.engineType === "android-native") audioManager.stop();
         console.error("❌ 播放初始化失败:", error);
         this.handlePlaybackError(undefined);
       }
@@ -606,7 +607,8 @@ class PlayerController {
       await this.parseLocalMusicInfo(song.path);
     }
 
-    // 预载下一首
+    // 必须 await：fire-and-forget 会让 playLoading=false 早于 Android Native
+    // 队列上下文更新，触发"音频已播但 MainPlayer / FullPlayer UI 滞后半秒"的回潮。
     await this.syncAndroidPlaybackContext(song);
     if (settingStore.useNextPrefetch) songManager.prefetchNextSong();
 
@@ -737,53 +739,68 @@ class PlayerController {
   public async syncAndroidPlaybackContext(songOverride?: SongType) {
     if (!isCapacitorAndroid) return;
 
-    const dataStore = useDataStore();
-    const musicStore = useMusicStore();
-    const settingStore = useSettingStore();
-    const statusStore = useStatusStore();
-    const song = songOverride || getPlaySongData() || musicStore.playSong;
-
-    if (!song) return;
-
-    const musicCookie = getCookie("MUSIC_U");
-
-    await AndroidNativePlayback.syncApiContext({
-      apiBaseUrl: EMBEDDED_API_BASE_URL,
-      cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
-    });
-
-    let nextTrack:
-      | (AndroidNativeMetadataPayload & {
-          liked?: boolean;
-          url?: string;
-        })
-      | undefined;
-
     try {
-      nextTrack = await this.buildAndroidQueuedNextTrack(song);
+      const dataStore = useDataStore();
+      const musicStore = useMusicStore();
+      const settingStore = useSettingStore();
+      const statusStore = useStatusStore();
+      const song = songOverride || getPlaySongData() || musicStore.playSong;
+
+      if (!song) return;
+
+      // 不论是否传入 songOverride 都做 stale 守卫：
+      // 多次 await 之间用户可能切到了另一首歌，此时把旧歌的元数据/队列上下文写入 Native 是脏数据。
+      const initialSongId = song.id;
+      const isStaleSong = () =>
+        !!musicStore.playSong &&
+        typeof initialSongId !== "undefined" &&
+        musicStore.playSong.id !== initialSongId;
+      if (isStaleSong()) return;
+
+      const musicCookie = getCookie("MUSIC_U");
+
+      await AndroidNativePlayback.syncApiContext({
+        apiBaseUrl: EMBEDDED_API_BASE_URL,
+        cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
+      });
+      if (isStaleSong()) return;
+
+      let nextTrack:
+        | (AndroidNativeMetadataPayload & {
+            liked?: boolean;
+            url?: string;
+          })
+        | undefined;
+
+      try {
+        nextTrack = await this.buildAndroidQueuedNextTrack(song);
+      } catch (error) {
+        console.warn("[Android] failed to build next track context:", error);
+      }
+      if (isStaleSong()) return;
+
+      await AndroidNativePlayback.updateQueueContext({
+        liked: typeof song.id === "number" ? dataStore.isLikeSong(song.id) : false,
+        canSkipPrevious: !statusStore.personalFmMode,
+        personalFmMode: statusStore.personalFmMode,
+        controllerEnabled: settingStore.androidMediaControllerEnabled,
+        desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
+        desktopLyricEnabled: statusStore.showDesktopLyric,
+        repeatOne: statusStore.repeatMode === "one",
+        nextTrack,
+      });
+
+      await AndroidNativePlayback.updateNotificationPrefs({
+        controllerEnabled: settingStore.androidMediaControllerEnabled,
+        desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
+      });
+
+      await AndroidNativePlayback.setAllowMixWithOthers({
+        allow: settingStore.androidAllowMixWithOthers,
+      });
     } catch (error) {
-      console.warn("[Android] failed to build next track context:", error);
+      console.warn("[Android] sync playback context failed:", error);
     }
-
-    await AndroidNativePlayback.updateQueueContext({
-      liked: typeof song.id === "number" ? dataStore.isLikeSong(song.id) : false,
-      canSkipPrevious: !statusStore.personalFmMode,
-      personalFmMode: statusStore.personalFmMode,
-      controllerEnabled: settingStore.androidMediaControllerEnabled,
-      desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
-      desktopLyricEnabled: statusStore.showDesktopLyric,
-      repeatOne: statusStore.repeatMode === "one",
-      nextTrack,
-    });
-
-    await AndroidNativePlayback.updateNotificationPrefs({
-      controllerEnabled: settingStore.androidMediaControllerEnabled,
-      desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
-    });
-
-    await AndroidNativePlayback.setAllowMixWithOthers({
-      allow: settingStore.androidAllowMixWithOthers,
-    });
   }
 
   public async applyNativeAutoNext(songId: number, liked?: boolean) {

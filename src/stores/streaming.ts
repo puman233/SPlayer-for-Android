@@ -14,12 +14,18 @@ import { SongType } from "@/types/main";
 import { subsonic, jellyfin, emby, webdav } from "@/api/streaming";
 import localforage from "localforage";
 
-// 创建存储实例
-const streamingDB = localforage.createInstance({
-  name: "streaming-data",
-  description: "Streaming media server data",
-  storeName: "streaming",
-});
+// localforage 实例延迟初始化，避免模块解析阶段创建 IndexedDB 连接阻塞冷启动
+let _streamingDB: ReturnType<typeof localforage.createInstance> | null = null;
+const getStreamingDB = () => {
+  if (!_streamingDB) {
+    _streamingDB = localforage.createInstance({
+      name: "streaming-data",
+      description: "Streaming media server data",
+      storeName: "streaming",
+    });
+  }
+  return _streamingDB;
+};
 
 /**
  * 生成唯一 ID
@@ -60,12 +66,12 @@ const createStreamingStore = () => {
    */
   const loadServers = async (): Promise<void> => {
     try {
-      const savedServers = await streamingDB.getItem<StreamingServerConfig[]>("servers");
+      const savedServers = await getStreamingDB().getItem<StreamingServerConfig[]>("servers");
       if (savedServers) {
         servers.value = savedServers;
       }
 
-      const savedActiveId = await streamingDB.getItem<string>("activeServerId");
+      const savedActiveId = await getStreamingDB().getItem<string>("activeServerId");
       if (savedActiveId && servers.value.some((s) => s.id === savedActiveId)) {
         activeServerId.value = savedActiveId;
       }
@@ -86,8 +92,8 @@ const createStreamingStore = () => {
     try {
       // 使用 JSON 序列化来避免 DataCloneError
       const serversData = JSON.parse(JSON.stringify(servers.value));
-      await streamingDB.setItem("servers", serversData);
-      await streamingDB.setItem("activeServerId", activeServerId.value);
+      await getStreamingDB().setItem("servers", serversData);
+      await getStreamingDB().setItem("activeServerId", activeServerId.value);
     } catch (error) {
       console.error("Failed to save streaming servers:", error);
     }

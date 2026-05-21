@@ -142,7 +142,8 @@
       </nav>
     </Transition>
 
-    <SongPlayList />
+    <!-- 真懒加载：用户首次打开播放队列时才挂载，挂载后保持常驻避免 Drawer 动画重置 -->
+    <SongPlayList v-if="hasMountedPlayList" />
     <MainPlayer />
     <PlayerProvider>
       <FullPlayer />
@@ -151,14 +152,31 @@
 </template>
 
 <script setup lang="ts">
+import { defineAsyncComponent } from "vue";
 import { useMusicStore, useStatusStore, useSettingStore, useDataStore } from "@/stores";
 import { useBlobURLManager } from "@/core/resource/BlobURLManager";
 import { isElectron } from "@/utils/env";
 import { useDevice } from "@/composables/useDevice";
 import { useInit } from "@/composables/useInit";
+import MainPlayer from "@/components/Player/MainPlayer.vue";
+import FullPlayer from "@/components/Player/FullPlayer.vue";
+import PlayerProvider from "@/components/Global/PlayerProvider.vue";
+
+// 播放队列（n-drawer）首次打开才挂载，配合 defineAsyncComponent 异步拉取 chunk；
+// 挂载后保持常驻，避免每次开关重置 n-drawer 入场动画。
+const SongPlayList = defineAsyncComponent(() => import("@/components/List/SongPlayList.vue"));
+const hasMountedPlayList = ref(false);
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
+// 监听首次打开播放队列，触发懒加载
+watch(
+  () => statusStore.playListShow,
+  (show) => {
+    if (show) hasMountedPlayList.value = true;
+  },
+  { immediate: true },
+);
 const settingStore = useSettingStore();
 const dataStore = useDataStore();
 const route = useRoute();
