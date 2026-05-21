@@ -245,6 +245,8 @@ import { useStatusStore } from "@/stores";
 import { isElectron } from "@/utils/env";
 import packageJson from "@/../package.json";
 
+import "github-markdown-css/github-markdown.css";
+
 const statusStore = useStatusStore();
 
 // 打开日志文件

@@ -4,12 +4,8 @@ import { createPinia } from "pinia";
 import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 import router from "@/router";
 import { debounceDirective, throttleDirective, visibleDirective } from "@/utils/instruction";
-import initIpc from "@/utils/initIpc";
-import { useSettingStore } from "@/stores";
-import { sendRegisterProtocol } from "@/utils/protocol";
 import "@/style/main.scss";
 import "@/style/animate.scss";
-import "github-markdown-css/github-markdown.css";
 import { isCapacitorAndroid, isElectron } from "./utils/env";
 import { waitForEmbeddedApiReady, startHealthCheck } from "./utils/embeddedApi";
 
@@ -62,11 +58,18 @@ if (isCapacitorAndroid) {
     });
 }
 
-if (!location.hash.includes("desktop-lyric")) {
-  initIpc();
-}
-
+// Electron 专属初始化路径：在 Android / Web 下不加载这些模块图谱，缩减主 chunk
 if (isElectron && !location.hash.includes("desktop-lyric")) {
-  const settings = useSettingStore();
-  sendRegisterProtocol("orpheus", settings.registryProtocol.orpheus);
+  void (async () => {
+    const [{ default: initIpc }, { sendRegisterProtocol }, { useSettingStore }] = await Promise.all([
+      import("@/utils/initIpc"),
+      import("@/utils/protocol"),
+      import("@/stores"),
+    ]);
+    initIpc();
+    const settings = useSettingStore();
+    sendRegisterProtocol("orpheus", settings.registryProtocol.orpheus);
+  })().catch((err) => {
+    console.error("Electron 主进程辅助模块加载失败:", err);
+  });
 }

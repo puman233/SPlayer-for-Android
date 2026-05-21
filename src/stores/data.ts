@@ -1,4 +1,4 @@
-import { toRaw } from "vue";
+import { markRaw, toRaw } from "vue";
 import { defineStore } from "pinia";
 import type {
   SongType,
@@ -56,26 +56,54 @@ interface ListState {
 
 type UserDataKeys = keyof ListState["userLikeData"];
 
-// musicDB
-const musicDB = localforage.createInstance({
-  name: "music-data",
-  description: "List data of the application",
-  storeName: "music",
-});
+// 加载期脏标记：onMounted 内 await loadData 不阻塞 router-view 渲染，
+// 用户在加载期间仍可能触发写操作；记录被写过的 key，避免随后被读到的旧值覆盖。
+let isLoadingData = false;
+const dirtyMusicKeys = new Set<string>();
+const dirtyUserKeys = new Set<UserDataKeys>();
+const markMusicDirty = (key: string) => {
+  if (isLoadingData) dirtyMusicKeys.add(key);
+};
+const markUserDirty = (key: UserDataKeys) => {
+  if (isLoadingData) dirtyUserKeys.add(key);
+};
 
-// userDB
-const userDB = localforage.createInstance({
-  name: "user-data",
-  description: "User data of the application",
-  storeName: "user",
-});
+// localforage 实例延迟初始化，避免模块解析阶段创建 IndexedDB 连接阻塞冷启动
+let _musicDB: ReturnType<typeof localforage.createInstance> | null = null;
+const getMusicDB = () => {
+  if (!_musicDB) {
+    _musicDB = localforage.createInstance({
+      name: "music-data",
+      description: "List data of the application",
+      storeName: "music",
+    });
+  }
+  return _musicDB;
+};
 
-// backgroundDB
-const backgroundDB = localforage.createInstance({
-  name: "background-data",
-  description: "Background image data",
-  storeName: "background",
-});
+let _userDB: ReturnType<typeof localforage.createInstance> | null = null;
+const getUserDB = () => {
+  if (!_userDB) {
+    _userDB = localforage.createInstance({
+      name: "user-data",
+      description: "User data of the application",
+      storeName: "user",
+    });
+  }
+  return _userDB;
+};
+
+let _backgroundDB: ReturnType<typeof localforage.createInstance> | null = null;
+const getBackgroundDB = () => {
+  if (!_backgroundDB) {
+    _backgroundDB = localforage.createInstance({
+      name: "background-data",
+      description: "Background image data",
+      storeName: "background",
+    });
+  }
+  return _backgroundDB;
+};
 
 export const useDataStore = defineStore("data", {
   state: (): ListState => ({
@@ -137,27 +165,53 @@ export const useDataStore = defineStore("data", {
   },
   actions: {
     /**
-     * 加载数据
+     * 加载本地持久化数据：playList / 历史 / 喜欢列表 / 用户喜欢数据等。
+     * 必须在 player.playSong 之前 await 完成，
+     * 否则用户秒进 /like、/history 等依赖 userLikeData / historyList 的页面会看到空状态闪烁。
+     *
+     * 加载期间用 dirtyMusicKeys / dirtyUserKeys 防御并发写入：
+     * 用户在 await 期间通过 UI 触发了 setPlayList 等写操作时，
+     * 不会被随后到来的旧值 getItem 结果覆盖。
      */
     async loadData() {
+      if (isLoadingData) return;
+      isLoadingData = true;
+      dirtyMusicKeys.clear();
+      dirtyUserKeys.clear();
       try {
-        // 获取 music-data
-        const musicDataKeys = await musicDB.keys();
-        console.log(musicDataKeys);
+        // music-data 数组类键白名单
+        const MUSIC_ARRAY_KEYS = [
+          "playList",
+          "originalPlayList",
+          "historyList",
+          "cloudPlayList",
+          "localPlayList",
+          "downloadingSongs",
+        ] as const;
+        // music-data 其它结构键
+        const MUSIC_OTHER_KEYS = ["likeSongsList"] as const;
+        const musicAllowed = new Set<string>([...MUSIC_ARRAY_KEYS, ...MUSIC_OTHER_KEYS]);
+        // user-data 键白名单
+        const USER_ALLOWED_KEYS = new Set<UserDataKeys>([
+          "songs",
+          "playlists",
+          "artists",
+          "albums",
+          "mvs",
+          "djs",
+        ]);
+
+        // music-data
+        const musicDataKeys = await getMusicDB().keys();
         await Promise.all(
           musicDataKeys.map(async (key) => {
-            const data = await musicDB.getItem(key);
-            if (
-              [
-                "playList",
-                "originalPlayList",
-                "historyList",
-                "cloudPlayList",
-                "localPlayList",
-                "downloadingSongs",
-              ].includes(key)
-            ) {
-              this[key] = data ? markRaw(data) : [];
+            if (!musicAllowed.has(key)) return;
+            const data = await getMusicDB().getItem(key);
+            if (dirtyMusicKeys.has(key)) return;
+            if ((MUSIC_ARRAY_KEYS as readonly string[]).includes(key)) {
+              (this as unknown as Record<string, unknown>)[key] = data
+                ? markRaw(data as object)
+                : [];
             } else if (key === "likeSongsList" && data) {
               // 特殊处理嵌套对象中的 data
               const listData = data as ListState["likeSongsList"];
@@ -165,22 +219,27 @@ export const useDataStore = defineStore("data", {
                 detail: listData.detail,
                 data: markRaw(listData.data || []),
               };
-            } else {
-              this[key] = data || [];
             }
           }),
         );
 
-        // 获取 user-data
-        const userDataKeys = await userDB.keys();
+        // user-data
+        const userDataKeys = await getUserDB().keys();
         await Promise.all(
           userDataKeys.map(async (key) => {
-            const data = await userDB.getItem(key);
-            this.userLikeData[key] = data;
+            const userDataKey = key as UserDataKeys;
+            if (!USER_ALLOWED_KEYS.has(userDataKey)) return;
+            const data = await getUserDB().getItem(key);
+            if (dirtyUserKeys.has(userDataKey)) return;
+            (this.userLikeData as Record<string, unknown>)[key] = data;
           }),
         );
       } catch (error) {
-        console.error("Error loading data from localforage:", error);
+        console.error("Error loading data:", error);
+      } finally {
+        isLoadingData = false;
+        dirtyMusicKeys.clear();
+        dirtyUserKeys.clear();
       }
     },
     /**
@@ -207,8 +266,9 @@ export const useDataStore = defineStore("data", {
           // 获取索引
           index = newList.length - 1;
         }
+        markMusicDirty("playList");
         this.playList = markRaw(newList);
-        await musicDB.setItem("playList", cloneDeep(toRaw(newList)));
+        await getMusicDB().setItem("playList", cloneDeep(toRaw(newList)));
         return index;
       } catch (error) {
         console.error("Error updating playlist:", error);
@@ -220,8 +280,9 @@ export const useDataStore = defineStore("data", {
      * @param data 原始播放列表
      */
     async setOriginalPlayList(data: SongType[]): Promise<void> {
+      markMusicDirty("originalPlayList");
       this.originalPlayList = markRaw(data);
-      await musicDB.setItem("originalPlayList", cloneDeep(toRaw(data)));
+      await getMusicDB().setItem("originalPlayList", cloneDeep(toRaw(data)));
     },
     /**
      * 获取原始播放列表
@@ -233,7 +294,7 @@ export const useDataStore = defineStore("data", {
         return this.originalPlayList;
       }
       // 从 DB 获取
-      const data = (await musicDB.getItem("originalPlayList")) as SongType[] | null;
+      const data = (await getMusicDB().getItem("originalPlayList")) as SongType[] | null;
       if (Array.isArray(data) && data.length > 0) {
         this.originalPlayList = markRaw(data);
         return data;
@@ -244,8 +305,9 @@ export const useDataStore = defineStore("data", {
      * 清除原始播放列表
      */
     async clearOriginalPlayList(): Promise<void> {
+      markMusicDirty("originalPlayList");
       this.originalPlayList = [];
-      await musicDB.setItem("originalPlayList", []);
+      await getMusicDB().setItem("originalPlayList", []);
     },
     /**
      * 设置下一首播放歌曲
@@ -256,8 +318,9 @@ export const useDataStore = defineStore("data", {
     async setNextPlaySong(song: SongType, index: number): Promise<number> {
       // 若为空,则直接添加
       if (this.playList.length === 0) {
+        markMusicDirty("playList");
         this.playList = [song];
-        await musicDB.setItem("playList", cloneDeep(this.playList));
+        await getMusicDB().setItem("playList", cloneDeep(this.playList));
         return 0;
       }
       // 避免直接修改 state
@@ -268,8 +331,9 @@ export const useDataStore = defineStore("data", {
       // 移除重复的歌曲（如果存在）
       const finalList = newList.filter((item, idx) => idx === indexAdd || item.id !== song.id);
       // 更新本地存储
+      markMusicDirty("playList");
       this.playList = markRaw(finalList);
-      await musicDB.setItem("playList", cloneDeep(finalList));
+      await getMusicDB().setItem("playList", cloneDeep(finalList));
       // 返回刚刚插入的歌曲索引
       return finalList.indexOf(song);
     },
@@ -279,14 +343,15 @@ export const useDataStore = defineStore("data", {
      */
     async setHistory(song: SongType) {
       try {
-        let historyList: SongType[] = (await musicDB.getItem("historyList")) || [];
+        let historyList: SongType[] = (await getMusicDB().getItem("historyList")) || [];
         if (!Array.isArray(historyList)) historyList = [];
         // 过滤旧的同名歌曲，把新的放到第一位
         const updatedList = [song, ...historyList.filter((item) => item.id !== song.id)];
         // 最多 500 首
         if (updatedList.length > 500) updatedList.splice(500);
         // 存储
-        await musicDB.setItem("historyList", cloneDeep(toRaw(updatedList)));
+        markMusicDirty("historyList");
+        await getMusicDB().setItem("historyList", cloneDeep(toRaw(updatedList)));
         this.historyList = markRaw(updatedList);
       } catch (error) {
         console.error("Error updating history:", error);
@@ -298,7 +363,8 @@ export const useDataStore = defineStore("data", {
      */
     async clearHistory(): Promise<void> {
       try {
-        await musicDB.setItem("historyList", []);
+        markMusicDirty("historyList");
+        await getMusicDB().setItem("historyList", []);
         this.historyList = [];
       } catch (error) {
         console.error("Error clearing history:", error);
@@ -315,8 +381,9 @@ export const useDataStore = defineStore("data", {
         detail: { ...detail },
         data: toRaw(data),
       };
+      markMusicDirty("likeSongsList");
       this.likeSongsList = { detail: detail, data: markRaw(data) };
-      await musicDB.setItem("likeSongsList", cloneDeep(toRaw(listData)));
+      await getMusicDB().setItem("likeSongsList", cloneDeep(toRaw(listData)));
     },
     /**
      * 获取我喜欢的歌单数据
@@ -324,7 +391,7 @@ export const useDataStore = defineStore("data", {
      */
     async getUserLikePlaylist() {
       if (!isLogin() || !this.userData.userId) return;
-      const result = await musicDB.getItem("likeSongsList");
+      const result = await getMusicDB().getItem("likeSongsList");
       return result as { detail: CoverType; data: SongType[] } | null;
     },
     /**
@@ -332,8 +399,9 @@ export const useDataStore = defineStore("data", {
      * @param data 云盘歌单
      */
     async setCloudPlayList(data: SongType[]) {
+      markMusicDirty("cloudPlayList");
       this.cloudPlayList = markRaw(data);
-      await musicDB.setItem("cloudPlayList", cloneDeep(toRaw(data)));
+      await getMusicDB().setItem("cloudPlayList", cloneDeep(toRaw(data)));
     },
     /**
      * 设置用户喜欢数据
@@ -345,7 +413,8 @@ export const useDataStore = defineStore("data", {
       data: ListState["userLikeData"][K],
     ): Promise<void> {
       try {
-        await userDB.setItem(name, toRaw(data));
+        markUserDirty(name);
+        await getUserDB().setItem(name, toRaw(data));
         this.userLikeData[name] = data;
       } catch (error) {
         console.error("Error updating user data:", error);
@@ -388,8 +457,8 @@ export const useDataStore = defineStore("data", {
           console.log(`Dropped ${name} database`);
           return;
         }
-        await musicDB.clear();
-        await userDB.clear();
+        await getMusicDB().clear();
+        await getUserDB().clear();
         console.log("All databases cleared");
       } catch (error) {
         console.error("Error deleting database:", error);
@@ -421,7 +490,7 @@ export const useDataStore = defineStore("data", {
      * @param song 歌曲
      * @param quality 音质
      */
-    addDownloadingSong(song: SongType, quality: SongLevelType) {
+    async addDownloadingSong(song: SongType, quality: SongLevelType) {
       // 检查是否已存在
       const exists = this.downloadingSongs.find((item) => item.song.id === song.id);
       if (exists) return;
@@ -434,7 +503,8 @@ export const useDataStore = defineStore("data", {
         totalSize: "0MB",
       });
       // 保存到本地存储
-      musicDB.setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
+      markMusicDirty("downloadingSongs");
+      await getMusicDB().setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
     },
     /**
      * 更新下载状态
@@ -447,6 +517,7 @@ export const useDataStore = defineStore("data", {
         this.downloadingSongs[index].status = status;
         // 强制触发响应式更新 (Fix: 下一首歌曲状态更新UI不变化的问题)
         this.downloadingSongs = [...this.downloadingSongs];
+        markMusicDirty("downloadingSongs");
       }
     },
     // 更新下载进度
@@ -461,19 +532,21 @@ export const useDataStore = defineStore("data", {
         item.progress = progress;
         item.transferred = transferred;
         item.totalSize = totalSize;
+        markMusicDirty("downloadingSongs");
         // 进度更新过于频繁，不需要强制更新整个数组，以免影响性能
       }
     },
     // 移除正在下载的歌曲（下载失败时）
-    removeDownloadingSong(songId: number) {
+    async removeDownloadingSong(songId: number) {
       const index = this.downloadingSongs.findIndex((item) => item.song.id === songId);
       if (index !== -1) {
         this.downloadingSongs.splice(index, 1);
-        musicDB.setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
+        markMusicDirty("downloadingSongs");
+        await getMusicDB().setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
       }
     },
     // 标记下载失败（保留在列表中）
-    markDownloadFailed(songId: number) {
+    async markDownloadFailed(songId: number) {
       const index = this.downloadingSongs.findIndex((item) => item.song.id === songId);
       if (index !== -1) {
         this.downloadingSongs[index].status = "failed";
@@ -481,7 +554,8 @@ export const useDataStore = defineStore("data", {
         this.downloadingSongs[index].transferred = "0MB";
         this.downloadingSongs[index].totalSize = "0MB";
         this.downloadingSongs = [...this.downloadingSongs];
-        musicDB.setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
+        markMusicDirty("downloadingSongs");
+        await getMusicDB().setItem("downloadingSongs", cloneDeep(this.downloadingSongs));
       }
     },
     // 重置下载任务状态（用于重试）
@@ -493,6 +567,7 @@ export const useDataStore = defineStore("data", {
         this.downloadingSongs[index].transferred = "0MB";
         this.downloadingSongs[index].totalSize = "0MB";
         this.downloadingSongs = [...this.downloadingSongs];
+        markMusicDirty("downloadingSongs");
       }
     },
     /**
@@ -501,7 +576,7 @@ export const useDataStore = defineStore("data", {
      */
     async saveBackgroundImage(blob: Blob): Promise<void> {
       try {
-        await backgroundDB.setItem("image", blob);
+        await getBackgroundDB().setItem("image", blob);
       } catch (error) {
         console.error("Error saving background image:", error);
         throw error;
@@ -513,7 +588,7 @@ export const useDataStore = defineStore("data", {
      */
     async getBackgroundImage(): Promise<Blob | null> {
       try {
-        const data = await backgroundDB.getItem<Blob>("image");
+        const data = await getBackgroundDB().getItem<Blob>("image");
         return data || null;
       } catch (error) {
         console.error("Error getting background image:", error);
@@ -525,7 +600,7 @@ export const useDataStore = defineStore("data", {
      */
     async clearBackgroundImage(): Promise<void> {
       try {
-        await backgroundDB.removeItem("image");
+        await getBackgroundDB().removeItem("image");
       } catch (error) {
         console.error("Error clearing background image:", error);
         throw error;

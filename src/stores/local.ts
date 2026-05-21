@@ -2,12 +2,18 @@ import type { SongType, LocalPlaylistType } from "@/types/main";
 import { cloneDeep } from "lodash-es";
 import localforage from "localforage";
 
-// localDB
-const localDB = localforage.createInstance({
-  name: "local-data",
-  description: "Local data of the application",
-  storeName: "local",
-});
+// localforage 实例延迟初始化，避免模块解析阶段创建 IndexedDB 连接阻塞冷启动
+let _localDB: ReturnType<typeof localforage.createInstance> | null = null;
+const getLocalDB = () => {
+  if (!_localDB) {
+    _localDB = localforage.createInstance({
+      name: "local-data",
+      description: "Local data of the application",
+      storeName: "local",
+    });
+  }
+  return _localDB;
+};
 
 /**
  * 生成本地歌单 ID（16位数字）
@@ -36,7 +42,7 @@ const createLocalStore = () => {
   // 读取本地歌曲
   const readLocalSong = async (): Promise<SongType[]> => {
     try {
-      const result = await localDB.getItem("local-songs");
+      const result = await getLocalDB().getItem("local-songs");
       localSongs.value = (result as SongType[]) || [];
       return localSongs.value;
     } catch (error) {
@@ -48,7 +54,7 @@ const createLocalStore = () => {
   // 更新本地歌曲
   const updateLocalSong = async (songs: SongType[]) => {
     try {
-      await localDB.setItem("local-songs", cloneDeep(songs));
+      await getLocalDB().setItem("local-songs", cloneDeep(songs));
       localSongs.value = songs;
     } catch (error) {
       console.error("Error updating local songs:", error);
@@ -61,7 +67,7 @@ const createLocalStore = () => {
     try {
       const playlist = cloneDeep(localSongs.value);
       playlist.splice(index, 1);
-      await localDB.setItem("local-songs", playlist);
+      await getLocalDB().setItem("local-songs", playlist);
       localSongs.value = playlist;
     } catch (error) {
       console.error("Error deleting local song:", error);
@@ -124,7 +130,7 @@ const createLocalStore = () => {
   // 读取本地歌单列表
   const readLocalPlaylists = async (): Promise<LocalPlaylistType[]> => {
     try {
-      const result = await localDB.getItem("local-playlists");
+      const result = await getLocalDB().getItem("local-playlists");
       localPlaylists.value = (result as LocalPlaylistType[]) || [];
       isInitialized.value = true;
       return localPlaylists.value;
@@ -137,7 +143,7 @@ const createLocalStore = () => {
   // 保存本地歌单列表到存储
   const saveLocalPlaylists = async () => {
     try {
-      await localDB.setItem("local-playlists", cloneDeep(localPlaylists.value));
+      await getLocalDB().setItem("local-playlists", cloneDeep(localPlaylists.value));
     } catch (error) {
       console.error("Error saving local playlists:", error);
       throw error;
