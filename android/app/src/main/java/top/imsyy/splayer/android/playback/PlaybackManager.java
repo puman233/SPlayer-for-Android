@@ -32,8 +32,12 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.audio.AudioSink;
+import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.session.CommandButton;
@@ -41,6 +45,7 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.SessionCommand;
 import androidx.media3.session.SessionCommands;
 import androidx.media3.session.SessionResult;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -80,7 +85,14 @@ public final class PlaybackManager {
   private final Context appContext;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
+  /** 仅服务于 favorite 等非播放路径；URL 解析走 urlResolver 内部 2 线程池避免被 favorite 阻塞。 */
   private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
+  /**
+   * URL 解析请求 token：每次 NEXT/PREV/ENDED 触发的解析自增 token，回调时若 token 已过期（用户连点
+   * 又起了一次解析）直接丢弃结果，防止旧请求覆盖播放器状态。
+   */
+  private final java.util.concurrent.atomic.AtomicLong resolveTokenCounter =
+      new java.util.concurrent.atomic.AtomicLong();
 
   private ExoPlayer player;
   /** 暴露给 MediaSession 的包装 Player：覆写 availableCommands，让系统媒体面板始终展示上一/下一首。 */
@@ -96,9 +108,18 @@ public final class PlaybackManager {
   private String currentSource = "";
   private String apiBaseUrl = "";
   private String cookie = "";
+  private String songLevel = "exhigh";
+  /** Java 端 URL 解析器：WebView 冻结时仍可自治取地址。 */
+  private final PlaybackUrlResolver urlResolver = new PlaybackUrlResolver();
   private TrackMetadata currentMetadata = new TrackMetadata();
-  private TrackMetadata queuedNextMetadata = null;
-  private String queuedNextSource = "";
+  /**
+   * Java 端自治播放队列（滑动窗口）。
+   *
+   * <p>JS 推 ±N 首窗口；ENDED / NEXT / PREVIOUS 均由 Java 自治。详见 .scratch/native-queue-design.md。
+   */
+  private final PlaybackQueue playbackQueue = new PlaybackQueue();
+  /** 即将耗尽窗口（剩 ≤ 此数）时 emit requestUrls 让 JS 补；2 给 JS 留一定缓冲。 */
+  private static final int WINDOW_REFILL_THRESHOLD = 2;
 
   private boolean controllerEnabled = true;
   private boolean desktopLyricButtonEnabled = false;
@@ -107,26 +128,18 @@ public final class PlaybackManager {
   private boolean allowMixWithOthers = true;
   private boolean canSkipPrevious = true;
   private boolean personalFmMode = false;
-  private boolean repeatOneEnabled = false;
   private boolean liked = false;
   private boolean collapsed = false;
+  /**
+   * ENDED 拦截标记：当窗口耗尽且 hasNextOutsideWindow=true 时，emit requestUrls 后置位。
+   * 下一次 updateQueueContext 收到新窗口后立即 advance + playFromQueue 续播，弥补
+   * "JS 不会主动 play"的链路缺口。
+   */
+  private boolean pendingResumeAfterRefill = false;
   private boolean favoriteRequestInFlight = false;
   private long pendingSeekPositionMs = C.TIME_UNSET;
   private long pendingSeekDeadlineMs = 0L;
   private long lastKnownPositionMs = 0L;
-  /** NEXT 快路径锁：防止 native 快切与 JS autoNext 双线抢跑。 */
-  private boolean pendingNativeNextSync = false;
-  /** 快路径锁超时释放 Runnable。 */
-  private final Runnable pendingNativeNextSyncTimeoutRunnable =
-      () -> {
-        if (pendingNativeNextSync) {
-          android.util.Log.w(
-              TAG,
-              "pendingNativeNextSync timeout (5s without updateQueueContext), force release");
-          pendingNativeNextSync = false;
-        }
-      };
-  private static final long PENDING_NATIVE_NEXT_SYNC_TIMEOUT_MS = 5_000L;
   /** 已用 ExoPlayer 真实 duration 校准过的 source URL。 */
   private String durationCalibratedForSource = "";
   /** 悬浮歌词服务实例（运行时绑定） */
@@ -138,6 +151,16 @@ public final class PlaybackManager {
   private long remoteDurationMs = 0L;
   /** Remote mode 下保持 CPU 唤醒，防止后台音频中断 */
   private PowerManager.WakeLock remoteWakeLock;
+  /**
+   * 音频频谱分析器：实现 Media3 AudioProcessor，挂在 ExoPlayer 解码链上做无权限 FFT 分析。
+   *
+   * 设计成单实例随 PlaybackManager 生命周期：当前是单 ExoPlayer 架构，FFT 处理器随之单实例；
+   * 未来 Automix 复活引入双 ExoPlayer 时，需重构为 currentProcessor / nextProcessor 双实例，
+   * listener 跟随 currentPlayer 切换（参考 memory: Android Automix 复活约束）。
+   */
+  private final FftAudioProcessor fftAudioProcessor = new FftAudioProcessor();
+  /** 频谱是否已启用（JS 端通过 enableVisualizer 控制 listener 设置） */
+  private boolean visualizerRequested = false;
   private final SessionCommand nextSessionCommand =
       new SessionCommand(PlaybackConstants.ACTION_NEXT, Bundle.EMPTY);
   private final SessionCommand previousSessionCommand =
@@ -225,10 +248,12 @@ public final class PlaybackManager {
       new Runnable() {
         @Override
         public void run() {
-          emitProgressChanged();
-
+          // 仅在真正播放时 emit；callback 链常驻，BUFFERING→READY 后下一拍立即续传
+          if (player != null && player.isPlaying()) {
+            emitProgressChanged();
+          }
           if (player != null && player.getCurrentMediaItem() != null) {
-            mainHandler.postDelayed(this, 1000L);
+            mainHandler.postDelayed(this, 250L);
           }
         }
       };
@@ -268,6 +293,9 @@ public final class PlaybackManager {
   public synchronized void detachPlugin(AndroidNativePlaybackPlugin playbackPlugin) {
     if (plugin == playbackPlugin) {
       plugin = null;
+      // plugin 销毁后 emit 没接收方，清 listener 让 FftAudioProcessor 跳过 FFT 计算节电
+      visualizerRequested = false;
+      fftAudioProcessor.setListener(null);
     }
   }
 
@@ -287,6 +315,9 @@ public final class PlaybackManager {
     currentMetadata.url = currentSource;
     clearPendingSeek();
     lastKnownPositionMs = 0L;
+    // 失效在路上的 async resolve 回调；清旧 pending 避免补窗误消费
+    resolveTokenCounter.incrementAndGet();
+    pendingResumeAfterRefill = false;
 
     // 参考 SPlayer-ROM-Compat：先 setMediaItem + prepare，再 seekTo，最后 playWhenReady
     // 不用 setMediaItem(item, startPositionMs) ——某些 ROM/容器格式下 startPositionMs
@@ -344,11 +375,11 @@ public final class PlaybackManager {
     currentSource = "";
     clearPendingSeek();
     lastKnownPositionMs = 0L;
-    queuedNextSource = "";
-    queuedNextMetadata = null;
-    pendingNativeNextSync = false;
-    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
+    playbackQueue.replace(null, -1, PlaybackQueue.RepeatMode.OFF, false, false, false);
     durationCalibratedForSource = "";
+    // 清 token / pending，避免旧回调搅动新状态
+    resolveTokenCounter.incrementAndGet();
+    pendingResumeAfterRefill = false;
     stopProgressUpdates();
     clearNotification();
     emitPlaybackState(true);
@@ -402,6 +433,12 @@ public final class PlaybackManager {
     emitPlaybackState(true);
   }
 
+  /**
+   * 接收 JS 推送的队列窗口。每次切歌 / 列表变化 / repeat/shuffle 变化都会调一次。
+   *
+   * @param windowTracks 当前 ±N 首（已按 shuffle 排序）
+   * @param hasPreviousOutsideWindow / hasNextOutsideWindow 提示 Java：边缘时需 emit requestUrls
+   */
   public synchronized void updateQueueContext(
       boolean likedState,
       boolean canSkipPreviousState,
@@ -409,8 +446,12 @@ public final class PlaybackManager {
       boolean controllerEnabledState,
       boolean desktopLyricButtonEnabledState,
       boolean desktopLyricEnabledState,
-      boolean repeatOneState,
-      @Nullable TrackMetadata nextTrack) {
+      @Nullable List<PlaybackQueue.Track> windowTracks,
+      int windowCurrentIndex,
+      String repeatMode,
+      boolean hasPreviousOutsideWindow,
+      boolean hasNextOutsideWindow,
+      boolean windowRefilled) {
     liked = likedState;
     currentMetadata.liked = likedState;
     canSkipPrevious = canSkipPreviousState;
@@ -418,24 +459,34 @@ public final class PlaybackManager {
     controllerEnabled = controllerEnabledState;
     desktopLyricButtonEnabled = desktopLyricButtonEnabledState;
     desktopLyricEnabled = desktopLyricEnabledState;
-    repeatOneEnabled = repeatOneState;
-    queuedNextMetadata = nextTrack == null ? null : nextTrack.copy();
-    queuedNextSource =
-        queuedNextMetadata == null || queuedNextMetadata.url == null ? "" : queuedNextMetadata.url;
-    // JS 端通过 updateQueueContext 推送新的 next 表明已经感知并处理了上一次的 autoNext，
-    // 此时清除快路径锁，让后续 ACTION_NEXT 重新可以走 native 直切。
-    pendingNativeNextSync = false;
-    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
+
+    playbackQueue.replace(
+        windowTracks,
+        windowCurrentIndex,
+        PlaybackQueue.RepeatMode.fromString(repeatMode),
+        hasPreviousOutsideWindow,
+        hasNextOutsideWindow,
+        personalFmModeState);
+
+    // 立即预解析前方未解析项，避免后台 ENDED 时才发现无 URL。
+    prefetchUpcomingUrls();
     updateMediaSessionButtons();
     updateNotification();
     emitPlaybackState(false);
-  }
 
-  /** 安排快路径锁超时释放，重复调用会重置计时。 */
-  private void schedulePendingNativeNextSyncTimeout() {
-    mainHandler.removeCallbacks(pendingNativeNextSyncTimeoutRunnable);
-    mainHandler.postDelayed(
-        pendingNativeNextSyncTimeoutRunnable, PENDING_NATIVE_NEXT_SYNC_TIMEOUT_MS);
+    // ENDED 续播链路：上次 ENDED 因窗口耗尽 emit 了 requestUrls，现在新窗口已到位，
+    // Java 必须主动驱动下一首；否则 ExoPlayer 停在 ENDED，用户感知"卡死"。
+    //
+    // 仅当 JS 端通过 refreshAndroidQueueWindow 路径推送（windowRefilled=true）才视为有效补窗响应。
+    // 其他无关路径（liked 切换、桌面歌词开关、本地元数据加载等）也会调 syncAndroidPlaybackContext，
+    // 若不门控会导致那些 sync 误触发续播，播错歌或播未完全 resolve 的曲目。
+    if (pendingResumeAfterRefill && windowRefilled) {
+      pendingResumeAfterRefill = false;
+      PlaybackQueue.Track resume = playbackQueue.advanceRaw(false);
+      if (resume != null) {
+        resolveAndPlayAsync(resume, "auto", true, 5);
+      }
+    }
   }
 
   public synchronized void updateNotificationPrefs(
@@ -463,9 +514,13 @@ public final class PlaybackManager {
     }
   }
 
-  public synchronized void syncApiContext(String baseUrl, String cookieValue) {
+  public synchronized void syncApiContext(String baseUrl, String cookieValue, String level) {
     apiBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     cookie = cookieValue == null ? "" : cookieValue.trim();
+    if (level != null && !level.isEmpty()) {
+      songLevel = level;
+    }
+    urlResolver.updateContext(apiBaseUrl, cookie, songLevel);
   }
 
   /**
@@ -555,29 +610,34 @@ public final class PlaybackManager {
         }
         break;
       case PlaybackConstants.ACTION_NEXT:
-        // 后台时 WebView 可能被冻结、JS 响应不及；有预载则 native 直接切歌 + emit autoNext，
-        // 其余场景（personalFM、快路径锁中、无预载）回落到 emit next 由 JS 处理。
-        if (!personalFmMode
-            && !pendingNativeNextSync
-            && queuedNextSource != null
-            && !queuedNextSource.isEmpty()
-            && queuedNextMetadata != null) {
-          TrackMetadata nextMetadata = queuedNextMetadata;
-          boolean nextLiked = nextMetadata.liked;
-          int nextSongId = nextMetadata.songId;
-          startTrackFromState(queuedNextSource, nextMetadata, nextLiked, true);
-          queuedNextMetadata = null;
-          queuedNextSource = "";
-          pendingNativeNextSync = true;
-          emitCustomAction("autoNext", nextSongId, nextLiked, null, null, true, null);
-          // 5s 超时兜底：防 JS 异常路径不调 updateQueueContext 导致锁永久卡住。
-          schedulePendingNativeNextSyncTimeout();
-        } else {
-          emitCustomAction("next", null, null, null, null, true, null);
+        // 全自治：advanceRaw 取下一首（允许 url==null），resolveAndPlayAsync 补 URL。
+        if (!personalFmMode) {
+          PlaybackQueue.Track next = playbackQueue.advanceRaw(false);
+          if (next != null) {
+            resolveAndPlayAsync(next, "next", true, 5);
+            break;
+          }
+          // 窗口右缘耗尽：JS 端补窗口后续播。覆盖两种场景：
+          // 1. 还有后续歌（hasNextOutsideWindow=true）：JS 推下一页窗口
+          // 2. 已是末尾 + ALL 模式（hasPreviousOutsideWindow=true）：JS 负责 wrap 到 0
+          if (shouldRequestUrlsForwardWrap()) {
+            pendingResumeAfterRefill = true;
+            emitRequestUrls();
+            break;
+          }
         }
+        // personalFM / 队列空 / 窗口全耗尽：回退 JS
+        emitCustomAction("next", null, null, null, null, true, null);
         break;
       case PlaybackConstants.ACTION_PREVIOUS:
-        // 边界（personalFM、列表为空、playIndex 越界）全交给 JS 的 nextOrPrev("prev")。
+        // 同 ACTION_NEXT 设计：Java 自解 URL，不依赖 WebView。
+        if (!personalFmMode) {
+          PlaybackQueue.Track prev = playbackQueue.backRaw();
+          if (prev != null) {
+            resolveAndPlayAsync(prev, "previous", false, 3);
+            break;
+          }
+        }
         emitCustomAction("previous", null, null, null, null, true, null);
         break;
       case PlaybackConstants.ACTION_FAVORITE:
@@ -652,7 +712,25 @@ public final class PlaybackManager {
 
     createNotificationChannel();
 
-    player = new ExoPlayer.Builder(appContext)
+    // 自定义 RenderersFactory：override buildAudioSink 注入 FftAudioProcessor。
+    // 数组形式（虽然现在只有一个 processor）是为后续 Automix 复活时可加 GainAudioProcessor
+    // 实现淡入淡出预留扩展位。
+    DefaultRenderersFactory renderersFactory =
+        new DefaultRenderersFactory(appContext) {
+          @Override
+          protected AudioSink buildAudioSink(
+              Context context,
+              boolean enableFloatOutput,
+              boolean enableAudioTrackPlaybackParams) {
+            return new DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(new AudioProcessor[] {fftAudioProcessor})
+                .build();
+          }
+        };
+
+    player = new ExoPlayer.Builder(appContext, renderersFactory)
         .setMediaSourceFactory(
             new DefaultMediaSourceFactory(
                 appContext,
@@ -667,6 +745,9 @@ public final class PlaybackManager {
             .build(),
         !allowMixWithOthers);
     player.setHandleAudioBecomingNoisy(true);
+    // 后台播放关键：WAKE_MODE_NETWORK 同时锁 CPU + WiFi，防止 Doze 节流网络 prepare 与音频帧解码
+    // 一旦应用进入 Doze，没有 wakelock 的 ExoPlayer 会 prepare 失败或播放卡顿，导致后台 ENDED 后切下一首没声音
+    player.setWakeMode(C.WAKE_MODE_NETWORK);
     player.addListener(
         new Player.Listener() {
           @Override
@@ -690,6 +771,7 @@ public final class PlaybackManager {
 
           @Override
           public void onIsPlayingChanged(boolean isPlaying) {
+            // 不在 false 分支 stopProgressUpdates：BUFFERING/seek/stall 也是 false，停链路会卡切歌
             if (isPlaying) {
               startProgressUpdates();
             }
@@ -776,7 +858,7 @@ public final class PlaybackManager {
     coverArtworkBytes = encodeArtworkBytes(coverBitmap);
   }
 
-  /** 用 ExoPlayer 真实 duration 校准 metadata；同一 source 只走一次，偏差 ≤ 500ms 跳过。 */
+  /** 用 ExoPlayer 真实 duration 校准 metadata。允许同一 source 多次再校准（buffering 早期值可能偏差） */
   private void calibrateDurationFromPlayer() {
     if (player == null) {
       return;
@@ -784,14 +866,21 @@ public final class PlaybackManager {
     if (currentSource == null || currentSource.isEmpty()) {
       return;
     }
-    if (currentSource.equals(durationCalibratedForSource)) {
-      return;
-    }
     long realDurationMs = player.getDuration();
     if (realDurationMs == C.TIME_UNSET || realDurationMs <= 0L) {
       return;
     }
+    // 同一 source 已经做过初次校准时，仅在新值与已校准值差异 > 1s 时再次校准；
+    // 这样既避免每次 progress tick 都触发刷新（噪声），又允许 DASH/CBR 等场景在 buffering
+    // 早期取到偏差大的初值后被后续更准确的值替换。
+    final long stabilityThresholdMs = 1000L;
+    if (currentSource.equals(durationCalibratedForSource)
+        && Math.abs(realDurationMs - currentMetadata.durationMs) <= stabilityThresholdMs) {
+      return;
+    }
     durationCalibratedForSource = currentSource;
+    // 500ms 不敏感窗口：避免 ExoPlayer duration 在 buffering 后期微小抖动（±100~200ms）
+    // 反复触发 refreshCurrentMediaItemMetadata → emit trackChanged，污染 JS 进度同步。
     if (Math.abs(realDurationMs - currentMetadata.durationMs) <= 500L) {
       return;
     }
@@ -842,8 +931,16 @@ public final class PlaybackManager {
     if (currentMetadata.album != null) {
       builder.setAlbumTitle(currentMetadata.album);
     }
-    if (currentMetadata.durationMs > 0) {
-      builder.setDurationMs(currentMetadata.durationMs);
+    // 锁屏 / 通知栏 / 进度总长以 ExoPlayer 实测 ms 为权威，避免上游元数据 dt 偏差造成进度条与实际播放错位。
+    long resolvedDurationMs = currentMetadata.durationMs;
+    if (player != null) {
+      long realDurationMs = player.getDuration();
+      if (realDurationMs != C.TIME_UNSET && realDurationMs > 0L) {
+        resolvedDurationMs = realDurationMs;
+      }
+    }
+    if (resolvedDurationMs > 0L) {
+      builder.setDurationMs(resolvedDurationMs);
     }
     if (currentMetadata.coverUrl != null
         && !currentMetadata.coverUrl.isEmpty()
@@ -882,22 +979,182 @@ public final class PlaybackManager {
   }
 
   private boolean handleAutoAdvanceOnEnded() {
-    if (repeatOneEnabled && currentSource != null && !currentSource.isEmpty()) {
-      startTrackFromState(currentSource, currentMetadata, liked, false);
-      return true;
-    }
-
-    if (queuedNextSource == null || queuedNextSource.isEmpty() || queuedNextMetadata == null) {
+    if (personalFmMode) {
+      // personalFM：JS 算法决定下一首，原生层不能自治
       return false;
     }
-
-    TrackMetadata nextMetadata = queuedNextMetadata;
-    boolean nextLiked = nextMetadata.liked;
-    startTrackFromState(queuedNextSource, nextMetadata, nextLiked, true);
-    queuedNextMetadata = null;
-    queuedNextSource = "";
-    emitCustomAction("autoNext", nextMetadata.songId, nextLiked, null, null, true, null);
+    // ENDED 路径响应 repeatOne（advanceRaw(true) 单曲循环时返回当前 track）。
+    // 不再因 url==null 而 return null —— Java 自解 URL，让 resolveAndPlayAsync 接管。
+    PlaybackQueue.Track next = playbackQueue.advanceRaw(true);
+    if (next == null) {
+      // 真正窗口耗尽（不在 ALL 模式 / 没有更多歌曲）
+      if (shouldRequestUrlsForwardWrap()) {
+        // 拦截 ENDED + 置位续播标记：updateQueueContext 收到新窗口后将主动 advance+play
+        pendingResumeAfterRefill = true;
+        emitRequestUrls();
+        return true;
+      }
+      return false;
+    }
+    resolveAndPlayAsync(next, "auto", true, 5);
     return true;
+  }
+
+  /**
+   * 前进方向窗口耗尽时是否需要让 JS 端补窗口：
+   *
+   * <ul>
+   *   <li>hasNextOutsideWindow=true：还有后续歌曲（常规补窗）
+   *   <li>ALL 模式 + hasPreviousOutsideWindow=true：已是末尾，JS 负责 wrap 到 0
+   * </ul>
+   *
+   * <p>该函数不要与 {@link #requestUrlsIfWindowExhausted()} 混淆后者是「快到边」预警，
+   * 本函数是「确实边上跳不动」必须补。
+   */
+  private boolean shouldRequestUrlsForwardWrap() {
+    if (playbackQueue.hasNextOutsideWindow()) return true;
+    return playbackQueue.getRepeatMode() == PlaybackQueue.RepeatMode.ALL
+        && playbackQueue.hasPreviousOutsideWindow();
+  }
+
+  /**
+   * Java URL 自治核心：url==null 则后台解析后开播，失败则跳过继续。
+   *
+   * @param forward true=失败时 advanceRaw 跳过坏首；false=停止（previous）
+   * @param remainAttempts 连续失败限额，超过后回落 JS
+   */
+  private void resolveAndPlayAsync(
+      @Nullable PlaybackQueue.Track next,
+      String source,
+      boolean forward,
+      int remainAttempts) {
+    if (next == null) {
+      if (forward && shouldRequestUrlsForwardWrap()) {
+        // 前进方向窗口耗尽：置位续播标记，让 JS 推新窗口后自动续播
+        pendingResumeAfterRefill = true;
+        emitRequestUrls();
+      } else if (!forward) {
+        // 后退方向窗口耗尽：回落 JS prev（不应触发 requestUrls，那是右缘语义）
+        emitCustomAction("previous", null, null, null, null, true, null);
+      }
+      return;
+    }
+    if (next.playable()) {
+      playFromQueue(next, source);
+      prefetchUpcomingUrls();
+      return;
+    }
+    if (remainAttempts <= 0) {
+      // 连续失败（账号 / 解锁 / 区域屏蔽）
+      if (forward) {
+        pendingResumeAfterRefill = true;
+        emitRequestUrls();
+      } else {
+        emitCustomAction("previous", null, null, null, null, true, null);
+      }
+      return;
+    }
+    final long songId = next.songId;
+    final PlaybackQueue.Track target = next;
+    // 自增 token：用户连点 NEXT 时旧 token 失效，回调直接丢弃，防止旧 URL 覆盖新播放
+    final long myToken = resolveTokenCounter.incrementAndGet();
+    urlResolver.submitResolve(
+        songId,
+        url ->
+            mainHandler.post(
+                () -> {
+                  if (myToken != resolveTokenCounter.get()) {
+                    // 过期回调：用户已发起新一轮 NEXT/PREV，丢弃本次结果
+                    return;
+                  }
+                  if (url != null) {
+                    target.url = url;
+                    playbackQueue.updateTrackUrl(songId, url);
+                    playFromQueue(target, source);
+                    prefetchUpcomingUrls();
+                  } else if (forward) {
+                    Log.w(TAG, "resolveAndPlayAsync: songId=" + songId + " failed, skip forward");
+                    PlaybackQueue.Track again = playbackQueue.advanceRaw(false);
+                    resolveAndPlayAsync(again, source, true, remainAttempts - 1);
+                  } else {
+                    // PREVIOUS 失败：再 backRaw 跳过坏首继续后退；前缘耗尽时回落 JS prev
+                    Log.w(TAG, "resolveAndPlayAsync: songId=" + songId + " failed, skip backward");
+                    PlaybackQueue.Track again = playbackQueue.backRaw();
+                    resolveAndPlayAsync(again, source, false, remainAttempts - 1);
+                  }
+                }));
+  }
+
+  /** 预解析窗口前方 3 首，让 ENDED 时直接 playable；重复 prefetch 由 urlResolver.inFlight 去重 */
+  private void prefetchUpcomingUrls() {
+    List<PlaybackQueue.Track> upcoming = playbackQueue.peekUpcomingUnresolved(3);
+    for (PlaybackQueue.Track t : upcoming) {
+      urlResolver.prefetchAsync(t, playbackQueue, null);
+    }
+  }
+
+  /**
+   * 从队列指定 Track 切歌并 emit trackChanged。
+   *
+   * @param source "auto" (ENDED) / "next" / "previous"
+   */
+  private void playFromQueue(PlaybackQueue.Track track, String source) {
+    if (track == null || !track.playable()) {
+      return;
+    }
+    // 切歌即失效旧 async 回调 + 清 pending，防止旧 URL 覆盖 / 补窗误消费
+    resolveTokenCounter.incrementAndGet();
+    pendingResumeAfterRefill = false;
+    TrackMetadata metadata = trackToMetadata(track);
+    startTrackFromState(track.url, metadata, track.liked, true);
+
+    // 通知 JS：native 已切到这首歌，请同步 statusStore.playIndex
+    AndroidNativePlaybackPlugin currentPlugin = plugin;
+    if (currentPlugin != null) {
+      JSObject payload = new JSObject();
+      payload.put("action", "trackChanged");
+      payload.put("success", true);
+      payload.put("songId", track.songId);
+      payload.put("playListIndex", track.playListIndex);
+      payload.put("source", source);
+      payload.put("liked", track.liked);
+      currentPlugin.emitEvent("customAction", payload, true);
+    }
+
+    // 窗口边缘提前补 URL
+    requestUrlsIfWindowExhausted();
+  }
+
+  /** 转换 PlaybackQueue.Track → TrackMetadata（复用现有切歌路径） */
+  private TrackMetadata trackToMetadata(PlaybackQueue.Track track) {
+    TrackMetadata m = new TrackMetadata();
+    m.songId = track.songId;
+    m.durationMs = track.durationMs;
+    m.canLike = track.canLike;
+    m.liked = track.liked;
+    m.title = track.title;
+    m.artist = track.artist;
+    m.album = track.album;
+    m.coverUrl = track.coverUrl;
+    m.url = track.url == null ? "" : track.url;
+    return m;
+  }
+
+  /** 仅在窗口外仍有歌时主动通知 JS 推新窗口（窗口外耗尽时无意义）。 */
+  private void requestUrlsIfWindowExhausted() {
+    if (playbackQueue.playableTracksAhead() <= WINDOW_REFILL_THRESHOLD
+        && playbackQueue.hasNextOutsideWindow()) {
+      emitRequestUrls();
+    }
+  }
+
+  private void emitRequestUrls() {
+    AndroidNativePlaybackPlugin currentPlugin = plugin;
+    if (currentPlugin == null) return;
+    JSObject payload = new JSObject();
+    payload.put("action", "requestUrls");
+    payload.put("success", true);
+    currentPlugin.emitEvent("customAction", payload, true);
   }
 
   private void startTrackFromState(
@@ -1032,8 +1289,16 @@ public final class PlaybackManager {
     }
 
     Notification notification = buildNotification();
+    // 仅在「用户主动暂停」撤前台。ENDED / IDLE / BUFFERING 是过渡态，提前撤前台
+    // 会被 Android 12+ 拒 (ForegroundServiceStartNotAllowedException)，导致 NEXT 哑火。
+    boolean userPaused = !remoteMode
+        && player != null
+        && player.getPlaybackState() == Player.STATE_READY
+        && !player.getPlayWhenReady();
+    boolean remotePaused = remoteMode && !remoteIsPlaying;
+    boolean shouldStayForeground = !userPaused && !remotePaused;
     try {
-      if (isEffectivelyPlaying() || isEffectivelyBuffering()) {
+      if (shouldStayForeground) {
         service.startForeground(PlaybackConstants.NOTIFICATION_ID, notification);
       } else {
         service.stopForeground(false);
@@ -1042,6 +1307,12 @@ public final class PlaybackManager {
       }
     } catch (SecurityException error) {
       Log.w(TAG, "Failed to show playback notification", error);
+    } catch (IllegalStateException error) {
+      // Android 12+ ForegroundServiceStartNotAllowedException 继承 IllegalStateException，
+      // 在 Doze 边缘 / 系统极限场景偶发。仅记录，让通知降级为普通通知，避免崩溃。
+      Log.w(TAG, "Failed to enter foreground service from background", error);
+      NotificationManagerCompat.from(appContext)
+          .notify(PlaybackConstants.NOTIFICATION_ID, notification);
     }
   }
 
@@ -1326,7 +1597,7 @@ public final class PlaybackManager {
 
   private void emitCustomAction(
       String action,
-      @Nullable Integer songId,
+      @Nullable Long songId,
       @Nullable Boolean likedState,
       @Nullable Boolean desktopLyricEnabledState,
       @Nullable Boolean collapsedState,
@@ -1357,6 +1628,87 @@ public final class PlaybackManager {
     }
     currentPlugin.emitEvent("customAction", payload, true);
   }
+
+  // ========== 频谱可视化（基于 Media3 AudioProcessor 内嵌 FFT，无需任何权限）==========
+
+  /**
+   * JS 端开启/关闭频谱。
+   *
+   * 实现细节：FftAudioProcessor 一直挂在 ExoPlayer 解码链上，仅当 listener != null 时
+   * 才执行实际的 FFT 计算（最佳节电）。
+   */
+  public synchronized boolean enableVisualizer(boolean enable) {
+    visualizerRequested = enable;
+    updateFftListenerAttachment();
+    return true;
+  }
+
+  /** 根据频谱请求状态挂载或卸载 FFT 数据回调。 */
+  private void updateFftListenerAttachment() {
+    if (visualizerRequested) {
+      fftAudioProcessor.setListener(this::onFftData);
+    } else {
+      fftAudioProcessor.setListener(null);
+    }
+  }
+
+  /**
+   * FFT 回调（音频线程）：只写 snapshot 并请求主线程 emit，杜绝音频线程跑 base64 / bridge。
+   * coalescing：CAS 保证 mainHandler 队列同时最多 1 个 task，多余帧只覆盖 snapshot。
+   */
+  private void onFftData(int[] fftBins, float lowFreq) {
+    if (!visualizerRequested) return;
+    int len = fftBins.length;
+    synchronized (visualizerSnapshotLock) {
+      if (visualizerByteBuf == null || visualizerByteBuf.length != len) {
+        visualizerByteBuf = new byte[len];
+      }
+      for (int i = 0; i < len; i++) {
+        visualizerByteBuf[i] = (byte) fftBins[i];
+      }
+      pendingLowFreq = lowFreq;
+      hasPendingVisualizerData = true;
+    }
+    if (visualizerEmitScheduled.compareAndSet(false, true)) {
+      mainHandler.post(visualizerEmitTask);
+    }
+  }
+
+  // 频谱共享缓冲与同步原语
+  private final Object visualizerSnapshotLock = new Object();
+
+  private byte[] visualizerByteBuf;
+  private float pendingLowFreq;
+  private boolean hasPendingVisualizerData = false;
+
+  private final java.util.concurrent.atomic.AtomicBoolean visualizerEmitScheduled =
+      new java.util.concurrent.atomic.AtomicBoolean(false);
+
+  /** 主线程 emit：先释放 schedule 让新帧能再 post，clone snapshot 后 base64 推送。 */
+  private final Runnable visualizerEmitTask =
+      new Runnable() {
+        @Override
+        public void run() {
+          visualizerEmitScheduled.set(false);
+          AndroidNativePlaybackPlugin currentPlugin = plugin;
+          if (currentPlugin == null) return;
+
+          byte[] snapshot;
+          float lowFreq;
+          synchronized (visualizerSnapshotLock) {
+            if (!hasPendingVisualizerData || visualizerByteBuf == null) return;
+            snapshot = visualizerByteBuf.clone();
+            lowFreq = pendingLowFreq;
+            hasPendingVisualizerData = false;
+          }
+
+          String b64 = android.util.Base64.encodeToString(snapshot, android.util.Base64.NO_WRAP);
+          JSObject payload = new JSObject();
+          payload.put("fftB64", b64);
+          payload.put("lowFreq", lowFreq);
+          currentPlugin.emitEvent("visualizerData", payload, false);
+        }
+      };
 
   private void loadCoverBitmapAsync(String coverUrl) {
     if (coverUrl == null || coverUrl.isEmpty() || coverUrl.startsWith("blob:")) {
@@ -1427,7 +1779,7 @@ public final class PlaybackManager {
     }
 
     final boolean targetLike = !liked;
-    final int songId = currentMetadata.songId;
+    final long songId = currentMetadata.songId;
     synchronized (this) {
       if (favoriteRequestInFlight) {
         emitCustomAction("favorite", songId, liked, null, null, false, "favorite_busy");
@@ -1461,7 +1813,7 @@ public final class PlaybackManager {
         });
   }
 
-  private FavoriteRequestResult performFavoriteRequest(int songId, boolean targetLike) {
+  private FavoriteRequestResult performFavoriteRequest(long songId, boolean targetLike) {
     String likeEndpoint = apiBaseUrl.endsWith("/like") ? apiBaseUrl : apiBaseUrl + "/like";
 
     for (int attempt = 1; attempt <= FAVORITE_REQUEST_MAX_ATTEMPTS; attempt++) {
@@ -1732,7 +2084,8 @@ public final class PlaybackManager {
   }
 
   static final class TrackMetadata {
-    int songId;
+    // long：上游 songId 可能超 int32 上限，溢出会导致 liked/favorite/prefetch 全错
+    long songId;
     long durationMs;
     boolean canLike;
     boolean liked;

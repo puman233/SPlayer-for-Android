@@ -8,6 +8,7 @@ import android.os.Build;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import androidx.annotation.Nullable;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -16,7 +17,11 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 @CapacitorPlugin(
     name = "AndroidNativePlayback",
@@ -99,7 +104,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   @PluginMethod
   public void updateMetadata(PluginCall call) {
     PlaybackManager.TrackMetadata metadata = new PlaybackManager.TrackMetadata();
-    metadata.songId = call.getInt("songId", 0);
+    // long：上游 songId 可超 int32 上限，用 optLong 避免溢出
+    metadata.songId = call.getData().optLong("songId", 0L);
     metadata.title = call.getString("title", "");
     metadata.artist = call.getString("artist", "");
     metadata.album = call.getString("album", "");
@@ -120,6 +126,7 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     runOnMainThread(
         call,
         () -> {
+          List<PlaybackQueue.Track> windowTracks = readWindowTracks(call);
           PlaybackManager.getInstance(getContext())
               .updateQueueContext(
                   call.getBoolean("liked", false),
@@ -128,10 +135,67 @@ public class AndroidNativePlaybackPlugin extends Plugin {
                   call.getBoolean("controllerEnabled", true),
                   call.getBoolean("desktopLyricButtonEnabled", false),
                   call.getBoolean("desktopLyricEnabled", false),
-                  call.getBoolean("repeatOne", false),
-                  readTrackMetadata(call, "nextTrack", true));
+                  windowTracks,
+                  call.getInt("windowCurrentIndex", -1),
+                  call.getString("repeatMode", "off"),
+                  call.getBoolean("hasPreviousOutsideWindow", false),
+                  call.getBoolean("hasNextOutsideWindow", false),
+                  // windowRefilled：仅 refreshAndroidQueueWindow 路径置 true，
+                  // Java 端据此区分本次推送是否为「补窗响应」，避免无关 sync（liked / 桌面歌词等）误触发续播。
+                  call.getBoolean("windowRefilled", false));
           call.resolve();
         });
+  }
+
+  /**
+   * 解析 JS 端推送的 windowTracks 数组（每首带元数据 + 已解析 URL + playListIndex）。
+   *
+   * 容错策略：
+   * - JSArray 不存在或为空 → 返回空 list（PlaybackQueue 会进入空队列状态）
+   * - 单元素解析失败 → 跳过该元素继续解析其余（避免一首坏数据让整窗失效）
+   */
+  @Nullable
+  private List<PlaybackQueue.Track> readWindowTracks(PluginCall call) {
+    JSArray array = call.getArray("windowTracks");
+    if (array == null || array.length() == 0) {
+      return null;
+    }
+    List<PlaybackQueue.Track> tracks = new ArrayList<>(array.length());
+    for (int i = 0; i < array.length(); i++) {
+      try {
+        JSONObject obj = array.getJSONObject(i);
+        PlaybackQueue.Track t = new PlaybackQueue.Track();
+        t.songId = obj.optLong("songId", 0L);
+        t.title = safeOptString(obj, "title");
+        t.artist = safeOptString(obj, "artist");
+        t.album = safeOptString(obj, "album");
+        t.coverUrl = safeOptString(obj, "coverUrl");
+        t.durationMs = obj.optLong("durationMs", 0L);
+        t.canLike = obj.optBoolean("canLike", false);
+        t.liked = obj.optBoolean("liked", false);
+        t.playListIndex = obj.optInt("playListIndex", -1);
+        t.skipSong = obj.optBoolean("skipSong", false);
+        // 必须 isNull 显式判空：optString 遇 JSON null 会返回字符串 "null"，会让 ExoPlayer 拿 Uri.parse("null") → ENOENT。
+        String url = obj.isNull("url") ? null : obj.optString("url", "");
+        t.url = (url == null || url.isEmpty()) ? null : url;
+        tracks.add(t);
+      } catch (JSONException ignored) {
+        // 单首解析失败容忍，继续下一首
+      }
+    }
+    return tracks;
+  }
+
+  /**
+   * 避开 optString 遇 JSON null 返字符串 "null" 的坑，先 isNull 拦截。
+   *
+   * <p>语义约定：返回空串 "" 表示「未提供」。当前调用点（title/artist/album/coverUrl）下游
+   * 均把 "" 与 null 等价处理（参见 PlaybackManager.loadCoverBitmapAsync / refreshCurrentMediaItemMetadata），
+   * 不需要保留 null 区分。url 字段不走该 helper：见 readWindowTracks 内的特殊处理。
+   */
+  private static String safeOptString(JSONObject obj, String key) {
+    if (obj.isNull(key)) return "";
+    return obj.optString(key, "");
   }
 
   @PluginMethod
@@ -179,7 +243,10 @@ public class AndroidNativePlaybackPlugin extends Plugin {
         call,
         () -> {
           PlaybackManager.getInstance(getContext())
-              .syncApiContext(call.getString("apiBaseUrl", ""), call.getString("cookie", ""));
+              .syncApiContext(
+                  call.getString("apiBaseUrl", ""),
+                  call.getString("cookie", ""),
+                  call.getString("songLevel", "exhigh"));
           call.resolve();
         });
   }
@@ -312,6 +379,19 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     call.resolve(result);
   }
 
+  // 频谱可视化 Media3 AudioProcessor 内嵌 FFT
+
+  @PluginMethod
+  public void enableVisualizer(PluginCall call) {
+    boolean enable = call.getBoolean("enable", false);
+    runOnMainThread(
+        call,
+        () -> {
+          boolean ok = PlaybackManager.getInstance(getContext()).enableVisualizer(enable);
+          call.resolve(permissionResult(ok));
+        });
+  }
+
   @PluginMethod
   public void requestOverlayPermission(PluginCall call) {
     if (Settings.canDrawOverlays(getContext())) {
@@ -371,7 +451,7 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     }
 
     PlaybackManager.TrackMetadata metadata = new PlaybackManager.TrackMetadata();
-    metadata.songId = data.optInt("songId", 0);
+    metadata.songId = data.optLong("songId", 0L);
     metadata.title = data.optString("title", "");
     metadata.artist = data.optString("artist", "");
     metadata.album = data.optString("album", "");

@@ -403,6 +403,18 @@ class AudioManager extends TypedEventTarget<AudioEventMap> implements IPlaybackE
   }
 
   /**
+   * 启用/停用频谱采集（仅 Android 原生引擎，其他引擎 no-op）。
+   * 返回 true 表示成功启用；false 表示引擎不支持或调用失败。
+   */
+  public async enableVisualizer(enable: boolean): Promise<boolean> {
+    if (this.engine instanceof AndroidNativeAudioPlayer) {
+      return this.engine.enableVisualizer(enable);
+    }
+    // 其他引擎（element/ffmpeg）依赖 Web Audio AnalyserNode，已经常驻无需主动启用
+    return true;
+  }
+
+  /**
    * 设置高通滤波器频率
    */
   public setHighPassFilter(frequency: number, rampTime: number = 0): void {

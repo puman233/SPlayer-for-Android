@@ -142,8 +142,12 @@ export const useMusicStore = defineStore("music", {
     },
   },
   // 持久化
+  // songLyric 不进持久化：YRC/TTML 逐字歌词序列化可达 100-500KB，
+  // 每次切歌 setSongLyric 都会触发同步 localStorage 写入，手机 WebView 上单次 50-200ms 阻塞主线程，
+  // 进度事件与 UI 交互全被锁住。歌词随播放重新拉取/缓存，无需持久化。
   persist: {
     key: "music-store",
     storage: localStorage,
+    pick: ["playSong", "playPlaylistId", "personalFM", "dailySongsData"],
   },
 });

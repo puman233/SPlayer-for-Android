@@ -1,5 +1,5 @@
 import { useSettingStore, useStatusStore } from "@/stores";
-import { isElectron } from "@/utils/env";
+import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import {
   openFontManager,
   openCustomCode,
@@ -430,8 +430,8 @@ export const useAppearanceSettings = (): SettingConfig => {
             key: "showSpectrums",
             label: "音乐频谱",
             type: "switch",
-            show: isElectron,
-            description: "开启音乐频谱会影响性能或增加内存占用，如遇问题请关闭",
+            show: isElectron || isCapacitorAndroid,
+            description: "在播放界面底栏显示随节奏跳动的频谱柱状图，会增加少量性能开销",
             value: computed({
               get: () => settingStore.showSpectrums,
               set: (v) => (settingStore.showSpectrums = v),

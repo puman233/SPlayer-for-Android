@@ -80,7 +80,7 @@
           />
           <!-- 控制中心 -->
           <PlayerControl @mouseenter.stop="stopHide" @mouseleave.stop="resumeHide" />
-          <!-- 音乐频谱 -->
+          <!-- 桌面端频谱（移动端在 FullPlayerMobile 内渲染，避免 z-index 冲突） -->
           <PlayerSpectrum
             v-if="settingStore.showSpectrums"
             :color="statusStore.mainColor ? `rgb(${statusStore.mainColor})` : 'rgb(239 239 239)'"
