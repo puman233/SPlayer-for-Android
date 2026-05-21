@@ -9,242 +9,250 @@
         'phone-floating': isPhone,
       },
     ]"
-    @pointerdown="onPointerDown"
-    @pointermove="onPointerMove"
-    @pointerup="onPointerEnd"
-    @pointercancel="onPointerEnd"
   >
     <!-- 进度条 -->
     <PlayerSlider />
-    <!-- 信息 -->
-    <div :class="['play-data', { 'hidden-cover': settingStore.hiddenCovers.player }]">
-      <!-- 封面 -->
-      <Transition name="fade">
-        <div
-          v-if="!settingStore.hiddenCovers.player"
-          :key="musicStore.playSong.cover"
-          class="cover"
-          @click.stop="statusStore.showFullPlayer = true"
-        >
-          <n-image
-            :src="musicStore.songCover"
-            :alt="musicStore.songCover"
-            class="cover-img"
-            preview-disabled
-            @load="coverLoaded"
-          >
-            <template #placeholder>
-              <div class="cover-loading">
-                <img src="/images/song.jpg?asset" class="loading-img" alt="loading-img" />
-              </div>
-            </template>
-          </n-image>
-          <!-- 打开播放器 -->
-          <SvgIcon name="Expand" :size="30" />
-        </div>
-      </Transition>
+    <!-- 控制栏本体 -->
+    <div
+      ref="playerBodyRef"
+      class="main-player-body"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerEnd"
+      @pointercancel="onPointerEnd"
+    >
       <!-- 信息 -->
-      <Transition name="left-sm" mode="out-in">
-        <div :key="musicStore.playSong.id" class="info">
-          <div class="data">
-            <!-- 名称 -->
-            <TextContainer
-              :key="musicStore.playSong.name"
-              :text="
-                settingStore.hideBracketedContent
-                  ? removeBrackets(musicStore.playSong.name)
-                  : musicStore.playSong.name
-              "
-              :speed="0.2"
-              class="name"
-              style="cursor: pointer"
-              @click.stop="settingStore.hiddenCovers.player && (statusStore.showFullPlayer = true)"
-            />
-            <!-- 倍速 -->
-            <n-tag
-              v-if="statusStore.playRate !== 1"
-              type="primary"
-              size="small"
-              round
-              @click="openChangeRate"
+      <div :class="['play-data', { 'hidden-cover': settingStore.hiddenCovers.player }]">
+        <!-- 封面 -->
+        <Transition name="fade">
+          <div
+            v-if="!settingStore.hiddenCovers.player"
+            :key="musicStore.playSong.cover"
+            class="cover"
+            @click.stop="statusStore.showFullPlayer = true"
+          >
+            <n-image
+              :src="musicStore.songCover"
+              :alt="musicStore.songCover"
+              class="cover-img"
+              preview-disabled
+              @load="coverLoaded"
             >
-              {{ statusStore.playRate }}x
-            </n-tag>
-            <!-- 喜欢 -->
-            <SvgIcon
-              v-if="musicStore.playSong.type !== 'radio'"
-              :name="dataStore.isLikeSong(musicStore.playSong.id) ? 'Favorite' : 'FavoriteBorder'"
-              :size="20"
-              class="like"
-              @click="
-                toLikeSong(musicStore.playSong, !dataStore.isLikeSong(musicStore.playSong.id))
-              "
-            />
-            <!-- 更多操作 -->
-            <n-dropdown :options="songMoreOptions" trigger="click" placement="top-start">
-              <SvgIcon name="FormatList" :size="20" :depth="2" class="more" />
-            </n-dropdown>
+              <template #placeholder>
+                <div class="cover-loading">
+                  <img src="/images/song.jpg?asset" class="loading-img" alt="loading-img" />
+                </div>
+              </template>
+            </n-image>
+            <!-- 打开播放器 -->
+            <SvgIcon name="Expand" :size="30" />
           </div>
-          <div class="lyric-container">
-            <Transition
-              :name="settingStore.lyricTransition === 'fade' ? 'fade' : 'lyric-slide'"
-              :mode="settingStore.lyricTransition === 'fade' ? 'out-in' : undefined"
-            >
-              <!-- 歌词 -->
+        </Transition>
+        <!-- 信息 -->
+        <Transition name="left-sm" mode="out-in">
+          <div :key="musicStore.playSong.id" class="info">
+            <div class="data">
+              <!-- 名称 -->
               <TextContainer
-                v-if="isShowLyrics && instantLyrics"
-                :key="instantLyrics"
-                :text="instantLyrics"
-                :speed="0.5"
-                :delay="500"
-                class="lyric"
+                :key="musicStore.playSong.name"
+                :text="
+                  settingStore.hideBracketedContent
+                    ? removeBrackets(musicStore.playSong.name)
+                    : musicStore.playSong.name
+                "
+                :speed="0.2"
+                class="name"
+                style="cursor: pointer"
+                @click.stop="
+                  settingStore.hiddenCovers.player && (statusStore.showFullPlayer = true)
+                "
               />
-              <!-- 歌手 -->
-              <div v-else class="artists">
-                <TextContainer :speed="0.5" class="artists-container">
-                  <n-text
-                    v-if="musicStore.playSong.type === 'radio'"
-                    class="ar-item"
-                    @click="showCreatorTip"
-                  >
-                    {{ musicStore.playSong.dj?.creator || "未知艺术家" }}
-                  </n-text>
-                  <template v-else-if="Array.isArray(musicStore.playSong.artists)">
+              <!-- 倍速 -->
+              <n-tag
+                v-if="statusStore.playRate !== 1"
+                type="primary"
+                size="small"
+                round
+                @click="openChangeRate"
+              >
+                {{ statusStore.playRate }}x
+              </n-tag>
+              <!-- 喜欢 -->
+              <SvgIcon
+                v-if="musicStore.playSong.type !== 'radio'"
+                :name="dataStore.isLikeSong(musicStore.playSong.id) ? 'Favorite' : 'FavoriteBorder'"
+                :size="20"
+                class="like"
+                @click="
+                  toLikeSong(musicStore.playSong, !dataStore.isLikeSong(musicStore.playSong.id))
+                "
+              />
+              <!-- 更多操作 -->
+              <n-dropdown :options="songMoreOptions" trigger="click" placement="top-start">
+                <SvgIcon name="FormatList" :size="20" :depth="2" class="more" />
+              </n-dropdown>
+            </div>
+            <div class="lyric-container">
+              <Transition
+                :name="settingStore.lyricTransition === 'fade' ? 'fade' : 'lyric-slide'"
+                :mode="settingStore.lyricTransition === 'fade' ? 'out-in' : undefined"
+              >
+                <!-- 歌词 -->
+                <TextContainer
+                  v-if="isShowLyrics && instantLyrics"
+                  :key="instantLyrics"
+                  :text="instantLyrics"
+                  :speed="0.5"
+                  :delay="500"
+                  class="lyric"
+                />
+                <!-- 歌手 -->
+                <div v-else class="artists">
+                  <TextContainer :speed="0.5" class="artists-container">
                     <n-text
-                      v-for="(item, index) in musicStore.playSong.artists"
-                      :key="index"
+                      v-if="musicStore.playSong.type === 'radio'"
                       class="ar-item"
-                      @click="openJumpArtist(musicStore.playSong.artists, item.id)"
+                      @click="showCreatorTip"
+                    >
+                      {{ musicStore.playSong.dj?.creator || "未知艺术家" }}
+                    </n-text>
+                    <template v-else-if="Array.isArray(musicStore.playSong.artists)">
+                      <n-text
+                        v-for="(item, index) in musicStore.playSong.artists"
+                        :key="index"
+                        class="ar-item"
+                        @click="openJumpArtist(musicStore.playSong.artists, item.id)"
+                      >
+                        {{
+                          settingStore.hideBracketedContent ? removeBrackets(item.name) : item.name
+                        }}
+                      </n-text>
+                    </template>
+                    <n-text
+                      v-else
+                      class="ar-item"
+                      @click="openJumpArtist(musicStore.playSong.artists)"
                     >
                       {{
-                        settingStore.hideBracketedContent ? removeBrackets(item.name) : item.name
+                        settingStore.hideBracketedContent
+                          ? removeBrackets(musicStore.playSong.artists)
+                          : musicStore.playSong.artists || "未知艺术家"
                       }}
                     </n-text>
-                  </template>
-                  <n-text
-                    v-else
-                    class="ar-item"
-                    @click="openJumpArtist(musicStore.playSong.artists)"
-                  >
-                    {{
-                      settingStore.hideBracketedContent
-                        ? removeBrackets(musicStore.playSong.artists)
-                        : musicStore.playSong.artists || "未知艺术家"
-                    }}
-                  </n-text>
-                </TextContainer>
-              </div>
-            </Transition>
+                  </TextContainer>
+                </div>
+              </Transition>
+            </div>
           </div>
+        </Transition>
+      </div>
+      <!-- 控制 -->
+      <n-flex :size="8" align="center" justify="center" class="play-control">
+        <!-- 随机按钮 -->
+        <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
+          <div class="play-icon" @click.stop="player.toggleShuffle()">
+            <SvgIcon
+              :name="statusStore.shuffleIcon"
+              :size="20"
+              :depth="statusStore.shuffleMode === 'off' ? 3 : 1"
+            />
+          </div>
+        </template>
+        <!-- 不喜欢 -->
+        <div
+          v-if="statusStore.personalFmMode"
+          class="play-icon"
+          v-debounce="
+            () =>
+              songManager.personalFMTrash(musicStore.personalFMSong?.id, () =>
+                player.nextOrPrev('next'),
+              )
+          "
+        >
+          <SvgIcon class="icon" :size="18" name="ThumbDown" />
         </div>
+        <!-- 上一曲 -->
+        <div v-else class="play-icon" v-debounce="() => player.nextOrPrev('prev')">
+          <SvgIcon :size="26" name="SkipPrev" />
+        </div>
+        <!-- 播放暂停 -->
+        <n-button
+          :loading="statusStore.playLoading"
+          :focusable="false"
+          :keyboard="false"
+          class="play-pause"
+          type="primary"
+          strong
+          secondary
+          circle
+          @click.stop="player.playOrPause()"
+        >
+          <template #icon>
+            <Transition name="fade" mode="out-in">
+              <SvgIcon
+                :key="statusStore.playStatus ? 'Pause' : 'Play'"
+                :name="statusStore.playStatus ? 'Pause' : 'Play'"
+                :size="28"
+              />
+            </Transition>
+          </template>
+        </n-button>
+        <!-- 下一曲 -->
+        <div class="play-icon" v-debounce="() => player.nextOrPrev('next')">
+          <SvgIcon :size="26" name="SkipNext" />
+        </div>
+        <!-- 循环按钮 -->
+        <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
+          <div class="play-icon" @click.stop="player.toggleRepeat()">
+            <SvgIcon
+              :name="statusStore.repeatIcon"
+              :size="20"
+              :depth="statusStore.repeatMode === 'off' ? 3 : 1"
+            />
+          </div>
+        </template>
+      </n-flex>
+      <!-- 功能 -->
+      <Transition name="fade" mode="out-in">
+        <n-flex
+          :key="statusStore.personalFmMode ? 'fm' : 'normal'"
+          :size="[8, 0]"
+          class="play-menu"
+          justify="end"
+        >
+          <!-- 时间相关 -->
+          <Transition name="fade" mode="out-in">
+            <n-flex
+              :key="statusStore.autoClose.enable ? 'autoClose' : 'time'"
+              :size="4"
+              justify="center"
+              class="time-container"
+              vertical
+            >
+              <div class="time" @click="toggleTimeFormat">
+                <n-text depth="2">{{ timeDisplay[0] }}</n-text>
+                <n-text depth="2">{{ timeDisplay[1] }}</n-text>
+              </div>
+              <!-- 定时关闭 -->
+              <n-tag
+                v-if="statusStore.autoClose.enable"
+                size="small"
+                type="primary"
+                round
+                @click="openAutoClose"
+              >
+                {{ convertSecondsToTime(statusStore.autoClose.remainTime) }}
+                <template #icon>
+                  <SvgIcon name="TimeAuto" />
+                </template>
+              </n-tag>
+            </n-flex>
+          </Transition>
+          <!-- 功能区 -->
+          <PlayerRightMenu />
+        </n-flex>
       </Transition>
     </div>
-    <!-- 控制 -->
-    <n-flex :size="8" align="center" justify="center" class="play-control">
-      <!-- 随机按钮 -->
-      <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
-        <div class="play-icon" @click.stop="player.toggleShuffle()">
-          <SvgIcon
-            :name="statusStore.shuffleIcon"
-            :size="20"
-            :depth="statusStore.shuffleMode === 'off' ? 3 : 1"
-          />
-        </div>
-      </template>
-      <!-- 不喜欢 -->
-      <div
-        v-if="statusStore.personalFmMode"
-        class="play-icon"
-        v-debounce="
-          () =>
-            songManager.personalFMTrash(musicStore.personalFMSong?.id, () =>
-              player.nextOrPrev('next'),
-            )
-        "
-      >
-        <SvgIcon class="icon" :size="18" name="ThumbDown" />
-      </div>
-      <!-- 上一曲 -->
-      <div v-else class="play-icon" v-debounce="() => player.nextOrPrev('prev')">
-        <SvgIcon :size="26" name="SkipPrev" />
-      </div>
-      <!-- 播放暂停 -->
-      <n-button
-        :loading="statusStore.playLoading"
-        :focusable="false"
-        :keyboard="false"
-        class="play-pause"
-        type="primary"
-        strong
-        secondary
-        circle
-        @click.stop="player.playOrPause()"
-      >
-        <template #icon>
-          <Transition name="fade" mode="out-in">
-            <SvgIcon
-              :key="statusStore.playStatus ? 'Pause' : 'Play'"
-              :name="statusStore.playStatus ? 'Pause' : 'Play'"
-              :size="28"
-            />
-          </Transition>
-        </template>
-      </n-button>
-      <!-- 下一曲 -->
-      <div class="play-icon" v-debounce="() => player.nextOrPrev('next')">
-        <SvgIcon :size="26" name="SkipNext" />
-      </div>
-      <!-- 循环按钮 -->
-      <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
-        <div class="play-icon" @click.stop="player.toggleRepeat()">
-          <SvgIcon
-            :name="statusStore.repeatIcon"
-            :size="20"
-            :depth="statusStore.repeatMode === 'off' ? 3 : 1"
-          />
-        </div>
-      </template>
-    </n-flex>
-    <!-- 功能 -->
-    <Transition name="fade" mode="out-in">
-      <n-flex
-        :key="statusStore.personalFmMode ? 'fm' : 'normal'"
-        :size="[8, 0]"
-        class="play-menu"
-        justify="end"
-      >
-        <!-- 时间相关 -->
-        <Transition name="fade" mode="out-in">
-          <n-flex
-            :key="statusStore.autoClose.enable ? 'autoClose' : 'time'"
-            :size="4"
-            justify="center"
-            class="time-container"
-            vertical
-          >
-            <div class="time" @click="toggleTimeFormat">
-              <n-text depth="2">{{ timeDisplay[0] }}</n-text>
-              <n-text depth="2">{{ timeDisplay[1] }}</n-text>
-            </div>
-            <!-- 定时关闭 -->
-            <n-tag
-              v-if="statusStore.autoClose.enable"
-              size="small"
-              type="primary"
-              round
-              @click="openAutoClose"
-            >
-              {{ convertSecondsToTime(statusStore.autoClose.remainTime) }}
-              <template #icon>
-                <SvgIcon name="TimeAuto" />
-              </template>
-            </n-tag>
-          </n-flex>
-        </Transition>
-        <!-- 功能区 -->
-        <PlayerRightMenu />
-      </n-flex>
-    </Transition>
   </div>
 </template>
 
@@ -282,6 +290,7 @@ const { isPhone } = useDevice();
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const playerRef = ref<HTMLElement | null>(null);
+const playerBodyRef = ref<HTMLElement | null>(null);
 
 // 触摸滑动切换歌曲 / 上滑跟手开启全屏播放器（自实现 Pointer 事件，配合 setPointerCapture）
 let dragOpenActive = false;
@@ -303,8 +312,13 @@ const setDragOpenFlag = (v: boolean) => {
   (window as unknown as { __splayerDragOpen?: boolean }).__splayerDragOpen = v;
 };
 
+// 关闭分支的最终落实回调（settimeout 延迟 240ms 后才会把 showFullPlayer 置 false）
+// 取消 timer 时若未执行需要立即同步执行，否则 FullPlayer 会卡在起始位置
+let pendingCloseFinalize: ((resetImmediately?: boolean) => void) | null = null;
+
 // 取消上一轮手势遗留的异步清理 timer，避免清掉新手势的 inline 样式
-const cancelDragOpenTimers = () => {
+// flushClose=true 时如果有挂起的关闭动作，立即落实关闭，避免 FullPlayer 卡在起始位置
+const cancelDragOpenTimers = (flushClose = false) => {
   if (dragOpenResetTimer) {
     window.clearTimeout(dragOpenResetTimer);
     dragOpenResetTimer = 0;
@@ -312,7 +326,14 @@ const cancelDragOpenTimers = () => {
   if (dragOpenCloseTimer) {
     window.clearTimeout(dragOpenCloseTimer);
     dragOpenCloseTimer = 0;
+    if (flushClose && pendingCloseFinalize) {
+      const finalize = pendingCloseFinalize;
+      pendingCloseFinalize = null;
+      finalize(true);
+      return;
+    }
   }
+  if (flushClose) pendingCloseFinalize = null;
 };
 
 const writeDragOpen = (dy: number) => {
@@ -337,25 +358,24 @@ const scheduleDragOpenFlush = (dy: number) => {
   });
 };
 
-const initDragOpen = () => {
-  // 取消上一轮手势遗留的清理 timer，避免清掉本次 inline 样式
-  cancelDragOpenTimers();
-  const parent = document.querySelector(".full-player") as HTMLElement | null;
-  const main = document.getElementById("main");
-  if (parent) {
-    dragOpenParent = parent;
-    parent.style.transformOrigin = "50% 0";
-    parent.style.willChange = "transform";
-    parent.style.transition = "none";
-    // 起始放置在底栏顶部位置，让卡片从控制条向上展开
-    parent.style.transform = `translate3d(0, ${dragStartTop}px, 0) scale(0.92)`;
-    parent.style.borderRadius = "28px";
-    parent.style.backfaceVisibility = "hidden";
-    parent.style.backdropFilter = "blur(48px)";
-    parent.style.contain = "paint";
-    // 关键：让 FullPlayer 在拖拽期间不拦截触摸，事件继续命中底栏（playerRef）
-    parent.style.pointerEvents = "none";
-  }
+// .full-player 经 <Transition mode="out-in"> + Teleport 异步挂载，
+// 在 Vue 微任务流较忙或上一次离开动画未完成时可能短暂不存在，
+// 此时直接放弃会导致 FullPlayer 被 onMobileEnter 的 100vh 起始 transform 卡住，
+// 因此使用一次重试，最多 8 帧，仍找不到则放弃并复位 showFullPlayer。
+let initDragOpenRetry = 0;
+const INIT_DRAG_OPEN_MAX_RETRY = 8;
+
+const applyDragOpenInline = (parent: HTMLElement, main: HTMLElement | null) => {
+  dragOpenParent = parent;
+  parent.style.transformOrigin = "50% 0";
+  parent.style.willChange = "transform";
+  parent.style.transition = "none";
+  // 起始放置在底栏顶部位置，让卡片从控制条向上展开
+  parent.style.transform = `translate3d(0, ${dragStartTop}px, 0) scale(0.92)`;
+  parent.style.borderRadius = "28px";
+  parent.style.backfaceVisibility = "hidden";
+  // 关键：让 FullPlayer 在拖拽期间不拦截触摸，事件继续命中底栏（playerRef）
+  parent.style.pointerEvents = "none";
   if (main) {
     dragOpenMain = main;
     main.style.transition = "none";
@@ -363,6 +383,34 @@ const initDragOpen = () => {
     main.style.opacity = "1";
     main.style.transform = "scale(1)";
   }
+};
+
+const initDragOpen = () => {
+  // 取消上一轮手势遗留的清理 timer，避免清掉本次 inline 样式
+  cancelDragOpenTimers();
+  initDragOpenRetry = 0;
+  const tryAttach = () => {
+    if (!dragOpenActive) return;
+    const parent = document.querySelector(".full-player") as HTMLElement | null;
+    const main = document.getElementById("main");
+    if (parent) {
+      applyDragOpenInline(parent, main);
+      // 命中后立刻把当前 dy 写入，避免 0 dy 一帧裸态
+      writeDragOpen(Math.max(dragLastDy, 0));
+      return;
+    }
+    if (initDragOpenRetry++ < INIT_DRAG_OPEN_MAX_RETRY) {
+      requestAnimationFrame(tryAttach);
+      return;
+    }
+    // 超过重试上限，撤销开启意图，防止用户被卡在不可见的 FullPlayer 上
+    console.warn("[MainPlayer] 拖拽开启时未能找到 .full-player，回退关闭");
+    dragOpenActive = false;
+    dragOpenLocked = null;
+    setDragOpenFlag(false);
+    statusStore.showFullPlayer = false;
+  };
+  tryAttach();
 };
 
 const resetDragOpen = () => {
@@ -378,8 +426,6 @@ const resetDragOpen = () => {
     dragOpenParent.style.willChange = "";
     dragOpenParent.style.pointerEvents = "";
     dragOpenParent.style.backfaceVisibility = "";
-    dragOpenParent.style.backdropFilter = "";
-    dragOpenParent.style.contain = "";
   }
   if (dragOpenMain) {
     dragOpenMain.style.transition = "";
@@ -396,14 +442,39 @@ const resetDragOpen = () => {
 
 const finishDragOpen = (dy: number) => {
   const shouldOpen = dy > OPEN_THRESHOLD;
+  // 终止还在排队的 initDragOpen 重试，避免下一帧重试命中 .full-player 后用 applyDragOpenInline
+  // 覆盖本函数刚写好的开/关动画样式（竞态：用户极快释放时挂载阶段重试链尚未结束）
+  initDragOpenRetry = INIT_DRAG_OPEN_MAX_RETRY + 1;
   if (dragOpenRaf) {
     cancelAnimationFrame(dragOpenRaf);
     dragOpenRaf = 0;
+  }
+  // 兜底：若挂载阶段重试未成功捕获到 .full-player，dragOpenParent 仍为 null，
+  // 此时 onMobileEnter 已把元素定位到 100vh 离屏。无论开/关结果都必须现在重查并清掉 inline 样式，
+  // 否则 FullPlayer 会被永久卡在屏幕外（showFullPlayer 为 true 但用户什么都看不到）。
+  if (!dragOpenParent) {
+    const parent = document.querySelector(".full-player") as HTMLElement | null;
+    if (parent) {
+      dragOpenParent = parent;
+      // 清掉 onMobileEnter 留下的离屏 transform 及其它内联样式
+      parent.style.transition = "";
+      parent.style.transform = "";
+      parent.style.borderRadius = "";
+      parent.style.transformOrigin = "";
+      parent.style.willChange = "";
+      parent.style.pointerEvents = "";
+      parent.style.backfaceVisibility = "";
+    }
+    if (!dragOpenMain) {
+      dragOpenMain = document.getElementById("main");
+    }
   }
   if (shouldOpen) {
     if (dragOpenParent) {
       dragOpenParent.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
       dragOpenParent.style.transform = "";
+      // 立即恢复全屏播放器的指针事件，避免开启动画期间 (~320ms) 触摸穿透到底层主页
+      dragOpenParent.style.pointerEvents = "";
     }
     if (dragOpenMain) {
       dragOpenMain.style.transition =
@@ -426,13 +497,23 @@ const finishDragOpen = (dy: number) => {
       dragOpenMain.style.opacity = "1";
       dragOpenMain.style.transform = "scale(1)";
     }
-    dragOpenCloseTimer = window.setTimeout(() => {
-      dragOpenCloseTimer = 0;
+    // 注册关闭最终落实回调，便于在新手势打断时同步执行，避免 FullPlayer 被卡在起始位置
+    pendingCloseFinalize = (resetImmediately = false) => {
       statusStore.showFullPlayer = false;
+      if (resetImmediately) {
+        resetDragOpen();
+        return;
+      }
       dragOpenResetTimer = window.setTimeout(() => {
         dragOpenResetTimer = 0;
         resetDragOpen();
       }, 360);
+    };
+    dragOpenCloseTimer = window.setTimeout(() => {
+      dragOpenCloseTimer = 0;
+      const finalize = pendingCloseFinalize;
+      pendingCloseFinalize = null;
+      if (finalize) finalize();
     }, 240);
   }
 };
@@ -444,8 +525,35 @@ let horizontalDirection: "left" | "right" | null = null;
 
 const onPointerDown = (e: PointerEvent) => {
   if (e.pointerType === "mouse" && e.button !== 0) return;
-  // 新手势开始前取消上一轮异步清理，防止 timer 把本次样式清掉
-  cancelDragOpenTimers();
+  // 新手势开始前取消上一轮异步清理，防止 timer 把本次样式清掉。
+  // flushClose=true：若上一次手势的关闭动作正在等待落实，立即执行掉，
+  // 否则会出现 showFullPlayer=true 但 FullPlayer 卡在起始位置且无法响应触摸的状态
+  cancelDragOpenTimers(true);
+  // 兜底恢复：若 FullPlayer 标记为打开但 .full-player 残留内联 transform / pointer-events:none，
+  // 说明上一次拖拽流程留下了脏状态（例如歌曲加载中竞态导致 finishDragOpen 未能落实），
+  // 此处强制清掉内联让 FullPlayer 恢复正常可交互的全屏状态
+  if (statusStore.showFullPlayer && !dragOpenActive) {
+    const stalled = document.querySelector(".full-player") as HTMLElement | null;
+    if (stalled && (stalled.style.transform || stalled.style.pointerEvents === "none")) {
+      stalled.style.transition = "";
+      stalled.style.transform = "";
+      stalled.style.borderRadius = "";
+      stalled.style.transformOrigin = "";
+      stalled.style.willChange = "";
+      stalled.style.pointerEvents = "";
+      stalled.style.backfaceVisibility = "";
+      const mainEl = document.getElementById("main");
+      if (mainEl) {
+        mainEl.style.transition = "";
+        mainEl.style.transform = "";
+        mainEl.style.opacity = "";
+        mainEl.style.willChange = "";
+      }
+      dragOpenParent = null;
+      dragOpenMain = null;
+      setDragOpenFlag(false);
+    }
+  }
   pointerId = e.pointerId;
   dragStartX = e.clientX;
   dragStartY = e.clientY;
@@ -478,16 +586,17 @@ const onPointerMove = (e: PointerEvent) => {
       // 锁定方向后再捕获指针，确保 FullPlayer 覆盖后事件仍流向底栏
       pointerActiveTarget?.setPointerCapture?.(e.pointerId);
       // 缓存底栏顶部坐标，作为卡片起始位移
-      const rect = playerRef.value?.getBoundingClientRect();
+      const rect = playerBodyRef.value?.getBoundingClientRect();
       dragStartTop = rect ? rect.top : window.innerHeight - 80;
       dragOpenTravel = Math.max(window.innerHeight * 0.55, 360);
       setDragOpenFlag(true);
       dragOpenActive = true;
       statusStore.showFullPlayer = true;
+      // 等到下一帧再 initDragOpen，给 <Transition mode="out-in"> 留出挂载时机
+      // 实际写入由 initDragOpen 内部基于最新 dragLastDy 完成，避免使用过期 dy
       requestAnimationFrame(() => {
         if (!dragOpenActive) return;
         initDragOpen();
-        writeDragOpen(Math.max(dy, 0));
       });
       return;
     }
@@ -502,6 +611,17 @@ const onPointerMove = (e: PointerEvent) => {
   }
   if (dragOpenActive) scheduleDragOpenFlush(Math.max(dy, 0));
 };
+
+// 卸载时清理 timer / rAF / 残留内联样式，避免组件销毁后 setTimeout 触达陈旧 DOM 引用
+onBeforeUnmount(() => {
+  cancelDragOpenTimers(true);
+  if (dragOpenRaf) {
+    cancelAnimationFrame(dragOpenRaf);
+    dragOpenRaf = 0;
+  }
+  initDragOpenRetry = INIT_DRAG_OPEN_MAX_RETRY + 1;
+  resetDragOpen();
+});
 
 const onPointerEnd = (e: PointerEvent) => {
   if (e.pointerId !== pointerId) return;
@@ -671,12 +791,8 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
   padding: 0 15px;
   width: 100%;
   background-color: var(--surface-container-hex);
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
   transition: bottom 0.3s;
   z-index: 10;
-  // 接管指针手势，避免浏览器滚动抢占垂直方向触发取消捕获
   touch-action: pan-x;
   &.show {
     bottom: 0;
@@ -690,6 +806,13 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
     margin: 0;
     --n-rail-height: 3px;
     --n-handle-size: 14px;
+  }
+  .main-player-body {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 100%;
+    touch-action: none;
   }
   .play-data {
     position: relative;
@@ -923,7 +1046,9 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
     }
   }
   @media (max-width: 810px) {
-    grid-template-columns: 1fr auto auto;
+    .main-player-body {
+      grid-template-columns: 1fr auto auto;
+    }
     .play-control {
       margin: 0 0 0 12px;
       .play-icon {
@@ -1071,12 +1196,9 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
         --n-height: 38px;
         margin: 0 2px;
       }
-      .play-icon {
-        width: 32px;
-        height: 32px;
-        margin: 0;
-        .n-icon {
-          font-size: 20px;
+      @media (orientation: portrait) {
+        .play-icon {
+          display: none;
         }
       }
     }

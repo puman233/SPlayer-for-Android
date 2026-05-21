@@ -227,7 +227,7 @@ const syncPlaybackTime = (time: number) => {
   const player = getInternalPlayer();
   if (!player) return;
 
-  const previousHotLines = new Set(player.hotLines ?? []);
+  const previousHotLines: Set<number> = new Set(player.hotLines ?? []);
   player.setCurrentTime(time, false);
   syncNewHotLineAnimations(player, previousHotLines, time);
 };
@@ -262,7 +262,9 @@ onMounted(() => {
   const wrapper = wrapperRef.value;
   if (wrapper) {
     playerRef.value = new CoreLyricPlayer();
-    wrapper.appendChild(playerRef.value.getElement());
+    const el = playerRef.value.getElement();
+    el.style.touchAction = "none";
+    wrapper.appendChild(el);
     playerRef.value.addEventListener("line-click", lineClickHandler);
     playerRef.value.addEventListener("line-contextmenu", lineContextMenuHandler);
   }
@@ -278,23 +280,36 @@ onUnmounted(() => {
   }
 });
 
-// 动画帧更新
+// 限制单帧最大时间步长，避免后台恢复后动画突跳
+// 设为 120ms 兼顾低端机偶发卡顿（≈30fps 下 33ms/帧），同时防止可见性切换前累计的大 delta 一次注入
+const MAX_FRAME_DELTA = 120;
+
 watchEffect((onCleanup) => {
   if (!props.disabled) {
     let canceled = false;
     let lastTime = -1;
+    const resetLastTime = () => {
+      lastTime = -1;
+    };
+    const onVisibility = () => {
+      resetLastTime();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     const onFrame = (time: number) => {
       if (canceled) return;
       if (lastTime === -1) {
         lastTime = time;
       }
-      playerRef.value?.update(time - lastTime);
+      const rawDelta = time - lastTime;
+      const delta = rawDelta > MAX_FRAME_DELTA ? MAX_FRAME_DELTA : rawDelta;
+      playerRef.value?.update(delta);
       lastTime = time;
       requestAnimationFrame(onFrame);
     };
     requestAnimationFrame(onFrame);
     onCleanup(() => {
       canceled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
     });
   }
 });

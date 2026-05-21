@@ -7,7 +7,7 @@
     :max="sliderMax"
     :keyboard="false"
     :format-tooltip="formatTooltip"
-    :tooltip="settingStore.progressTooltipShow && showTooltip"
+    :tooltip="settingStore.progressTooltipShow && showTooltip && tooltipVisible"
     :class="['player-slider', { drag: isDragging }]"
     @dragstart="startDrag"
     @dragend="endDrag"
@@ -43,6 +43,24 @@ const dragValue = ref(0);
 const isDragging = ref(false);
 // 是否显示提示
 // const showSliderTooltip = ref(false);
+const tooltipVisible = ref(false);
+let tooltipHideTimer = 0;
+
+const showProgressTooltip = () => {
+  if (tooltipHideTimer) {
+    window.clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = 0;
+  }
+  tooltipVisible.value = true;
+};
+
+const hideProgressTooltipLater = () => {
+  if (tooltipHideTimer) window.clearTimeout(tooltipHideTimer);
+  tooltipHideTimer = window.setTimeout(() => {
+    tooltipHideTimer = 0;
+    tooltipVisible.value = false;
+  }, 1500);
+};
 
 // 实时进度
 const sliderProgress = computed({
@@ -53,9 +71,12 @@ const sliderProgress = computed({
     // 若为拖动中
     if (isDragging.value) {
       dragValue.value = value;
+      showProgressTooltip();
       return;
     }
     // 结束或者为点击
+    showProgressTooltip();
+    hideProgressTooltipLater();
     throttledSetSeek(value);
   },
 });
@@ -63,6 +84,7 @@ const sliderProgress = computed({
 // 开始拖拽
 const startDrag = () => {
   isDragging.value = true;
+  showProgressTooltip();
   // 立即赋值当前时间
   dragValue.value = statusStore.currentTime;
 };
@@ -72,7 +94,12 @@ const endDrag = () => {
   isDragging.value = false;
   // 直接更改进度
   setSeek(dragValue.value);
+  hideProgressTooltipLater();
 };
+
+onBeforeUnmount(() => {
+  if (tooltipHideTimer) window.clearTimeout(tooltipHideTimer);
+});
 
 /**
  * 二分查找当前时间对应的歌词索引

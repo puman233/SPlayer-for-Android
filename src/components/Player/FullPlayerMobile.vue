@@ -1,3 +1,7 @@
+<script lang="ts">
+let savedPageIndex = 0;
+</script>
+
 <template>
   <div
     ref="mobileStart"
@@ -179,17 +183,18 @@ const player = usePlayerController();
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const LYRIC_HEADER_MAX_PADDING = 60;
-const AMLL_LINE_PADDING_MOBILE = 20;
 
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
 const dragHandleRef = ref<HTMLElement | null>(null);
-const pageIndex = ref(0);
+// 当前歌曲无歌词时强制初始化为信息页，否则恢复模块级缓存
+// 避免「上次停在歌词页 → 切到无歌词歌曲再打开」时 watch 不触发导致空白歌词页
+const pageIndex = ref(
+  musicStore.isHasLrc && musicStore.playSong.type !== "radio" ? savedPageIndex : 0,
+);
 
 const lyricHeaderHorizontalPadding = computed(() => {
-  const padding =
-    Math.max(0, settingStore.lyricHorizontalOffset) +
-    (settingStore.useAMLyrics ? AMLL_LINE_PADDING_MOBILE : 0);
+  const padding = Math.max(0, settingStore.lyricHorizontalOffset);
   return `${Math.min(padding, LYRIC_HEADER_MAX_PADDING)}px`;
 });
 
@@ -379,6 +384,10 @@ const artistName = computed(() => {
 
 watch(hasLyric, (value) => {
   if (!value) pageIndex.value = 0;
+});
+
+watch(pageIndex, (value) => {
+  savedPageIndex = value;
 });
 
 const { direction, isSwiping, lengthX, lengthY } = useSwipe(mobileStart, {
