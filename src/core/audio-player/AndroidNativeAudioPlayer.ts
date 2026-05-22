@@ -18,21 +18,20 @@ import { AUDIO_EVENTS } from "./BaseAudioPlayer";
 /**
  * Android 原生播放器（参照 SPlayer-ROM-Compat 实现）
  *
- * 核心设计原则：
- * 1. **TS 全权拥有 currentTime**：用 performance.now() 插值估算，不接收原生周期性位置上报
- *    - 缓冲期 ExoPlayer 经常短暂上报 positionMs=0，强行更新会导致 UI 进度回退
- *    - 插值方案对短暂卡顿不敏感，且天然避免 seek-to-zero
- * 2. **load() 一次性传入 url+seek+autoPlay**：Java 端原子完成 setMediaItem+prepare+playWhenReady
- * 3. **fire-and-forget**：所有原生调用 `void`，不等待返回
- * 4. **state 事件只更新结构性字段**：src / duration / paused / error，不动 _currentTime
- * 5. **seek 完成后接受原生上报**：仅当 expectPlaying=false（暂停 seek）才从原生确认位置
+ * 核心设计：
+ * 1. TS 用 performance.now() 插值拥有 currentTime，不接收原生周期上报（避免 seek-to-zero / 进度回退）
+ * 2. load() 原子传入 url+seek+autoPlay
+ * 3. 所有原生调用 fire-and-forget
+ * 4. state 事件只更新 src/duration/paused/error，不动 _currentTime
+ * 5. 仅暂停 seek 完成后才从原生确认位置
  */
 export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEngine {
   public readonly capabilities: EngineCapabilities = {
     supportsRate: true,
     supportsSinkId: false,
     supportsEqualizer: false,
-    supportsSpectrum: false,
+    // Java 端用 FftAudioProcessor 在 ExoPlayer 渲染链上做 FFT 
+    supportsSpectrum: true,
   };
 
   private _src = "";
@@ -50,10 +49,23 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
   /** 上一次 _currentTime / lastTimeSyncAt 校准时刻 (performance.now()) */
   private lastTimeSyncAt = 0;
 
+  /** 最后一次 JS 主动 seek 时刻，用于短期屏蔽 native 周期事件回拖进度 */
+  private seekPendingAt = 0;
+  /** seek 后多久内只接受 authoritative 事件，避开 native 处理 seek 前的旧周期事件 */
+  private static readonly SEEK_DRIFT_LOCK_MS = 800;
+
   /** ended 事件去重（3 秒内同一 src 只派发一次） */
   private static readonly ENDED_DEDUP_MS = 3000;
   private lastEndedEventAt = 0;
   private lastEndedSrc = "";
+
+  /** 频谱缓存：Java ~20Hz 推送，rAF 同步读取 */
+  private latestFftData: Uint8Array = new Uint8Array(256);
+  private latestLowFreq = 0;
+  /** 频谱采集是否已启用（避免重复 enable 调用） */
+  private visualizerEnabled = false;
+  /** 频谱操作串行化队列，防止快速 mount/unmount 导致原生态与 TS 标记不一致 */
+  private visualizerOpQueue: Promise<unknown> = Promise.resolve();
 
   public init(): void {
     if (this.isInitialized) return;
@@ -61,7 +73,32 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
     if (!this.listenersBound && isCapacitorAndroid) {
       this.listenersBound = true;
       void this.bindNativeListeners();
+      this.bindVisibilitySync();
     }
+  }
+
+  /** 回前台时拉取 native 位置，纠正 WebView 冻结导致的 JS 估算落后 */
+  private bindVisibilitySync(): void {
+    if (typeof document === "undefined") return;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      if (!this._src) return;
+      void AndroidNativePlayback.getState()
+        .then((state) => {
+          if (!state || typeof state.positionMs !== "number") return;
+          // 与当前估算差距 > 500ms 才覆盖，避免来回波动
+          const estimatedMs = this.estimateCurrentTime() * 1000;
+          if (Math.abs(state.positionMs - estimatedMs) <= 500) return;
+          const safePositionSec = Math.max(0, state.positionMs) / 1000;
+          this._currentTime = safePositionSec;
+          this.lastTimeSyncAt = performance.now();
+          if (typeof state.durationMs === "number" && state.durationMs > 0) {
+            this._duration = state.durationMs / 1000;
+          }
+          this.dispatchEvent(new Event(AUDIO_EVENTS.TIME_UPDATE));
+        })
+        .catch(() => {});
+    });
   }
 
   public destroy(): void {
@@ -74,7 +111,64 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
     this.lastTimeSyncAt = 0;
     this.lastEndedEventAt = 0;
     this.lastEndedSrc = "";
+    // 关闭频谱采集；同步清零缓存，防止下次 init 前 getFrequencyData 仍返回旧鼓点
+    if (this.visualizerEnabled) {
+      void AndroidNativePlayback.enableVisualizer({ enable: false }).catch(() => {});
+      this.visualizerEnabled = false;
+    }
+    this.latestFftData.fill(0);
+    this.latestLowFreq = 0;
     void this.releaseListeners();
+  }
+
+  // 频谱可视化
+
+  /**
+   * 获取最近一次 Java 推送的 FFT 数据（长度 256，与 PlayerSpectrum 格式一致）。
+   * 返回内部缓存引用，调用方不应修改。
+   */
+  public getFrequencyData(): Uint8Array {
+    return this.latestFftData;
+  }
+
+  /**
+   * 获取最近一次 Java 端推送的低频音量 [0.0, 1.0]，用于 AMLL 流体背景鼓点驱动。
+   */
+  public getLowFrequencyVolume(): number {
+    return this.latestLowFreq;
+  }
+
+  /**
+   * 按需启用/停用频谱采集（FftAudioProcessor，无需权限）。
+   * 不抛错；失败时 getFrequencyData 返回零数组（静默降级）。
+   */
+  public async enableVisualizer(enable: boolean): Promise<boolean> {
+    if (!isCapacitorAndroid) return false;
+    // 串行化避免并发 enable(true)/enable(false) 与 TS flag 错位
+    const op = this.visualizerOpQueue.then(async () => {
+      if (this.visualizerEnabled === enable) return true;
+      try {
+        const result = await AndroidNativePlayback.enableVisualizer({ enable });
+        // 仅原生确认成功才更新 flag；disable 路径直接置 false，避免 fast-path 跳过锁死
+        if (result.granted) {
+          this.visualizerEnabled = enable;
+        } else if (!enable) {
+          this.visualizerEnabled = false;
+        }
+        if (!enable) {
+          this.latestFftData.fill(0);
+          this.latestLowFreq = 0;
+        }
+        return result.granted;
+      } catch (error) {
+        console.warn("[AndroidNativeAudioPlayer] enableVisualizer failed:", error);
+        // 异常路径置反值，强制下次同语义请求重试原生
+        this.visualizerEnabled = !enable;
+        return false;
+      }
+    });
+    this.visualizerOpQueue = op.catch(() => {});
+    return op;
   }
 
   public async play(url?: string, options?: PlayOptions): Promise<void> {
@@ -146,6 +240,7 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
 
     this._currentTime = safeTime;
     this.lastTimeSyncAt = performance.now();
+    this.seekPendingAt = this.lastTimeSyncAt;
 
     this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKING));
     void AndroidNativePlayback.seek({
@@ -226,18 +321,26 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
       }),
     );
 
-    // progressChanged: 同步 duration + 派发 timeupdate。
-    // 常规轮询不更新 _currentTime（防缓冲期 0 假数据回退）；authoritative=true 时强制刷新基准。
+    // progressChanged：以 native 为唯一进度源，每个事件都同步基准（JS 估算只做 250ms 之间的 60fps 平滑）。
+    // 唯一例外：JS 端刚发起 seek 后短期内 (SEEK_DRIFT_LOCK_MS)，只信任 authoritative 事件，
+    // 否则 native 还没处理完 seek 时残留的旧周期事件会把进度回拖到 seek 前位置。
     this.listenerHandles.push(
       await AndroidNativePlayback.addListener("progressChanged", (event) => {
         const nextDuration = Math.max(0, event.durationMs) / 1000;
         if (nextDuration > 0) this._duration = nextDuration;
-        if (event.authoritative === true) {
+        const isAuthoritative = event.authoritative === true;
+        const inSeekLock =
+          this.seekPendingAt > 0 &&
+          performance.now() - this.seekPendingAt < AndroidNativeAudioPlayer.SEEK_DRIFT_LOCK_MS;
+        if (isAuthoritative || !inSeekLock) {
           const safePositionSec = Math.max(0, event.positionMs) / 1000;
           this._currentTime = safePositionSec;
           this.lastTimeSyncAt = performance.now();
-          this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKING));
-          this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKED));
+          if (isAuthoritative) {
+            this.seekPendingAt = 0;
+            this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKING));
+            this.dispatchEvent(new Event(AUDIO_EVENTS.SEEKED));
+          }
         }
         this.dispatchEvent(new Event(AUDIO_EVENTS.TIME_UPDATE));
       }),
@@ -274,6 +377,25 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
             detail: { originalEvent: new Event("error"), errorCode: this._errorCode },
           }),
         );
+      }),
+    );
+
+    // visualizerData: Java 端 Visualizer FFT 数据 ~30Hz 推送，缓存到本地以便 rAF 同步读取。
+    // Payload 为 base64 字符串（256 字节），相比 number[] 跨桥体积 -70%，atob 单次调用解码。
+    this.listenerHandles.push(
+      await AndroidNativePlayback.addListener("visualizerData", (event) => {
+        if (typeof event.fftB64 === "string" && event.fftB64.length > 0) {
+          // atob 把 base64 解为二进制字符串，长度 = 原 byte 数
+          // 直接逐字节写入既有 Uint8Array，无中间分配
+          const decoded = atob(event.fftB64);
+          const len = Math.min(decoded.length, this.latestFftData.length);
+          for (let i = 0; i < len; i++) {
+            this.latestFftData[i] = decoded.charCodeAt(i);
+          }
+        }
+        if (typeof event.lowFreq === "number") {
+          this.latestLowFreq = event.lowFreq;
+        }
       }),
     );
   }

@@ -163,6 +163,15 @@ let savedPageIndex = 0;
         @click="pageIndex = i - 1"
       />
     </div>
+
+    <!-- 移动端竖屏频谱：贴底浮层，与封面/歌词页共享展示 -->
+    <PlayerSpectrum
+      v-if="settingStore.showSpectrums"
+      class="mobile-spectrum"
+      :color="statusStore.mainColor ? `rgb(${statusStore.mainColor})` : 'rgb(239 239 239)'"
+      :show="true"
+      :height="56"
+    />
   </div>
 </template>
 
@@ -438,6 +447,13 @@ const contentTransform = computed(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+
+  // 频谱贴底浮层：absolute 锚定容器底部，避开 PlayerSpectrum 默认 fixed + z-index:-1
+  :deep(.mobile-spectrum) {
+    position: absolute;
+    z-index: 1;
+    opacity: 0.45 !important;
+  }
 
   .drag-handle {
     position: absolute;

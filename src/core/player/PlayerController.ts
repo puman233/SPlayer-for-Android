@@ -19,6 +19,7 @@ import { type DebouncedFunc, throttle } from "lodash-es";
 import {
   AndroidNativePlayback,
   type AndroidNativeMetadataPayload,
+  type AndroidNativeWindowTrack,
 } from "@/plugins/androidNativePlayback";
 import { useBlobURLManager } from "../resource/BlobURLManager";
 import { useAudioManager } from "./AudioManager";
@@ -65,10 +66,6 @@ class PlayerController {
   private rateResetTimer: ReturnType<typeof setTimeout> | undefined;
   /** 速率渐变动画帧 */
   private rateRampFrame: number | undefined;
-  /** Seek 防护：上次 seek 时间戳 */
-  private lastSeekTimestamp = 0;
-  /** Seek 防护：上次 seek 目标位置 (ms) */
-  private lastSeekTargetMs = 0;
 
   constructor() {
     // 初始化 AudioManager（会根据设置自动选择引擎）
@@ -204,25 +201,26 @@ class PlayerController {
     const lyricManager = useLyricManager();
 
     musicStore.playSong = song;
-    statusStore.currentTime = startSeek;
-    // 用元数据的 duration 立刻填上 statusStore.duration，否则进度条 max=0 会把所有 seek 钳到 0
+    // $patch 批量提交：persist 只触发 1 次写，避免切歌瞬间多次持久化卡主线程
+    // 用元数据 duration 立即填，否则进度条 max=0 会把所有 seek 钳到 0
     // （ExoPlayer 在 autoPlay=false 暂停态下 progressRunnable 不跑，duration 永远到不了 TS）
-    if (typeof song.duration === "number" && song.duration > 0) {
-      statusStore.duration = song.duration;
-    }
-    // 重置进度
-    statusStore.progress = 0;
-    statusStore.lyricIndex = -1;
+    statusStore.$patch((state) => {
+      state.currentTime = startSeek;
+      if (typeof song.duration === "number" && song.duration > 0) {
+        state.duration = song.duration;
+      }
+      state.progress = 0;
+      state.lyricIndex = -1;
+      state.lyricLoading = true;
+      state.abLoop.enable = false;
+      state.abLoop.pointA = null;
+      state.abLoop.pointB = null;
+    });
     // 重置重试计数
     const sid = song.type === "radio" ? song.dj?.id : song.id;
     if (this.retryInfo.songId !== sid) {
       this.retryInfo = { songId: sid || 0, count: 0 };
     }
-    statusStore.lyricLoading = true;
-    // 重置 AB 循环
-    statusStore.abLoop.enable = false;
-    statusStore.abLoop.pointA = null;
-    statusStore.abLoop.pointB = null;
     // 通知桌面歌词
     if (isElectron) {
       window.electron.ipcRenderer.send("desktop-lyric:update-data", {
@@ -665,78 +663,104 @@ class PlayerController {
     };
   }
 
-  private resolveAndroidNextSong(currentSong: SongType): SongType | null {
+  /** 同步取播放 URL，不发网络请求。返回 null 时窗口推 null，由 Java 端按需解析。 */
+  private resolveSyncSongUrl(song: SongType, isCurrent: boolean): string | null {
+    if (isCurrent && this.currentAudioSource?.url) return this.currentAudioSource.url;
+    if (song.path) return song.path;
+    if (song.type === "streaming" && song.streamUrl) return song.streamUrl;
+    if (typeof song.id === "number") {
+      const songManager = useSongManager();
+      const cached = songManager.peekPrefetch(song.id);
+      if (cached?.id === song.id && cached.url) return cached.url;
+    }
+    return null;
+  }
+
+  /**
+   * 构造 Android 播放队列窗口（当前 ±N 首）。
+   * URL 采用「已缓存即推、未缓存推 null」被动策略，personalFM 退化为窗口=0。
+   */
+  private buildAndroidWindowTracks(_currentSong: SongType): {
+    windowTracks: AndroidNativeWindowTrack[];
+    windowCurrentIndex: number;
+    hasPreviousOutsideWindow: boolean;
+    hasNextOutsideWindow: boolean;
+    repeatMode: "off" | "all" | "one";
+  } {
     const dataStore = useDataStore();
     const musicStore = useMusicStore();
     const statusStore = useStatusStore();
 
-    if (statusStore.repeatMode === "one") {
-      return currentSong;
+    const personalFm = statusStore.personalFmMode;
+    const sourceList: SongType[] = personalFm ? musicStore.personalFM.list : dataStore.playList;
+    const currentIndex = personalFm ? musicStore.personalFM.playIndex : statusStore.playIndex;
+    // personalFM=0；普通列表 ±100 = 201 首窗口（覆盖最大 200 首后台续播，payload ~70KB 无感知）
+    const radius = personalFm ? 0 : 100;
+
+    const empty = {
+      windowTracks: [] as AndroidNativeWindowTrack[],
+      windowCurrentIndex: -1,
+      hasPreviousOutsideWindow: false,
+      hasNextOutsideWindow: false,
+      repeatMode: this.toAndroidRepeatMode(),
+    };
+    if (sourceList.length === 0 || currentIndex < 0 || currentIndex >= sourceList.length) {
+      return empty;
     }
 
-    if (statusStore.personalFmMode) {
-      const fmList = musicStore.personalFM.list;
-      const nextSong = fmList[musicStore.personalFM.playIndex + 1];
-      return nextSong && !this.shouldSkipSong(nextSong) ? nextSong : null;
-    }
+    const windowStart = Math.max(0, currentIndex - radius);
+    const windowEnd = Math.min(sourceList.length - 1, currentIndex + radius);
+    const tracks: AndroidNativeWindowTrack[] = [];
+    let windowCurrentIndex = -1;
 
-    const playList = dataStore.playList;
-    const playListLength = playList.length;
-    if (playListLength === 0) {
-      return null;
-    }
+    for (let i = windowStart; i <= windowEnd; i++) {
+      const song = sourceList[i];
+      if (!song) continue;
+      // skipSong=true 表用户级屏蔽，与 url=null 的待解析语义严格分离
+      const skip = this.shouldSkipSong(song);
+      const isCurrent = i === currentIndex;
+      const url = skip ? null : this.resolveSyncSongUrl(song, isCurrent);
+      const meta = this.buildAndroidTrackMetadata(song);
 
-    let nextIndex = statusStore.playIndex;
-    let attempts = 0;
-    while (attempts < playListLength) {
-      nextIndex += 1;
-      if (nextIndex >= playListLength) nextIndex = 0;
-      const nextSong = playList[nextIndex];
-      if (nextSong && !this.shouldSkipSong(nextSong)) {
-        return nextSong;
+      tracks.push({
+        songId: typeof song.id === "number" ? song.id : 0,
+        title: meta.title,
+        artist: meta.artist,
+        album: meta.album,
+        coverUrl: meta.coverUrl,
+        durationMs: meta.durationMs,
+        canLike: meta.canLike ?? false,
+        liked: meta.liked ?? false,
+        url,
+        playListIndex: i,
+        skipSong: skip,
+      });
+
+      if (isCurrent) {
+        windowCurrentIndex = tracks.length - 1;
       }
-      attempts++;
-    }
-
-    return null;
-  }
-
-  private async buildAndroidQueuedNextTrack(currentSong: SongType) {
-    const statusStore = useStatusStore();
-    if (statusStore.repeatMode === "one") {
-      return undefined;
-    }
-
-    const nextSong = this.resolveAndroidNextSong(currentSong);
-    if (!nextSong) {
-      return undefined;
-    }
-
-    let nextUrl = "";
-    if (nextSong.path) {
-      nextUrl = nextSong.path;
-    } else if (nextSong.type === "streaming" && nextSong.streamUrl) {
-      nextUrl = nextSong.streamUrl;
-    } else if (typeof nextSong.id === "number") {
-      const songManager = useSongManager();
-      const prefetched =
-        songManager.peekPrefetch(nextSong.id) ?? (await songManager.prefetchNextSong());
-      if (prefetched?.id === nextSong.id && prefetched.url) {
-        nextUrl = prefetched.url;
-      }
-    }
-
-    if (!nextUrl) {
-      return undefined;
     }
 
     return {
-      ...this.buildAndroidTrackMetadata(nextSong),
-      url: nextUrl,
+      windowTracks: tracks,
+      windowCurrentIndex,
+      hasPreviousOutsideWindow: windowStart > 0,
+      hasNextOutsideWindow: windowEnd < sourceList.length - 1,
+      repeatMode: this.toAndroidRepeatMode(),
     };
   }
 
-  public async syncAndroidPlaybackContext(songOverride?: SongType) {
+  private toAndroidRepeatMode(): "off" | "all" | "one" {
+    const statusStore = useStatusStore();
+    if (statusStore.repeatMode === "one") return "one";
+    if (statusStore.repeatMode === "off") return "off";
+    return "all";
+  }
+
+  public async syncAndroidPlaybackContext(
+    songOverride?: SongType,
+    options?: { windowRefilled?: boolean },
+  ) {
     if (!isCapacitorAndroid) return;
 
     try {
@@ -762,20 +786,28 @@ class PlayerController {
       await AndroidNativePlayback.syncApiContext({
         apiBaseUrl: EMBEDDED_API_BASE_URL,
         cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
+        songLevel: settingStore.songLevel,
       });
       if (isStaleSong()) return;
 
-      let nextTrack:
-        | (AndroidNativeMetadataPayload & {
-            liked?: boolean;
-            url?: string;
-          })
-        | undefined;
-
+      let windowResult: {
+        windowTracks: AndroidNativeWindowTrack[];
+        windowCurrentIndex: number;
+        hasPreviousOutsideWindow: boolean;
+        hasNextOutsideWindow: boolean;
+        repeatMode: "off" | "all" | "one";
+      };
       try {
-        nextTrack = await this.buildAndroidQueuedNextTrack(song);
+        windowResult = this.buildAndroidWindowTracks(song);
       } catch (error) {
-        console.warn("[Android] failed to build next track context:", error);
+        console.warn("[Android] failed to build window tracks:", error);
+        windowResult = {
+          windowTracks: [],
+          windowCurrentIndex: -1,
+          hasPreviousOutsideWindow: false,
+          hasNextOutsideWindow: false,
+          repeatMode: this.toAndroidRepeatMode(),
+        };
       }
       if (isStaleSong()) return;
 
@@ -786,8 +818,8 @@ class PlayerController {
         controllerEnabled: settingStore.androidMediaControllerEnabled,
         desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
         desktopLyricEnabled: statusStore.showDesktopLyric,
-        repeatOne: statusStore.repeatMode === "one",
-        nextTrack,
+        ...windowResult,
+        windowRefilled: options?.windowRefilled === true,
       });
 
       await AndroidNativePlayback.updateNotificationPrefs({
@@ -801,6 +833,95 @@ class PlayerController {
     } catch (error) {
       console.warn("[Android] sync playback context failed:", error);
     }
+  }
+
+  /**
+   * Java 端 emit trackChanged 时调用：同步 statusStore.playIndex 到 payload.playListIndex。
+   * 覆盖 ENDED / 用户 NEXT / 用户 PREVIOUS 三种来源。
+   */
+  public async applyNativeTrackChanged(
+    playListIndex: number,
+    songId?: number,
+    liked?: boolean,
+    _source?: "auto" | "next" | "previous",
+  ) {
+    const dataStore = useDataStore();
+    const musicStore = useMusicStore();
+    const statusStore = useStatusStore();
+
+    let nextSong: SongType | undefined;
+
+    if (statusStore.personalFmMode) {
+      const fmList = musicStore.personalFM.list;
+      if (playListIndex >= 0 && playListIndex < fmList.length) {
+        musicStore.personalFM.playIndex = playListIndex;
+        nextSong = fmList[playListIndex];
+      }
+    } else {
+      const playList = dataStore.playList;
+      if (playListIndex >= 0 && playListIndex < playList.length) {
+        statusStore.playIndex = playListIndex;
+        nextSong = playList[playListIndex];
+      }
+    }
+
+    if (!nextSong) {
+      console.warn("[Android] applyNativeTrackChanged: playListIndex 越界，忽略", {
+        playListIndex,
+        songId,
+      });
+      return;
+    }
+
+    // songId 校验仅告警：playListIndex 为权威来源
+    if (typeof songId === "number" && typeof nextSong.id === "number" && songId !== nextSong.id) {
+      console.warn("[Android] applyNativeTrackChanged: songId 与 playListIndex 不一致", {
+        expected: songId,
+        actual: nextSong.id,
+        playListIndex,
+      });
+    }
+
+    if (typeof liked === "boolean" && typeof nextSong.id === "number") {
+      this.applySongLikeState(nextSong.id, liked);
+    }
+
+    this.setupSongUI(nextSong, 0);
+    statusStore.currentTime = 0;
+    statusStore.duration = nextSong.duration || 0;
+    statusStore.progress = 0;
+    statusStore.playLoading = false;
+    statusStore.playStatus = true;
+    await this.afterPlaySetup(nextSong);
+  }
+
+  /** Java emit requestUrls 触发：prefetch 一首后重推窗口。幂等。 */
+  public async refreshAndroidQueueWindow() {
+    if (!isCapacitorAndroid) return;
+    const dataStore = useDataStore();
+    const statusStore = useStatusStore();
+
+    // 末尾 ALL wrap：列表已到末尾且 ALL 模式，把 playIndex 重置到 0，再推 0±100 的窗口。
+    // Java 端在窗口完整覆盖全局列表（≤201 首）时能自治 wrap，但列表 >201 首时
+    // hasPreviousOutsideWindow=true 让 advanceRaw 不能 wrap，必须 JS 这里负责重置。
+    const playList = dataStore.playList;
+    if (
+      statusStore.repeatMode === "list" &&
+      !statusStore.personalFmMode &&
+      playList.length > 0 &&
+      statusStore.playIndex >= playList.length - 1
+    ) {
+      statusStore.playIndex = 0;
+    }
+
+    try {
+      const songManager = useSongManager();
+      await songManager.prefetchNextSong();
+    } catch (error) {
+      console.warn("[Android] refreshAndroidQueueWindow prefetch failed:", error);
+    }
+    // 重要：windowRefilled=true 让 Java 端区分本次推送属于补窗响应，才会消费 pendingResumeAfterRefill 续播。
+    await this.syncAndroidPlaybackContext(undefined, { windowRefilled: true });
   }
 
   public async applyNativeAutoNext(songId: number, liked?: boolean) {
@@ -855,10 +976,10 @@ class PlayerController {
       return;
     }
     if (!matchedById) {
-      console.warn("[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底", {
-        songId,
-        fallbackId: nextSong.id,
-      });
+      console.warn(
+        "[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底",
+        { songId, fallbackId: nextSong.id },
+      );
     }
 
     if (typeof liked === "boolean" && typeof nextSong.id === "number") {
@@ -989,10 +1110,11 @@ class PlayerController {
       // 同步状态到 Android 通知栏（仅在非原生 ExoPlayer 引擎下）
       if (isCapacitorAndroid) {
         if (useAudioManager().engineType !== "android-native") {
+          // statusStore 单位为秒，原生 API 用 ms
           void AndroidNativePlayback.syncRemoteState({
             playing: true,
-            positionMs: statusStore.currentTime,
-            durationMs: statusStore.duration,
+            positionMs: Math.max(0, Math.round(statusStore.currentTime * 1000)),
+            durationMs: Math.max(0, Math.round(statusStore.duration * 1000)),
           });
         }
         this.syncFloatingLyricProgress(statusStore.currentTime, true);
@@ -1014,10 +1136,11 @@ class PlayerController {
       // 同步状态到 Android 通知栏（仅在非原生 ExoPlayer 引擎下）
       if (isCapacitorAndroid) {
         if (useAudioManager().engineType !== "android-native") {
+          // statusStore 单位为秒，原生 API 用 ms
           void AndroidNativePlayback.syncRemoteState({
             playing: false,
-            positionMs: statusStore.currentTime,
-            durationMs: statusStore.duration,
+            positionMs: Math.max(0, Math.round(statusStore.currentTime * 1000)),
+            durationMs: Math.max(0, Math.round(statusStore.duration * 1000)),
           });
         }
         this.syncFloatingLyricProgress(statusStore.currentTime, false);
@@ -1050,18 +1173,6 @@ class PlayerController {
       const rawTime = audioManager.currentTime;
       const currentTime = Math.floor(rawTime * 1000);
       const duration = Math.floor(audioManager.duration * 1000) || statusStore.duration;
-      // Seek 防护：seek 后 3 秒内，若原生上报的位置与目标偏差过大则丢弃
-      if (isCapacitorAndroid && this.lastSeekTimestamp > 0) {
-        const elapsed = Date.now() - this.lastSeekTimestamp;
-        if (elapsed < 3000) {
-          const drift = Math.abs(currentTime - this.lastSeekTargetMs);
-          if (drift > 3000) {
-            return;
-          }
-        } else {
-          this.lastSeekTimestamp = 0;
-        }
-      }
       // 计算歌词索引
       const songId = musicStore.playSong?.id;
       const offset = statusStore.getSongOffset(songId);
@@ -1309,7 +1420,12 @@ class PlayerController {
     const audioManager = useAudioManager();
     // 立即显示加载状态
     statusStore.playLoading = true;
-    audioManager.stop();
+    // Android 原生用 pause 替代 stop：避免 ExoPlayer 全链路重置，少一次 JNI 往返
+    if (audioManager.engineType === "android-native") {
+      audioManager.pause({ fadeOut: false });
+    } else {
+      audioManager.stop();
+    }
     // 私人FM
     if (statusStore.personalFmMode) {
       await songManager.initPersonalFM(true);
@@ -1396,15 +1512,6 @@ class PlayerController {
     const knownDuration = this.getDuration();
     const safeTime =
       knownDuration > 0 ? Math.max(0, Math.min(time, knownDuration)) : Math.max(0, time);
-    // 调试：追踪 seek-to-zero
-    if (safeTime < 100 && statusStore.currentTime > 3000) {
-      console.warn(
-        `[PC] setSeek BLOCKED: time=${time} safeTime=${safeTime} current=${statusStore.currentTime} stack=${new Error().stack?.split("\n").slice(1, 4).join(" <- ")}`,
-      );
-      return;
-    }
-    this.lastSeekTimestamp = Date.now();
-    this.lastSeekTargetMs = safeTime;
     audioManager.seek(safeTime / 1000);
     statusStore.currentTime = safeTime;
     mediaSessionManager.updateState(this.getDuration(), safeTime, true);
@@ -1834,6 +1941,33 @@ class PlayerController {
   }
 
   /**
+   * 频谱采集引用计数：多组件共享时，任一 unmount 不直接关闭 Visualizer。
+   */
+  private visualizerRefCount = 0;
+
+  /**
+   * 申请/释放频谱采集，引用计数管理生命周期。
+   * PC 端 AnalyserNode 常驻为 no-op；Android 端 0→1 启动 FFT、1→0 停止。
+   */
+  public async acquireVisualizer(): Promise<boolean> {
+    this.visualizerRefCount += 1;
+    if (this.visualizerRefCount === 1) {
+      const audioManager = useAudioManager();
+      return audioManager.enableVisualizer(true);
+    }
+    return true;
+  }
+
+  public releaseVisualizer(): void {
+    if (this.visualizerRefCount <= 0) return;
+    this.visualizerRefCount -= 1;
+    if (this.visualizerRefCount === 0) {
+      const audioManager = useAudioManager();
+      void audioManager.enableVisualizer(false);
+    }
+  }
+
+  /**
    * 获取低频音量 [0.0-1.0]
    * 用于驱动背景动画等视觉效果
    */
@@ -1936,18 +2070,30 @@ class PlayerController {
 
   /**
    * 同步歌词数据到 Android 悬浮歌词
+   *
+   * YRC 数据 JSON.stringify 同步开销可达 20-100ms，紧贴 setSongLyric 之后执行会和切歌的
+   * 响应式扇出、AMLL setLyricLines 抢主线程，推到 idle 帧执行让 UI 先把切歌动画跑完。
    */
   public syncFloatingLyricData() {
     if (!isCapacitorAndroid) return;
     const statusStore = useStatusStore();
     if (!statusStore.showDesktopLyric) return;
-    const musicStore = useMusicStore();
-    const lrcData = toRaw(musicStore.songLyric.lrcData ?? []);
-    const yrcData = toRaw(musicStore.songLyric.yrcData ?? []);
-    AndroidNativePlayback.updateFloatingLyricData({
-      lrcData: JSON.stringify(lrcData),
-      yrcData: JSON.stringify(yrcData),
-    }).catch(() => {});
+    const run = () => {
+      const musicStore = useMusicStore();
+      const lrcData = toRaw(musicStore.songLyric.lrcData ?? []);
+      const yrcData = toRaw(musicStore.songLyric.yrcData ?? []);
+      AndroidNativePlayback.updateFloatingLyricData({
+        lrcData: JSON.stringify(lrcData),
+        yrcData: JSON.stringify(yrcData),
+      }).catch(() => {});
+    };
+    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
+      .requestIdleCallback;
+    if (typeof ric === "function") {
+      ric(() => run(), { timeout: 500 });
+    } else {
+      setTimeout(run, 0);
+    }
   }
 
   /**

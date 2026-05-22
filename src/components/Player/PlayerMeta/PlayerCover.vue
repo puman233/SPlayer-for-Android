@@ -40,11 +40,17 @@
         v-if="dynamicCover && settingStore.dynamicCover && settingStore.playerType === 'cover'"
         ref="videoRef"
         :src="dynamicCover"
+        :poster="getCoverUrl('l')"
         :class="['dynamic-cover', { loaded: dynamicCoverLoaded }]"
         muted
         autoplay
+        playsinline
+        preload="auto"
+        disablepictureinpicture
         @loadeddata="dynamicCoverLoaded = true"
         @ended="dynamicCoverEnded"
+        @error="onDynamicCoverError"
+        @stalled="onDynamicCoverError"
       />
     </Transition>
   </div>
@@ -115,10 +121,10 @@ const getLocalCover = async () => {
     return;
   }
   try {
-    const coverData = await window.electron.ipcRenderer.invoke(
+    const coverData = (await window.electron.ipcRenderer.invoke(
       "get-music-cover",
       musicStore.playSong.path,
-    );
+    )) as { data: ArrayBuffer; format: string } | null;
     if (coverData) {
       // 使用 Data URL，确保跨窗口可用
       const blob = new Blob([coverData.data], { type: coverData.format });
@@ -153,7 +159,8 @@ const getDynamicCover = async () => {
   dynamicCoverLoaded.value = false;
   const result = await songDynamicCover(musicStore.playSong.id);
   if (!isEmpty(result.data) && result?.data?.videoPlayUrl) {
-    dynamicCover.value = result.data.videoPlayUrl;
+    // 升级 https 避免 HTTPS 页面 Mixed Content 拦截
+    dynamicCover.value = String(result.data.videoPlayUrl).replace(/^http:\/\//i, "https://");
   } else {
     dynamicCover.value = "";
   }
@@ -163,6 +170,12 @@ const getDynamicCover = async () => {
 const dynamicCoverEnded = () => {
   dynamicCoverLoaded.value = false;
   dynamicCoverStart();
+};
+
+// 加载/解码失败兜底：清 src 让 v-if 卸载，避免原生播放按钮占位或花屏残帧
+const onDynamicCoverError = () => {
+  cleanupDynamicCover();
+  dynamicCoverStop();
 };
 
 // 获取封面 URL

@@ -40,13 +40,26 @@ const player = usePlayerController();
 
 // 低频音量
 const lowFreqVolume = ref(1.0);
+let smoothedLowFreqVolume = 0;
+
+const LOW_FREQ_GAIN = 1.85;
+const LOW_FREQ_ATTACK = 0.38;
+const LOW_FREQ_RELEASE = 0.045;
+const LOW_FREQ_DEAD_ZONE = 0.015;
+
+// 文档可见性：后台/锁屏时全链路降耗。前台启动默认 visible（SSR/无 document 兜底为 true）
+const documentVisible = ref(typeof document === "undefined" || document.visibilityState === "visible");
+const onVisibility = () => {
+  documentVisible.value = document.visibilityState === "visible";
+};
 
 const flowSpeed = computed(() => {
+  if (!documentVisible.value) return 0;
   if (!statusStore.playStatus && settingStore.playerBackgroundPause) return 0;
   else return settingStore.playerBackgroundFlowSpeed ?? 4;
 });
 
-// 更新低频音量
+// AMLL Core 背景动效驱动值：80-120Hz 低频限幅平滑到 [0,1]，未启用时回落 1.0
 const { pause: pauseRaf, resume: resumeRaf } = useRafFn(
   () => {
     if (
@@ -54,32 +67,64 @@ const { pause: pauseRaf, resume: resumeRaf } = useRafFn(
       settingStore.playerBackgroundType === "animation" &&
       statusStore.playStatus
     ) {
-      lowFreqVolume.value = player.getLowFrequencyVolume();
+      const rawValue = Math.max(0, Math.min(1, player.getLowFrequencyVolume()));
+      const targetValue = rawValue <= LOW_FREQ_DEAD_ZONE ? 0 : rawValue * LOW_FREQ_GAIN;
+      const smoothFactor = targetValue > smoothedLowFreqVolume ? LOW_FREQ_ATTACK : LOW_FREQ_RELEASE;
+      smoothedLowFreqVolume += smoothFactor * (targetValue - smoothedLowFreqVolume);
+      lowFreqVolume.value = smoothedLowFreqVolume;
     }
   },
   { immediate: false },
 );
 
-// 启动或暂停 RAF
+// 避免重复 acquire/release
+let visualizerHeld = false;
+const acquireFreq = () => {
+  if (visualizerHeld) return;
+  visualizerHeld = true;
+  void player.acquireVisualizer();
+};
+const releaseFreq = () => {
+  if (!visualizerHeld) return;
+  visualizerHeld = false;
+  player.releaseVisualizer();
+};
+
+// RAF 启停 + 频谱采集 acquire/release（仅 Android 原生有效）；后台立即全释放
 watch(
   () => [
     settingStore.playerBackgroundLowFreqVolume,
     settingStore.playerBackgroundType,
     statusStore.playStatus,
+    documentVisible.value,
   ],
-  ([enabled, bgType, playing]) => {
-    if (enabled && bgType === "animation") {
+  ([enabled, bgType, playing, visible]) => {
+    const needFreq = enabled && bgType === "animation" && visible;
+    if (needFreq) {
+      acquireFreq();
       playing ? resumeRaf() : pauseRaf();
     } else {
       pauseRaf();
+      smoothedLowFreqVolume = 0;
       lowFreqVolume.value = 1.0;
+      releaseFreq();
     }
   },
   { immediate: true },
 );
 
+onMounted(() => {
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", onVisibility);
+  }
+});
+
 onBeforeUnmount(() => {
   pauseRaf();
+  releaseFreq();
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", onVisibility);
+  }
 });
 </script>
 

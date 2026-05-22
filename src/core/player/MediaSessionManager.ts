@@ -160,9 +160,25 @@ class MediaSessionManager {
           case "collapse":
             break;
           case "autoNext":
+            // 旧路径兼容：新队列走 trackChanged
             if (typeof event.songId === "number") {
               void player.applyNativeAutoNext(event.songId, event.liked);
             }
+            break;
+          case "trackChanged":
+            // Java 切歌通知：用 playListIndex 直接定位
+            if (typeof event.playListIndex === "number" && event.playListIndex >= 0) {
+              void player.applyNativeTrackChanged(
+                event.playListIndex,
+                typeof event.songId === "number" ? event.songId : undefined,
+                event.liked,
+                event.source,
+              );
+            }
+            break;
+          case "requestUrls":
+            // 窗口耗尽：补 prefetch 后重推窗口
+            void player.refreshAndroidQueueWindow();
             break;
         }
       },
@@ -187,10 +203,12 @@ class MediaSessionManager {
   public async syncAndroidApiContext() {
     if (!isCapacitorAndroid) return;
 
+    const settingStore = useSettingStore();
     const musicCookie = getCookie("MUSIC_U");
     await AndroidNativePlayback.syncApiContext({
       apiBaseUrl: EMBEDDED_API_BASE_URL,
       cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
+      songLevel: settingStore.songLevel,
     });
   }
 
@@ -394,7 +412,12 @@ class MediaSessionManager {
       // 不再通过 syncRemoteState 覆盖为 remote mode。
       const engineType = useAudioManager().engineType;
       if (engineType !== "android-native") {
-        this.throttledSyncAndroidRemoteState(true, position, duration);
+        // 秒 → ms（原生 API 统一 ms）
+        this.throttledSyncAndroidRemoteState(
+          true,
+          Math.max(0, Math.round(position * 1000)),
+          Math.max(0, Math.round(duration * 1000)),
+        );
       }
       return;
     }

@@ -107,12 +107,42 @@ const currentSongId = computed(() => musicStore.playSong?.id as number | undefin
 // 实时播放进度
 const playSeek = ref<number>(player.getSeek() + statusStore.getSongOffset(musicStore.playSong?.id));
 
-// 实时更新播放进度
-const { pause: pauseSeek, resume: resumeSeek } = useRafFn(() => {
+// 立即同步真实播放位置（不等下帧 rAF）
+const syncPlaySeek = () => {
   const songId = musicStore.playSong?.id;
   const offsetTime = statusStore.getSongOffset(songId);
   playSeek.value = player.getSeek() + offsetTime;
+};
+
+// 实时更新播放进度
+const { pause: pauseSeek, resume: resumeSeek } = useRafFn(syncPlaySeek, { immediate: false });
+
+// 仅播放中 + 可见时跑 60Hz rAF，暂停/后台时全零避免手机发热
+const updateSeekRunning = () => {
+  const visible = typeof document === "undefined" || document.visibilityState === "visible";
+  if (statusStore.playStatus && visible) {
+    resumeSeek();
+  } else {
+    pauseSeek();
+    syncPlaySeek();
+  }
+};
+
+const onVisibility = () => {
+  if (document.visibilityState === "visible") syncPlaySeek();
+  updateSeekRunning();
+};
+// 切曲 player seek 尚未重置，先归零等 tick 稳定后再同步
+watch(currentSongId, async () => {
+  playSeek.value = statusStore.getSongOffset(musicStore.playSong?.id);
+  await nextTick();
+  syncPlaySeek();
 });
+watch(
+  () => statusStore.getSongOffset(currentSongId.value),
+  () => syncPlaySeek(),
+);
+watch(() => statusStore.playStatus, updateSeekRunning);
 
 /**
  * 当前进度偏移值
@@ -153,11 +183,13 @@ const resetOffset = () => {
 };
 
 onMounted(() => {
-  resumeSeek();
+  updateSeekRunning();
+  document.addEventListener("visibilitychange", onVisibility);
 });
 
 onBeforeUnmount(() => {
   pauseSeek();
+  document.removeEventListener("visibilitychange", onVisibility);
 });
 </script>
 
