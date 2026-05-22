@@ -218,6 +218,31 @@ public final class PlaybackQueue {
     return out;
   }
 
+  /**
+   * 取窗口内当前曲目之后 N 首已 resolved 的 URL 列表（!skipSong）。<br>
+   * 供 Java 端音频字节预载用：锁屏 / WebView 冻结时仍能保证下一首切歌秒响。
+   */
+  public synchronized List<String> peekUpcomingResolvedUrls(int count) {
+    List<String> out = new ArrayList<>(count);
+    if (windowTracks.isEmpty() || windowCurrentIndex < 0) return out;
+    for (int i = windowCurrentIndex + 1; i < windowTracks.size() && out.size() < count; i++) {
+      Track t = windowTracks.get(i);
+      if (t.url != null && !t.url.isEmpty() && !t.skipSong) out.add(t.url);
+    }
+    return out;
+  }
+
+  /** 用 songId 在窗口里查找 Track 的当前 URL；找不到 / 未解析返 null。 */
+  @Nullable
+  public synchronized String findUrlBySongId(long songId) {
+    for (Track t : windowTracks) {
+      if (t.songId == songId) {
+        return t.url;
+      }
+    }
+    return null;
+  }
+
   /** 用 songId 在窗口里查找 Track 并就地写回 url（UrlResolver 解析完成回调用）。 */
   public synchronized boolean updateTrackUrl(long songId, @Nullable String url) {
     if (url == null || url.isEmpty()) return false;

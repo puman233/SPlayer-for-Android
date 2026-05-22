@@ -30,6 +30,8 @@
 </template>
 
 <script setup lang="ts">
+import { useCoverCache } from "@/composables/useCoverCache";
+
 const props = withDefaults(
   defineProps<{
     /** 图片地址 */
@@ -54,6 +56,16 @@ const props = withDefaults(
     crossorigin?: "" | "anonymous" | "use-credentials" | undefined;
     /** 圆角 */
     round?: boolean;
+    /**
+     * 封面缓存类型（仅 Android 生效）
+     * - "covers"：歌曲封面（需要持久化缓存）
+     * - "list-covers"：歌单 / 专辑 / 电台等列表封面
+     * - "none"：默认；禁用本地缓存（直接走原始 url）
+     *
+     * 设计原则：默认 "none" 不污染缓存桶。仅在确实是歌曲封面的调用点显式传 "covers"，
+     * 列表场景显式传 "list-covers"。这样 MV 缩略图 / 头像 / 主题预览等非封面图片不会进缓存目录。
+     */
+    cacheType?: "covers" | "list-covers" | "none";
   }>(),
   {
     defaultSrc: "/images/song.jpg?asset",
@@ -62,8 +74,17 @@ const props = withDefaults(
     decodeAsync: true,
     nativeLazy: true,
     objectFit: "cover",
+    cacheType: "none",
   },
 );
+
+// Android 端命中本地封面缓存返回 blob URL，未命中时后台下载并保存；其他平台直接透传 src。
+// cacheType="none" 时退化为透传，避免大图（背景模糊）走 base64 IPC 浪费 CPU/内存。
+const srcRef = computed(() => props.src);
+const cachedSrc =
+  props.cacheType === "none"
+    ? srcRef
+    : useCoverCache(srcRef, props.cacheType);
 
 const emit = defineEmits<{
   // 加载完成
@@ -122,11 +143,12 @@ watch(
       emit("update:show", show);
     }
     if (show) {
-      // 进入可视区再加载，避免重复赋值
-      if (imgSrc.value !== props.src) {
+      // 进入可视区再加载，避免重复赋值；优先用缓存命中后的 src
+      const target = cachedSrc.value;
+      if (imgSrc.value !== target) {
         loadToken.value += 1;
         currentToken.value = loadToken.value;
-        imgSrc.value = props.src;
+        imgSrc.value = target;
       }
     } else if (props.releaseOnHide) {
       // 释放图片以回收内存
@@ -136,9 +158,9 @@ watch(
   { immediate: true },
 );
 
-// 监听 src 变化
+// 监听 src 变化（含异步缓存命中后的 src 升级）
 watch(
-  () => props.src,
+  () => cachedSrc.value,
   (val) => {
     isLoaded.value = false;
     // 不同值时才进行赋值，减少重绘

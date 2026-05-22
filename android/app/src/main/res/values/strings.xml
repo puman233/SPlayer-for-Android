@@ -12,4 +12,6 @@
     <string name="playback_notification_favorite">Favorite</string>
     <string name="playback_notification_desktop_lyric">Desktop lyric</string>
     <string name="playback_notification_collapse">Collapse</string>
+    <string name="attribution_playback">Background music playback</string>
+    <string name="attribution_cache">Local media cache</string>
 </resources>

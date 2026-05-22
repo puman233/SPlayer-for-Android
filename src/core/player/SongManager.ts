@@ -10,7 +10,9 @@ import {
 } from "@/stores";
 import { QualityType, type SongType, type AudioSourceType } from "@/types/main";
 import { isLogin } from "@/utils/auth";
-import { isElectron } from "@/utils/env";
+import { isCapacitorAndroid, isElectron } from "@/utils/env";
+import { AndroidNativePlayback } from "@/plugins/androidNativePlayback";
+import { prefetchCoverToCache } from "@/composables/useCoverCache";
 import { formatSongsList } from "@/utils/format";
 import { AI_AUDIO_LEVELS } from "@/utils/meta";
 import { handleSongQuality } from "@/utils/helper";
@@ -56,47 +58,26 @@ class SongManager {
     return this.nextPrefetch;
   }
 
+  /**
+   * 获取本地音频缓存路径。
+   *
+   * <p>Android-only 架构下：音频缓存由 ExoPlayer SimpleCache 在 Java 端自动接管，
+   * TS 侧不需要主动查询/下载。这里返 null 让上层出口走原始 URL，
+   * 由 ExoPlayer CacheDataSource 内部检查是否命中缓存。
+   */
   public async getMusicCachePath(
-    id: number | string,
-    quality?: QualityType | string,
+    _id: number | string,
+    _quality?: QualityType | string,
   ): Promise<string | null> {
-    const settingStore = useSettingStore();
-    if (!isElectron || !settingStore.cacheEnabled || !settingStore.songCacheEnabled) return null;
-    try {
-      return await window.electron.ipcRenderer.invoke("music-cache-check", id, quality);
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   public async ensureMusicCachePath(
-    id: number | string,
-    url: string | undefined,
-    quality?: QualityType | string,
+    _id: number | string,
+    _url: string | undefined,
+    _quality?: QualityType | string,
   ): Promise<string | null> {
-    const existing = await this.getMusicCachePath(id, quality);
-    if (existing) return existing;
-    if (!url) return null;
-
-    const settingStore = useSettingStore();
-    if (!isElectron || !settingStore.cacheEnabled || !settingStore.songCacheEnabled) return null;
-    try {
-      const result: unknown = await window.electron.ipcRenderer.invoke(
-        "music-cache-download",
-        id,
-        url,
-        quality || "standard",
-      );
-      if (result && typeof result === "object") {
-        const record = result as Record<string, unknown>;
-        if (record.success === true && typeof record.path === "string") {
-          return record.path;
-        }
-      }
-    } catch {
-      return null;
-    }
-    return await this.getMusicCachePath(id);
+    return null;
   }
 
   /**
@@ -117,7 +98,7 @@ class SongManager {
     if (song.cover && !coverUrls.includes(song.cover)) {
       coverUrls.push(song.cover);
     }
-    // 预加载图片
+    // 预加载图片：浏览器 HTTP 缓存 warm-up
     coverUrls.forEach((url) => {
       if (!url || !url.startsWith("http")) return;
       const img = new Image();
@@ -130,50 +111,34 @@ class SongManager {
       img.onerror = cleanup;
       img.src = url;
     });
+    // Android 额外写入 covers/ 本地缓存：下一首切过去 s-image 立刻命中 blob URL、
+    // 不依赖浏览器 HTTP 缓存（Capacitor WebView 的 disk cache 在重启后会丢）。
+    // 只预下载主封面（列表组件主要用 coverSize.s/m，s-image 用 coverSize.l/xl）。
+    if (isCapacitorAndroid) {
+      const primary =
+        song.coverSize?.l ||
+        song.coverSize?.xl ||
+        song.coverSize?.m ||
+        song.cover;
+      void prefetchCoverToCache(primary, "covers");
+    }
   }
 
   /**
-   * 检查本地缓存
-   * @param id 歌曲id
-   * @param quality 音质
-   * @param md5 歌曲文件md5
+   * 检查本地音频缓存 —— Android-only 架构下交由 ExoPlayer SimpleCache 自动处理。
+   * 返 null 让上层走原始 URL，底层 CacheDataSource 会自动命中本地缓存文件不重走网络。
    */
   private checkLocalCache = async (
-    id: number,
-    quality?: QualityType,
-    md5?: string,
+    _id: number,
+    _quality?: QualityType,
+    _md5?: string,
   ): Promise<string | null> => {
-    const settingStore = useSettingStore();
-    if (isElectron && settingStore.cacheEnabled && settingStore.songCacheEnabled) {
-      try {
-        const cachePath = await window.electron.ipcRenderer.invoke(
-          "music-cache-check",
-          id,
-          quality,
-          md5,
-        );
-        if (cachePath) {
-          console.log(`🚀 [${id}] 由本地音乐缓存提供`);
-          return `file://${cachePath}`;
-        }
-      } catch (e) {
-        console.error(`❌ [${id}] 检查缓存失败:`, e);
-      }
-    }
     return null;
   };
 
-  /**
-   * 触发缓存下载
-   * @param id 歌曲id
-   * @param url 下载地址
-   * @param quality 音质
-   */
-  private triggerCacheDownload = (id: number, url: string, quality?: QualityType | string) => {
-    const settingStore = useSettingStore();
-    if (isElectron && settingStore.cacheEnabled && settingStore.songCacheEnabled && url) {
-      window.electron.ipcRenderer.invoke("music-cache-download", id, url, quality || "standard");
-    }
+  /** 主动下载调用点 —— Android-only 架构下不需要，留空实现避免业务侧大改。 */
+  private triggerCacheDownload = (_id: number, _url: string, _quality?: QualityType | string) => {
+    // no-op: ExoPlayer CacheDataSource 边播边缓存
   };
 
   /**
@@ -386,6 +351,10 @@ class SongManager {
             quality,
             source: "official",
           };
+          // Android 预下载音频前 512KB 到 SimpleCache：FM 下一首秒响
+          if (isCapacitorAndroid) {
+            void AndroidNativePlayback.prefetchAudio({ url }).catch(() => {});
+          }
           return this.nextPrefetch;
         }
         return;
@@ -432,6 +401,11 @@ class SongManager {
       const canUnlock = isElectron && nextSong.type !== "radio" && settingStore.useSongUnlock;
       // 先请求官方地址
       const { url: officialUrl, isTrial, quality } = await this.getOnlineUrl(songId, false);
+      // Android 端主动预下载音频前 512KB：下一首切歌后 ExoPlayer setMediaItem 可不走网络手口
+      const triggerAudioPrefetch = (audioUrl: string | undefined) => {
+        if (!isCapacitorAndroid || !audioUrl || !audioUrl.startsWith("http")) return;
+        void AndroidNativePlayback.prefetchAudio({ url: audioUrl }).catch(() => {});
+      };
       if (officialUrl && !isTrial) {
         // 官方可播放且非试听
         this.nextPrefetch = {
@@ -441,16 +415,19 @@ class SongManager {
           quality,
           source: "official",
         };
+        triggerAudioPrefetch(officialUrl);
         return this.nextPrefetch;
       } else if (canUnlock) {
         // 官方失败或为试听时尝试解锁
         const unlockUrl = await this.getUnlockSongUrl(nextSong);
         if (unlockUrl.url) {
           this.nextPrefetch = { id: songId, url: unlockUrl.url, isUnlocked: true };
+          triggerAudioPrefetch(unlockUrl.url);
           return this.nextPrefetch;
         } else if (officialUrl && settingStore.playSongDemo) {
           // 解锁失败，若官方为试听且允许试听，保留官方试听地址
           this.nextPrefetch = { id: songId, url: officialUrl, source: "official" };
+          triggerAudioPrefetch(officialUrl);
           return this.nextPrefetch;
         } else {
           return;
@@ -458,6 +435,7 @@ class SongManager {
       } else {
         // 不可解锁，仅保留官方结果（可能为空）
         this.nextPrefetch = { id: songId, url: officialUrl, source: "official" };
+        triggerAudioPrefetch(officialUrl);
         return this.nextPrefetch;
       }
     } catch (error) {

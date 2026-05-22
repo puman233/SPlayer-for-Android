@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  排除以下数据：
+  - cache / external_cache：体积膨胀且语义无需迁移
+  - WebView 内部存储（app_webview）：含登录态 cookie / localStorage / IndexedDB 等敏感数据，
+    跨设备恢复会泄露账号会话（修复 #5 隐私风险）
+  - Capacitor 的 SharedPreferences (CapacitorStorage)：用户偏好可重建，且部分设置含 API 配置
+  其余如音乐设置、播放历史等无敏感字段的 prefs 仍允许备份，方便重装恢复体验。
+-->
+<full-backup-content>
+    <exclude domain="cache" />
+    <exclude domain="external_cache" />
+    <exclude domain="file" path="app_webview/" />
+    <exclude domain="database" path="webview.db" />
+    <exclude domain="database" path="webviewCookiesChromium.db" />
+    <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+</full-backup-content>

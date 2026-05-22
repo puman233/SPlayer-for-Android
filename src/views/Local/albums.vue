@@ -16,6 +16,7 @@
             v-if="!settingStore.hiddenCovers.album"
             :key="item?.[0]?.cover"
             :src="item?.[0]?.cover || '/images/album.jpg?asset'"
+            cache-type="list-covers"
             class="cover"
           />
         </Transition>

@@ -14,7 +14,7 @@
     >
       <template #header>
         <div class="menu-header">
-          <s-image :src="currentSong?.coverSize?.s" class="cover" />
+          <s-image :src="currentSong?.coverSize?.s" cache-type="covers" class="cover" />
           <div class="info">
             <div class="name text-hidden">{{ currentSong?.name }}</div>
             <div class="artist text-hidden">{{ songArtist }}</div>

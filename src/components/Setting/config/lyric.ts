@@ -534,7 +534,7 @@ export const useLyricSettings = (): SettingConfig => {
             label: "启用在线 TTML 歌词",
             type: "switch",
             description:
-              "是否从 AMLL TTML DB 获取歌词（如有），TTML 歌词支持逐字、翻译、音译等功能，将会在下一首歌生效",
+              "是否从 AMLL TTML DB 获取歌词（如有），TTML 歌词支持逐字、翻译、音译等功能，将会在下一首歌生效。命中后自动写入歌词缓存，重播无需再请求。",
             tags: [{ text: "Beta", type: "warning" }],
             value: computed({
               get: () => settingStore.enableOnlineTTMLLyric,

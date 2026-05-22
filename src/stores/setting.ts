@@ -107,6 +107,11 @@ export interface SettingState {
   cacheEnabled: boolean;
   /** 是否缓存歌曲（音频文件） */
   songCacheEnabled: boolean;
+  /**
+   * 最大缓存上限（MB）。仅 Android 端生效。
+   * 默认 5120 MB = 5 GB；下限 256 MB；无代码硬上限（超过 freeBytes×0.9 仅二次确认，不阻拦）。
+   */
+  maxCacheSizeMB: number;
   /** 音乐命名格式 */
   fileNameFormat: "title" | "artist-title" | "title-artist";
   /** 文件智能分类 */
@@ -661,6 +666,7 @@ export const useSettingStore = defineStore("setting", {
     downloadThreadCount: 8,
     cacheEnabled: true,
     songCacheEnabled: true,
+    maxCacheSizeMB: 5120,
     fileNameFormat: "title-artist",
     folderStrategy: "none",
     downloadMeta: true,

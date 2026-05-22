@@ -19,6 +19,7 @@
               :default-src="
                 type !== 'video' ? '/images/album.jpg?asset' : '/images/video.jpg?asset'
               "
+              cache-type="list-covers"
               class="cover-img"
               once
             />

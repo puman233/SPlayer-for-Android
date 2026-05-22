@@ -18,12 +18,14 @@
             <s-image
               :src="item.coverSize?.m || item.cover"
               default-src="/images/artist.jpg?asset"
+              cache-type="list-covers"
               class="cover-img"
             />
-            <!-- 封面背板 -->
+            <!-- 封面背板：与主封面同 source，走 list-covers同步命中 -->
             <s-image
               :src="item.coverSize?.m || item.cover"
               default-src="/images/artist.jpg?asset"
+              cache-type="list-covers"
               class="cover-shadow"
             />
             <!-- 图标 -->

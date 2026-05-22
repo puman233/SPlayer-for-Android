@@ -356,6 +356,21 @@ const handleOnlinePlaylist = async (id: number, getList: boolean, refresh: boole
       setListData(cached.songs);
       setLoading(false);
 
+      // 修复 #9：partial cache 走续传路径，不丢弃已有 songs。
+      // 续传从 cached.songs.length 偏移开始，避免重拉前 N 首已经有的数据。
+      if (!cached.complete) {
+        const total = cached.detail?.count || 0;
+        const startOffset = cached.songs.length;
+        if (total > 0 && startOffset < total) {
+          console.log(
+            `🔄 Resume partial playlist: ${startOffset}/${total} cached, continuing...`,
+          );
+          // fire-and-forget：UI 已显示缓存数据，续传在后台拉剩余页
+          void getPlaylistAllSongs(id, total, /* refresh= */ false, /* startOffset= */ startOffset);
+          return;
+        }
+      }
+
       // 后台检查更新
       backgroundCheck(id, cached);
       return;
@@ -415,14 +430,20 @@ const getPlaylistAllSongs = async (
   count: number,
   // 是否为刷新列表
   refresh: boolean = false,
+  // 续传起始 offset（修复 #9）：从已缓存条数开始拉，避免全量重拉
+  startOffset: number = 0,
 ) => {
   setLoading(true);
   // 加载提示
   loadingMsgShow(!refresh, count);
   // 循环获取
-  let offset: number = 0;
+  let offset: number = startOffset;
   const limit: number = 500;
-  const listDataArray: SongType[] = [];
+  // 续传场景下，把已有 listData 作为基底；非续传场景下从空开始
+  const listDataArray: SongType[] = startOffset > 0 ? [...listData.value] : [];
+  // 节流参数（修复 #6 O(N²) 序列化）：首次必存 + ≥2s 才存 + 最后一页必存
+  let lastSaveAt = 0;
+  const SAVE_THROTTLE_MS = 2000;
   do {
     // 检查是否仍然是当前请求的歌单
     if (currentRequestId.value !== id) {
@@ -442,6 +463,17 @@ const getPlaylistAllSongs = async (
     }
     // 更新数据
     offset += limit;
+    // 增量保存缓存（节流：避免 O(N²) 序列化）
+    const isLastPage = offset >= count;
+    const now = Date.now();
+    const shouldSave =
+      detailData.value &&
+      listDataArray.length > 0 &&
+      (lastSaveAt === 0 || isLastPage || now - lastSaveAt >= SAVE_THROTTLE_MS);
+    if (shouldSave && detailData.value) {
+      saveCache("playlist", id, detailData.value, listDataArray, isLastPage);
+      lastSaveAt = now;
+    }
   } while (offset < count && isPlaylistPage.value && currentRequestId.value === id);
   // 最终检查是否仍然是当前请求的歌单
   if (currentRequestId.value !== id) {
@@ -449,11 +481,6 @@ const getPlaylistAllSongs = async (
     return;
   }
   if (refresh) setListData(listDataArray);
-  // 保存缓存
-  if (detailData.value && listDataArray.length > 0) {
-    saveCache("playlist", id, detailData.value, listDataArray);
-  }
-
   // 关闭加载
   loadingMsgShow(false);
 };

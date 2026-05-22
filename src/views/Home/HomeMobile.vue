@@ -44,7 +44,7 @@
           @click="router.push({ path: `/playlist`, query: { id: item.id } })"
         >
           <div class="playlist-cover">
-            <s-image :src="item.cover" class="cover-img" />
+            <s-image :src="item.cover" cache-type="list-covers" class="cover-img" />
             <div class="play-count">
               <SvgIcon name="Play" :size="12" />
               {{ formatPlayCount(item.playCount) }}
@@ -71,7 +71,7 @@
           @click="router.push({ path: `/album`, query: { id: item.id } })"
         >
           <div class="album-cover">
-            <s-image :src="item.cover" class="cover-img" />
+            <s-image :src="item.cover" cache-type="list-covers" class="cover-img" />
           </div>
           <div class="album-name">{{ item.name }}</div>
           <div class="album-artist">{{ item.artist }}</div>
@@ -95,7 +95,7 @@
           @click="router.push({ path: `/artist`, query: { id: item.id } })"
         >
           <div class="artist-avatar">
-            <s-image :src="item.cover" class="avatar-img" />
+            <s-image :src="item.cover" cache-type="list-covers" class="avatar-img" />
           </div>
           <div class="artist-name">{{ item.name }}</div>
         </div>
@@ -118,7 +118,7 @@
           @click="router.push({ path: `/video`, query: { id: item.id } })"
         >
           <div class="video-cover">
-            <s-image :src="item.cover" class="cover-img" />
+            <s-image :src="item.cover" cache-type="list-covers" class="cover-img" />
             <div class="video-duration">{{ item.duration }}</div>
             <div class="play-overlay">
               <SvgIcon name="Play" :size="32" />
@@ -141,7 +141,7 @@
     <div v-if="error" class="error-state">
       <n-empty description="加载失败，请检查网络连接" size="large">
         <template #extra>
-          <n-button @click="loadAllData">重新加载</n-button>
+          <n-button @click="() => loadAllData(true)">重新加载</n-button>
         </template>
       </n-empty>
     </div>
@@ -153,12 +153,28 @@ import { useDataStore, useSettingStore } from "@/stores";
 import { personalized, newAlbumsAll, topArtists } from "@/api/rec";
 import { allMv } from "@/api/video";
 import { isLogin } from "@/utils/auth";
+import { useCacheManager } from "@/core/resource/CacheManager";
+import { prefetchListCovers } from "@/composables/useCoverCache";
 import SvgIcon from "@/components/Global/SvgIcon.vue";
 import SImage from "@/components/UI/s-image.vue";
 
 const router = useRouter();
 const dataStore = useDataStore();
 const settingStore = useSettingStore();
+const cacheManager = useCacheManager();
+
+/** 首页推荐缓存键。复用 list-data 桶；过期 6 小时（推荐数据非强一致，背景刷新即可）。 */
+const HOME_REC_CACHE_KEY = "home-rec.json";
+const HOME_REC_TTL_MS = 6 * 60 * 60 * 1000;
+interface HomeRecCache {
+  version: number;
+  timestamp: number;
+  playlist: any[];
+  album: any[];
+  artist: any[];
+  video: any[];
+}
+const HOME_REC_VERSION = 1;
 
 // 加载状态
 const loading = ref(false);
@@ -180,10 +196,65 @@ const formatPlayCount = (count: number) => {
   return count.toString();
 };
 
+/** 命中本地缓存：立刻渲染，不显 loading；失败 / 过期返 false 让网络请求接管。 */
+const tryLoadFromCache = async (): Promise<boolean> => {
+  try {
+    const r = await cacheManager.get("list-data", HOME_REC_CACHE_KEY);
+    if (!r.success || !r.data) return false;
+    const json = new TextDecoder().decode(r.data);
+    const c = JSON.parse(json) as HomeRecCache;
+    if (c.version !== HOME_REC_VERSION) return false;
+    if (Date.now() - c.timestamp > HOME_REC_TTL_MS) return false;
+    playlistRec.value = c.playlist || [];
+    albumRec.value = c.album || [];
+    artistRec.value = c.artist || [];
+    videoRec.value = c.video || [];
+    // 进入页面立刻预热可视区域封面（4 个区块前 6 张足够）
+    prefetchListCovers(playlistRec.value, "list-covers", 6);
+    prefetchListCovers(albumRec.value, "list-covers", 6);
+    prefetchListCovers(artistRec.value, "list-covers", 6);
+    prefetchListCovers(videoRec.value, "list-covers", 6);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const persistRecCache = async () => {
+  const c: HomeRecCache = {
+    version: HOME_REC_VERSION,
+    timestamp: Date.now(),
+    playlist: playlistRec.value,
+    album: albumRec.value,
+    artist: artistRec.value,
+    video: videoRec.value,
+  };
+  try {
+    await cacheManager.set("list-data", HOME_REC_CACHE_KEY, JSON.stringify(c));
+  } catch (e) {
+    console.warn("[HomeMobile] persist rec cache failed", e);
+  }
+};
+
 // 加载所有数据
-const loadAllData = async () => {
-  loading.value = true;
-  error.value = false;
+const loadAllData = async (forceRefresh: boolean = false) => {
+  // 1. 先尝试缓存（命中则立即显示，避免冷启动等待 4 个 API）
+  if (!forceRefresh) {
+    const hit = await tryLoadFromCache();
+    if (hit) {
+      // 后台静默刷新，不显 loading
+      void fetchFromNetwork(/* silent= */ true);
+      return;
+    }
+  }
+  await fetchFromNetwork(false);
+};
+
+const fetchFromNetwork = async (silent: boolean) => {
+  if (!silent) {
+    loading.value = true;
+    error.value = false;
+  }
 
   try {
     // 并行加载所有数据
@@ -232,6 +303,13 @@ const loadAllData = async () => {
       duration: mv.duration,
     }));
 
+    // 入档本地缓存 + 预热封面
+    void persistRecCache();
+    prefetchListCovers(playlistRec.value, "list-covers", 6);
+    prefetchListCovers(albumRec.value, "list-covers", 6);
+    prefetchListCovers(artistRec.value, "list-covers", 6);
+    prefetchListCovers(videoRec.value, "list-covers", 6);
+
     console.log("数据加载成功:", {
       playlist: playlistRec.value.length,
       album: albumRec.value.length,
@@ -240,9 +318,9 @@ const loadAllData = async () => {
     });
   } catch (err) {
     console.error("加载数据失败:", err);
-    error.value = true;
+    if (!silent) error.value = true;
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 };
 

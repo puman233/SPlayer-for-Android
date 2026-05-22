@@ -7,6 +7,7 @@
   >
     <s-image
       :src="getCoverUrl('xl')"
+      cache-type="covers"
       :alt="musicStore.playSong.name"
       :title="musicStore.playSong.name"
       :lazy="false"
@@ -30,6 +31,7 @@
     <s-image
       :key="getCoverUrl('l')"
       :src="getCoverUrl('l')"
+      cache-type="covers"
       :observe-visibility="false"
       object-fit="cover"
       class="cover-img"

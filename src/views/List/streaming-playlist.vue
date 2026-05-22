@@ -45,6 +45,7 @@ import { useListDetail } from "@/composables/List/useListDetail";
 import { useListSearch } from "@/composables/List/useListSearch";
 import { useListScroll } from "@/composables/List/useListScroll";
 import { useListActions } from "@/composables/List/useListActions";
+import { useListDataCache } from "@/composables/List/useListDataCache";
 
 const router = useRouter();
 const streamingStore = useStreamingStore();
@@ -55,6 +56,7 @@ const { searchValue, searchData, displayData, clearSearch, performSearch } =
   useListSearch(listData);
 const { listScrolling, handleListScroll, resetScroll } = useListScroll();
 const { playAllSongs: playAllSongsAction } = useListActions();
+const { saveCache, loadCache } = useListDataCache();
 
 // 歌单 ID
 const playlistId = computed<string>(() => router.currentRoute.value.query.id as string);
@@ -97,17 +99,33 @@ const moreOptions = computed<DropdownOption[]>(() => [
 ]);
 
 // 获取歌单详情
-const getPlaylistDetail = async (id: string) => {
+const getPlaylistDetail = async (id: string, refresh: boolean = false) => {
   if (!id) return;
-
-  if (!streamingStore.isConnected.value) {
-    window.$message.error("流媒体服务器未连接");
-    return;
-  }
 
   setLoading(true);
   clearSearch();
   resetScroll();
+
+  // 1. 先尝试本地缓存（流媒体可能离线，缓存命中可立即显示）
+  if (!refresh) {
+    const cached = await loadCache("streaming-playlist", id);
+    if (cached) {
+      setDetailData(cached.detail);
+      setListData(cached.songs);
+      setLoading(false);
+      // 后台刷新（仅当流媒体已连接）
+      if (streamingStore.isConnected.value) {
+        void backgroundRefresh(id);
+      }
+      return;
+    }
+  }
+
+  if (!streamingStore.isConnected.value) {
+    window.$message.error("流媒体服务器未连接");
+    setLoading(false);
+    return;
+  }
 
   try {
     // 从缓存的歌单列表中查找歌单信息
@@ -130,11 +148,40 @@ const getPlaylistDetail = async (id: string) => {
     if (detailData.value && detailData.value.count === 0) {
       detailData.value.count = songs.length;
     }
+
+    // 写入本地缓存（仅当 detail 存在）
+    if (detailData.value) {
+      saveCache("streaming-playlist", id, detailData.value, songs);
+    }
   } catch (error) {
     console.error("Failed to fetch streaming playlist:", error);
     window.$message.error("获取歌单详情失败");
   } finally {
     setLoading(false);
+  }
+};
+
+// 后台静默刷新：缓存命中时使用，不阻塞 UI
+const backgroundRefresh = async (id: string) => {
+  try {
+    const playlist = streamingStore.playlists.value.find((p) => p.id === id);
+    if (playlist) {
+      setDetailData({
+        id: Number(playlist.id) || 0,
+        name: playlist.name,
+        cover: playlist.cover || "/images/album.jpg?asset",
+        description: playlist.description,
+        count: playlist.songCount || 0,
+      } as CoverType);
+    }
+    const songs = await streamingStore.fetchPlaylistSongs(id);
+    setListData(songs);
+    if (detailData.value) {
+      saveCache("streaming-playlist", id, detailData.value, songs);
+    }
+  } catch (e) {
+    // 后台刷新失败不打扰用户：缓存数据仍可用
+    console.warn("[streaming-playlist] background refresh failed", e);
   }
 };
 

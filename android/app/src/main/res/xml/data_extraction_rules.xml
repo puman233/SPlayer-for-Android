@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) 备份/迁移规则：
+  - cache / external_cache：缓存语义无需迁移
+  - WebView 存储 + Capacitor SharedPreferences：含登录 cookie / 会话信息，
+    跨设备恢复会泄露账号态（修复 #5 隐私风险）
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="cache" />
+        <exclude domain="external_cache" />
+        <exclude domain="file" path="app_webview/" />
+        <exclude domain="database" path="webview.db" />
+        <exclude domain="database" path="webviewCookiesChromium.db" />
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="cache" />
+        <exclude domain="external_cache" />
+        <exclude domain="file" path="app_webview/" />
+        <exclude domain="database" path="webview.db" />
+        <exclude domain="database" path="webviewCookiesChromium.db" />
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

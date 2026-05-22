@@ -82,6 +82,11 @@ export interface AndroidNativeQueueContextPayload {
    * Java 端据此区分本次推送是否为续播触发，避免 liked / 桌面歌词等无关 sync 误消费 pendingResumeAfterRefill。
    */
   windowRefilled?: boolean;
+  /**
+   * 是否为「末尾 ALL wrap」推送：JS 已把 playIndex 重置为 0，windowCurrentIndex 直接指向应播曲。<br>
+   * Java 端据此选择 current()（true）或 advanceRaw(false)（false）以避免跳过 track 0（修复 #3）。
+   */
+  windowResetFromWrap?: boolean;
 }
 
 export interface AndroidNativeNotificationPrefsPayload {
@@ -231,6 +236,11 @@ export interface AndroidNativePlaybackPlugin {
    * 关闭时 Java 端 listener=null 直接跳过 FFT 计算，CPU 占用归零。
    */
   enableVisualizer(options: { enable: boolean }): Promise<AndroidNativePermissionResult>;
+  /**
+   * 预下载音频前 512 KB 到 ExoPlayer SimpleCache。fire-and-forget，立即 resolve。
+   * 同 url 并发去重；切歌时未完成的预下载会自动取消让带宽。
+   */
+  prefetchAudio(options: { url: string }): Promise<void>;
   addListener(
     eventName: "playbackStateChanged",
     listenerFunc: (event: AndroidNativePlaybackStateEvent) => void,

@@ -349,9 +349,9 @@ export const useDataStore = defineStore("data", {
         const updatedList = [song, ...historyList.filter((item) => item.id !== song.id)];
         // 最多 500 首
         if (updatedList.length > 500) updatedList.splice(500);
-        // 存储
         markMusicDirty("historyList");
-        await getMusicDB().setItem("historyList", cloneDeep(toRaw(updatedList)));
+        const rawList = updatedList.map((s) => toRaw(s));
+        await getMusicDB().setItem("historyList", rawList);
         this.historyList = markRaw(updatedList);
       } catch (error) {
         console.error("Error updating history:", error);
