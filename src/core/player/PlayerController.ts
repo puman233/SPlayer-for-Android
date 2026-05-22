@@ -672,6 +672,23 @@ class PlayerController {
     };
   }
 
+  private inferNativePlaybackInfo(song: SongType): {
+    quality: QualityType | undefined;
+    source: AudioSourceType | undefined;
+  } {
+    if (song.path) {
+      return { quality: song.quality, source: "local" };
+    }
+    if (song.type === "streaming") {
+      return { quality: song.quality || QualityType.SQ, source: "streaming" };
+    }
+    const settingStore = useSettingStore();
+    return {
+      quality: song.quality ?? handleSongQuality({ level: settingStore.songLevel }, "online") ?? QualityType.HQ,
+      source: "official",
+    };
+  }
+
   /** 同步取播放 URL，不发网络请求。返回 null 时窗口推 null，由 Java 端按需解析。 */
   private resolveSyncSongUrl(song: SongType, isCurrent: boolean): string | null {
     if (isCurrent && this.currentAudioSource?.url) return this.currentAudioSource.url;
@@ -896,8 +913,9 @@ class PlayerController {
     // 仍是上一首的值。后续 resolveSyncSongUrl(isCurrent=true) 会优先取 this.currentAudioSource.url，
     // 把上一首 URL 错推回 Android 队列。这里清空让其走 song.path / streamUrl / null 分支。
     this.currentAudioSource = null;
-    statusStore.songQuality = undefined;
-    statusStore.audioSource = undefined;
+    const nativePlaybackInfo = this.inferNativePlaybackInfo(nextSong);
+    statusStore.songQuality = nativePlaybackInfo.quality;
+    statusStore.audioSource = nativePlaybackInfo.source;
 
     this.setupSongUI(nextSong, 0);
     statusStore.currentTime = 0;
@@ -1007,8 +1025,9 @@ class PlayerController {
 
     // 修复 #2：同 applyNativeTrackChanged，清空 currentAudioSource 避免被 resolveSyncSongUrl 误用
     this.currentAudioSource = null;
-    statusStore.songQuality = undefined;
-    statusStore.audioSource = undefined;
+    const nativePlaybackInfo = this.inferNativePlaybackInfo(nextSong);
+    statusStore.songQuality = nativePlaybackInfo.quality;
+    statusStore.audioSource = nativePlaybackInfo.source;
 
     this.setupSongUI(nextSong, 0);
     statusStore.currentTime = 0;
