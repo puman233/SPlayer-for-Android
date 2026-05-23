@@ -124,7 +124,7 @@ let savedPageIndex = 0;
 
       <div class="page lyric-page">
         <div class="lyric-header">
-          <s-image :src="musicStore.getSongCover('s')" class="lyric-cover" />
+          <s-image :src="musicStore.getSongCover('s')" cache-type="covers" class="lyric-cover" />
           <div class="lyric-info">
             <div class="name text-hidden">
               {{

@@ -200,16 +200,64 @@ class MediaSessionManager {
     }
   }
 
-  public async syncAndroidApiContext() {
+  /**
+   * 切歌时 PlayerController.syncAndroidPlaybackContext 与 MediaSessionManager.updateMetadata
+   * 都会调一次 syncApiContext，参数完全一致。Java 端幂等，但 IPC 跨 JNI 仍要 30-150ms。
+   * 这里用 lastKey 去重：参数无变化直接 resolve，避免主线程上重复 await。
+   */
+  private lastSyncedApiContextKey: string | null = null;
+  /**
+   * 并发去重：相同 key 的 IPC 正在跑时，后续调用复用同一 Promise；
+   * lastSyncedApiContextKey 只在 await 后赋值，不能拦住「同时进入 await」的并发。
+   * 详见 fix#4：避免切歌瞬间 2-3 处并行调用都打穿到 Java 端。
+   */
+  private pendingSyncApiContextKey: string | null = null;
+  private pendingSyncApiContextPromise: Promise<void> | null = null;
+
+  public async syncAndroidApiContext(force: boolean = false) {
     if (!isCapacitorAndroid) return;
 
     const settingStore = useSettingStore();
     const musicCookie = getCookie("MUSIC_U");
-    await AndroidNativePlayback.syncApiContext({
-      apiBaseUrl: EMBEDDED_API_BASE_URL,
-      cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
-      songLevel: settingStore.songLevel,
-    });
+    const cookie = musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "";
+    const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${settingStore.songLevel}`;
+    if (!force && this.lastSyncedApiContextKey === key) return;
+    // 并发去重：同 key 已有 IPC 在跑直接复用 Promise；force 时强制新发起
+    if (
+      !force &&
+      this.pendingSyncApiContextKey === key &&
+      this.pendingSyncApiContextPromise
+    ) {
+      return this.pendingSyncApiContextPromise;
+    }
+
+    const jobRef: { current: Promise<void> | null } = { current: null };
+    const job = (async () => {
+      try {
+        await AndroidNativePlayback.syncApiContext({
+          apiBaseUrl: EMBEDDED_API_BASE_URL,
+          cookie,
+          songLevel: settingStore.songLevel,
+        });
+        this.lastSyncedApiContextKey = key;
+      } finally {
+        // 仅当 pending 还是本任务时才清；force 重入场景下可能已被新 job 覆盖
+        if (this.pendingSyncApiContextPromise === jobRef.current) {
+          this.pendingSyncApiContextKey = null;
+          this.pendingSyncApiContextPromise = null;
+        }
+      }
+    })();
+    jobRef.current = job;
+    this.pendingSyncApiContextKey = key;
+    this.pendingSyncApiContextPromise = job;
+    return job;
+  }
+
+  /** 用户登录登出 / 切换音质后调用，清空 dedup 强制下次同步。 */
+  public invalidateSyncedApiContext() {
+    this.lastSyncedApiContextKey = null;
+    // 不清 pending：让正在跑的 IPC 完成后自然清理；下次调用 key 不同会自然 force
   }
 
   public init() {

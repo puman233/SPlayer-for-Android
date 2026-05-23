@@ -5,7 +5,7 @@
       <div v-if="detailData" class="detail">
         <div class="cover" v-if="!settingStore.hiddenCovers.list">
           <n-image
-            :src="detailData.coverSize?.m || detailData.cover"
+            :src="resolvedHeaderCover"
             :previewed-img-props="{ style: { borderRadius: '8px' } }"
             :preview-src="detailData.cover"
             :renderToolbar="renderToolbar"
@@ -19,11 +19,11 @@
               </div>
             </template>
           </n-image>
-          <!-- 封面背板 -->
+          <!-- 封面背板 （与主图同 source，复用同一 blob URL、共享引用计数） -->
           <n-image
             class="cover-shadow"
             preview-disabled
-            :src="detailData.coverSize?.m || detailData.cover"
+            :src="resolvedHeaderCover"
           />
           <!-- 遮罩 -->
           <div v-if="config.showCoverMask" class="cover-mask" />
@@ -238,6 +238,7 @@
 <script setup lang="ts">
 import type { CoverType, SongType } from "@/types/main";
 import type { DropdownOption } from "naive-ui";
+import { useCoverCache } from "@/composables/useCoverCache";
 import { coverLoaded, formatNumber } from "@/utils/helper";
 import { removeBrackets, formatCommentCount } from "@/utils/format";
 import { renderToolbar } from "@/utils/meta";
@@ -288,6 +289,14 @@ const emit = defineEmits<{
 
 const router = useRouter();
 const settingStore = useSettingStore();
+
+// 头部大封面走 list-covers 本地缓存：命中返 blob URL，未命中返原 url 同时后台下载入档。
+// preview-src 仍用原始 url（预览低频次，误差可接受）。
+const headerCoverSrc = computed(
+  () => props.detailData?.coverSize?.m || props.detailData?.cover,
+);
+const cachedHeaderCover = useCoverCache(headerCoverSrc, "list-covers");
+const resolvedHeaderCover = computed(() => cachedHeaderCover.value || headerCoverSrc.value);
 
 // 当前 tab
 const currentTab = ref<"songs" | "comments">("songs");

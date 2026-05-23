@@ -23,7 +23,11 @@
             </div>
             <!-- 标题 (封面 + 信息) -->
             <div class="title">
-              <s-image :src="item.song.coverSize?.s || item.song.cover" class="cover" />
+              <s-image
+                :src="item.song.coverSize?.s || item.song.cover"
+                cache-type="covers"
+                class="cover"
+              />
               <div class="info">
                 <div class="name">
                   <n-text class="name-text" ellipsis>{{ item.song.name }}</n-text>

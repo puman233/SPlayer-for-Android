@@ -250,6 +250,9 @@ const getRadioAllProgram = async (id: number, count: number) => {
   // 循环获取
   let offset: number = 0;
   const limit: number = 500;
+  // 节流参数（修复 #6 O(N²) 序列化）
+  let lastSaveAt = 0;
+  const SAVE_THROTTLE_MS = 2000;
   do {
     if (currentRequestId.value !== id) {
       loadingMsgShow(false);
@@ -264,16 +267,24 @@ const getRadioAllProgram = async (id: number, count: number) => {
     appendListData(songData);
     // 更新数据
     offset += limit;
+    // 增量保存缓存（节流：避免 O(N²) 序列化）
+    {
+      const isLastPage = offset >= count;
+      const now = Date.now();
+      const shouldSave =
+        detailData.value &&
+        listData.value.length > 0 &&
+        (lastSaveAt === 0 || isLastPage || now - lastSaveAt >= SAVE_THROTTLE_MS);
+      if (shouldSave && detailData.value) {
+        saveCache("radio", id, detailData.value, listData.value, isLastPage);
+        lastSaveAt = now;
+      }
+    }
   } while (offset < count && isPlaylistPage.value && currentRequestId.value === id);
   if (currentRequestId.value !== id) {
     loadingMsgShow(false);
     return;
   }
-  // 保存缓存
-  if (detailData.value && listData.value.length > 0) {
-    saveCache("radio", id, detailData.value, listData.value);
-  }
-
   // 关闭加载
   loadingMsgShow(false);
 };

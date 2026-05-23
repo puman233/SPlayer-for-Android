@@ -6,14 +6,12 @@ import type { RepeatModeType, ShuffleModeType } from "@/types/shared/play-mode";
 import { type AudioAnalysis } from "@/types/audio/automix";
 import { calculateLyricIndex } from "@/utils/calc";
 import { getCoverColor } from "@/utils/color";
-import { EMBEDDED_API_BASE_URL } from "@/utils/embeddedApi";
 import { isCapacitorAndroid, isElectron, isMac } from "@/utils/env";
 import { getPlayerInfoObj, getPlaySongData } from "@/utils/format";
 import { handleSongQuality, shuffleArray, sleep } from "@/utils/helper";
 import lastfmScrobbler from "@/utils/lastfmScrobbler";
 import { DJ_MODE_KEYWORDS } from "@/utils/meta";
 import { calculateProgress } from "@/utils/time";
-import { getCookie } from "@/utils/cookie";
 import type { LyricLine } from "@applemusic-like-lyrics/lyric";
 import { type DebouncedFunc, throttle } from "lodash-es";
 import {
@@ -605,9 +603,20 @@ class PlayerController {
       await this.parseLocalMusicInfo(song.path);
     }
 
-    // 必须 await：fire-and-forget 会让 playLoading=false 早于 Android Native
-    // 队列上下文更新，触发"音频已播但 MainPlayer / FullPlayer UI 滞后半秒"的回潮。
-    await this.syncAndroidPlaybackContext(song);
+    // 预载下一首：fire-and-forget，让 playLoading=false 不被网络请求阻塞 1-3s
+    // syncAndroidPlaybackContext 内部 buildAndroidWindowTracks 同步遍历 41 首歌（5-30ms），
+    // 后续 4 个 Capacitor IPC 累计 100-300ms。这些都不应卡在切歌热路径上，
+    // 推到 idle frame 让 UI 把切歌动画 / 歌词加载先跑完，再幕后做队列同步。
+    // Java 触发的 applyNativeTrackChanged / refreshAndroidQueueWindow 等仍走立即路径。
+    const ric = (
+      window as Window & { requestIdleCallback?: typeof requestIdleCallback }
+    ).requestIdleCallback;
+    const runSync = () => void this.syncAndroidPlaybackContext(song);
+    if (typeof ric === "function") {
+      ric(runSync, { timeout: 500 });
+    } else {
+      setTimeout(runSync, 0);
+    }
     if (settingStore.useNextPrefetch) songManager.prefetchNextSong();
 
     // Last.fm Scrobbler
@@ -660,6 +669,23 @@ class PlayerController {
       durationMs: song.duration || 0,
       canLike: !song.path && song.type !== "streaming",
       liked: typeof song.id === "number" ? dataStore.isLikeSong(song.id) : false,
+    };
+  }
+
+  private inferNativePlaybackInfo(song: SongType): {
+    quality: QualityType | undefined;
+    source: AudioSourceType | undefined;
+  } {
+    if (song.path) {
+      return { quality: song.quality, source: "local" };
+    }
+    if (song.type === "streaming") {
+      return { quality: song.quality || QualityType.SQ, source: "streaming" };
+    }
+    const settingStore = useSettingStore();
+    return {
+      quality: song.quality ?? handleSongQuality({ level: settingStore.songLevel }, "online") ?? QualityType.HQ,
+      source: "official",
     };
   }
 
@@ -759,77 +785,74 @@ class PlayerController {
 
   public async syncAndroidPlaybackContext(
     songOverride?: SongType,
-    options?: { windowRefilled?: boolean },
+    options?: { windowRefilled?: boolean; windowResetFromWrap?: boolean },
   ) {
     if (!isCapacitorAndroid) return;
 
+    const dataStore = useDataStore();
+    const musicStore = useMusicStore();
+    const settingStore = useSettingStore();
+    const statusStore = useStatusStore();
+    const song = songOverride || getPlaySongData() || musicStore.playSong;
+
+    if (!song) return;
+
+    // 推 ±N 窗口给 Java 自治处理 ENDED/NEXT/PREVIOUS，脱离 WebView 后台冻结
+    let windowResult: {
+      windowTracks: AndroidNativeWindowTrack[];
+      windowCurrentIndex: number;
+      hasPreviousOutsideWindow: boolean;
+      hasNextOutsideWindow: boolean;
+      repeatMode: "off" | "all" | "one";
+    };
+
+    const initialSongId = song.id;
+    const isStaleSong = () =>
+      !!musicStore.playSong &&
+      typeof initialSongId !== "undefined" &&
+      musicStore.playSong.id !== initialSongId;
+    if (isStaleSong()) return;
+
     try {
-      const dataStore = useDataStore();
-      const musicStore = useMusicStore();
-      const settingStore = useSettingStore();
-      const statusStore = useStatusStore();
-      const song = songOverride || getPlaySongData() || musicStore.playSong;
-
-      if (!song) return;
-
-      // 不论是否传入 songOverride 都做 stale 守卫：
-      // 多次 await 之间用户可能切到了另一首歌，此时把旧歌的元数据/队列上下文写入 Native 是脏数据。
-      const initialSongId = song.id;
-      const isStaleSong = () =>
-        !!musicStore.playSong &&
-        typeof initialSongId !== "undefined" &&
-        musicStore.playSong.id !== initialSongId;
-      if (isStaleSong()) return;
-
-      const musicCookie = getCookie("MUSIC_U");
-
-      await AndroidNativePlayback.syncApiContext({
-        apiBaseUrl: EMBEDDED_API_BASE_URL,
-        cookie: musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "",
-        songLevel: settingStore.songLevel,
-      });
-      if (isStaleSong()) return;
-
-      let windowResult: {
-        windowTracks: AndroidNativeWindowTrack[];
-        windowCurrentIndex: number;
-        hasPreviousOutsideWindow: boolean;
-        hasNextOutsideWindow: boolean;
-        repeatMode: "off" | "all" | "one";
+      windowResult = this.buildAndroidWindowTracks(song);
+    } catch (error) {
+      console.warn("[Android] failed to build window tracks:", error);
+      windowResult = {
+        windowTracks: [],
+        windowCurrentIndex: -1,
+        hasPreviousOutsideWindow: false,
+        hasNextOutsideWindow: false,
+        repeatMode: this.toAndroidRepeatMode(),
       };
-      try {
-        windowResult = this.buildAndroidWindowTracks(song);
-      } catch (error) {
-        console.warn("[Android] failed to build window tracks:", error);
-        windowResult = {
-          windowTracks: [],
-          windowCurrentIndex: -1,
-          hasPreviousOutsideWindow: false,
-          hasNextOutsideWindow: false,
-          repeatMode: this.toAndroidRepeatMode(),
-        };
-      }
-      if (isStaleSong()) return;
+    }
 
-      await AndroidNativePlayback.updateQueueContext({
-        liked: typeof song.id === "number" ? dataStore.isLikeSong(song.id) : false,
-        canSkipPrevious: !statusStore.personalFmMode,
-        personalFmMode: statusStore.personalFmMode,
-        controllerEnabled: settingStore.androidMediaControllerEnabled,
-        desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
-        desktopLyricEnabled: statusStore.showDesktopLyric,
-        ...windowResult,
-        windowRefilled: options?.windowRefilled === true,
-      });
+    if (isStaleSong()) return;
 
-      await AndroidNativePlayback.updateNotificationPrefs({
-        controllerEnabled: settingStore.androidMediaControllerEnabled,
-        desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
-      });
-
-      await AndroidNativePlayback.setAllowMixWithOthers({
-        allow: settingStore.androidAllowMixWithOthers,
-      });
+    // 4 次 IPC 并发：之前串行累计 30-150ms × 4 = 200-600ms 主线程 microtask 排队，
+    // 改为 Promise.all 后单次切歌仅排队 30-150ms。
+    // syncApiContext 通过 mediaSessionManager 共享 dedup（参数无变化时跳过实际 IPC）。
+    try {
+      await Promise.all([
+        mediaSessionManager.syncAndroidApiContext(),
+        AndroidNativePlayback.updateQueueContext({
+          liked: typeof song.id === "number" ? dataStore.isLikeSong(song.id) : false,
+          canSkipPrevious: !statusStore.personalFmMode,
+          personalFmMode: statusStore.personalFmMode,
+          controllerEnabled: settingStore.androidMediaControllerEnabled,
+          desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
+          desktopLyricEnabled: statusStore.showDesktopLyric,
+          ...windowResult,
+          windowRefilled: options?.windowRefilled === true,
+          windowResetFromWrap: options?.windowResetFromWrap === true,
+        }),
+        AndroidNativePlayback.updateNotificationPrefs({
+          controllerEnabled: settingStore.androidMediaControllerEnabled,
+          desktopLyricButtonEnabled: settingStore.androidMediaControllerDesktopLyricEnabled,
+        }),
+        AndroidNativePlayback.setAllowMixWithOthers({
+          allow: settingStore.androidAllowMixWithOthers,
+        }),
+      ]);
     } catch (error) {
       console.warn("[Android] sync playback context failed:", error);
     }
@@ -886,6 +909,14 @@ class PlayerController {
       this.applySongLikeState(nextSong.id, liked);
     }
 
+    // 修复 #2：原生侧驱动的切歌不走 prepareAudioSource，currentAudioSource / songQuality / audioSource
+    // 仍是上一首的值。后续 resolveSyncSongUrl(isCurrent=true) 会优先取 this.currentAudioSource.url，
+    // 把上一首 URL 错推回 Android 队列。这里清空让其走 song.path / streamUrl / null 分支。
+    this.currentAudioSource = null;
+    const nativePlaybackInfo = this.inferNativePlaybackInfo(nextSong);
+    statusStore.songQuality = nativePlaybackInfo.quality;
+    statusStore.audioSource = nativePlaybackInfo.source;
+
     this.setupSongUI(nextSong, 0);
     statusStore.currentTime = 0;
     statusStore.duration = nextSong.duration || 0;
@@ -905,6 +936,7 @@ class PlayerController {
     // Java 端在窗口完整覆盖全局列表（≤201 首）时能自治 wrap，但列表 >201 首时
     // hasPreviousOutsideWindow=true 让 advanceRaw 不能 wrap，必须 JS 这里负责重置。
     const playList = dataStore.playList;
+    let wrapped = false;
     if (
       statusStore.repeatMode === "list" &&
       !statusStore.personalFmMode &&
@@ -912,6 +944,7 @@ class PlayerController {
       statusStore.playIndex >= playList.length - 1
     ) {
       statusStore.playIndex = 0;
+      wrapped = true;
     }
 
     try {
@@ -921,7 +954,11 @@ class PlayerController {
       console.warn("[Android] refreshAndroidQueueWindow prefetch failed:", error);
     }
     // 重要：windowRefilled=true 让 Java 端区分本次推送属于补窗响应，才会消费 pendingResumeAfterRefill 续播。
-    await this.syncAndroidPlaybackContext(undefined, { windowRefilled: true });
+    // windowResetFromWrap=true（仅 wrap 路径）：Java 用 current() 而非 advanceRaw 避免跳过 track 0。
+    await this.syncAndroidPlaybackContext(undefined, {
+      windowRefilled: true,
+      windowResetFromWrap: wrapped,
+    });
   }
 
   public async applyNativeAutoNext(songId: number, liked?: boolean) {
@@ -985,6 +1022,12 @@ class PlayerController {
     if (typeof liked === "boolean" && typeof nextSong.id === "number") {
       this.applySongLikeState(nextSong.id, liked);
     }
+
+    // 修复 #2：同 applyNativeTrackChanged，清空 currentAudioSource 避免被 resolveSyncSongUrl 误用
+    this.currentAudioSource = null;
+    const nativePlaybackInfo = this.inferNativePlaybackInfo(nextSong);
+    statusStore.songQuality = nativePlaybackInfo.quality;
+    statusStore.audioSource = nativePlaybackInfo.source;
 
     this.setupSongUI(nextSong, 0);
     statusStore.currentTime = 0;

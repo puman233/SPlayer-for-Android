@@ -360,15 +360,50 @@ watchEffect(() => {
 });
 
 // 歌词行数据
+// AMLL setLyricLines 同步构造每词 LyricLineEl + KeyframeEffect Animation：
+// YRC 100-300 行 × 5-15 词 ≈ 2000 DOM 节点，主线程同步 100-500ms。
+// 推到 idle frame：切歌 UI（封面/标题/进度条）先消化完，再幕后建词级动画；
+// 200ms timeout 兜底避免歌词显示推迟过久。
+let pendingSetLyricRic: number | null = null;
+const cancelPendingSetLyric = () => {
+  if (pendingSetLyricRic !== null) {
+    const cic = (window as Window & { cancelIdleCallback?: typeof cancelIdleCallback })
+      .cancelIdleCallback;
+    if (typeof cic === "function") cic(pendingSetLyricRic);
+    else clearTimeout(pendingSetLyricRic);
+    pendingSetLyricRic = null;
+  }
+};
+
 watch(
   [() => props.lyricLines, playerRef],
   ([lines, player]) => {
     if (lines === undefined || !player) return;
-    player.setLyricLines(lines);
-    syncSeekTime(props.currentTime);
+    cancelPendingSetLyric();
+    const apply = () => {
+      pendingSetLyricRic = null;
+      // 异步窗口可能跨过组件销毁，二次校验 player 仍然存在
+      if (!playerRef.value) return;
+      playerRef.value.setLyricLines(lines);
+      syncSeekTime(props.currentTime);
+    };
+    // 空数组（切歌瞬间清空）走同步：不会卡且能立即让 LoadingSpinner 显出
+    if (lines.length === 0) {
+      apply();
+      return;
+    }
+    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
+      .requestIdleCallback;
+    if (typeof ric === "function") {
+      pendingSetLyricRic = ric(apply, { timeout: 200 });
+    } else {
+      pendingSetLyricRic = window.setTimeout(apply, 0);
+    }
   },
   { immediate: true },
 );
+
+onBeforeUnmount(cancelPendingSetLyric);
 
 // 当前播放时间
 watch(

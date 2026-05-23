@@ -1,131 +1,182 @@
-import { isElectron } from "@/utils/env";
+import { AndroidCache, type AndroidCacheType } from "@/plugins/androidCache";
 
 /**
- * 缓存资源类型
- * - music: 音乐缓存
+ * 缓存资源类型（仅 Android）
  * - lyrics: 歌词缓存
- * - local-data: 本地音乐数据缓存
- * - list-data: 列表数据缓存（歌单/专辑/电台）
+ * - list-data: 列表数据缓存（歌单 / 专辑 / 电台 / 推荐 等 metadata JSON）
+ * - covers: 歌曲封面（缓存原始字节，规避 MediaStore 扫描）
+ * - list-covers: 列表封面
+ * - music: 音频缓存（业务侧通常无需直接读写；ExoPlayer SimpleCache 自治；保留方便清理 / 统计）
  */
-export type CacheResourceType = "music" | "lyrics" | "local-data" | "list-data";
+export type CacheResourceType = "lyrics" | "list-data" | "covers" | "list-covers" | "music";
 
-/**
- * 缓存文件列表项信息
- */
 export type CacheListItem = {
-  /** 缓存 key（文件名或相对路径） */
+  /** 缓存 key */
   key: string;
-  /** 文件大小（字节） */
+  /** 字节大小 */
   size: number;
-  /** 最后修改时间（毫秒时间戳） */
+  /** 最后修改毫秒时间戳 */
   mtime: number;
 };
 
-/**
- * 缓存操作统一返回结构
- * @template T data 字段的数据类型
- */
 export type CacheResult<T = any> = {
-  /** 是否成功 */
   success: boolean;
-  /** 返回数据 */
   data?: T;
-  /** 错误信息（失败时） */
   message?: string;
 };
 
-/**
- * 可写入缓存的数据类型
- */
 type CacheWriteData = Uint8Array | ArrayBuffer | string;
 
+const mapType = (type: CacheResourceType): AndroidCacheType => {
+  if (type === "music") return "exo";
+  return type;
+};
+
+const toBase64 = (data: CacheWriteData): string => {
+  let bytes: Uint8Array;
+  if (typeof data === "string") bytes = new TextEncoder().encode(data);
+  else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+  else bytes = data;
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(binary);
+};
+
+const fromBase64 = (b64: string): Uint8Array => {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
 /**
- * 渲染进程缓存管理器
- * 通过 IPC 调用主进程，实现缓存的增删改查
+ * Android 端缓存管理器（项目仅安卓运行）。
+ *
+ * <p>所有读写走 AndroidCache Capacitor 插件 → CacheStorage / SimpleCache。
+ * 业务侧统一调用 useCacheManager()，无需关心平台差异。
  */
 class CacheManager {
-  /**
-   * 调用底层 IPC 通道
-   * @param channel IPC 通道名称
-   * @param args 传入参数
-   * @returns 封装后的缓存结果
-   */
-  private invoke<T>(channel: string, ...args: any[]): Promise<CacheResult<T>> {
-    if (!isElectron) {
-      return Promise.resolve({
-        success: false,
-        message: "当前环境不支持缓存",
-      });
+  /** 始终可用：进程在 Capacitor Android 上运行；保留接口避免业务侧大改。 */
+  isAvailable(): boolean {
+    return true;
+  }
+
+  async list(type: CacheResourceType): Promise<CacheResult<CacheListItem[]>> {
+    try {
+      const r = await AndroidCache.list({ type: mapType(type) });
+      return { success: true, data: r.entries };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
     }
-    return window.electron.ipcRenderer.invoke(channel, ...args);
   }
 
-  /**
-   * 获取指定类型缓存下的文件列表
-   * @param type 缓存资源类型
-   */
-  list(type: CacheResourceType): Promise<CacheResult<CacheListItem[]>> {
-    return this.invoke("cache-list", type);
+  async get(type: CacheResourceType, key: string): Promise<CacheResult<Uint8Array>> {
+    try {
+      const r = await AndroidCache.read({ type: mapType(type), key });
+      if (!r.hit || !r.data) return { success: false, message: "miss" };
+      return { success: true, data: fromBase64(r.data) };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
   }
 
-  /**
-   * 读取指定缓存内容
-   * @param type 缓存资源类型
-   * @param key 缓存 key（文件名或相对路径）
-   */
-  get(type: CacheResourceType, key: string): Promise<CacheResult<Uint8Array>> {
-    return this.invoke("cache-get", type, key);
+  async set(
+    type: CacheResourceType,
+    key: string,
+    data: CacheWriteData,
+  ): Promise<CacheResult<null>> {
+    try {
+      const r = await AndroidCache.write({ type: mapType(type), key, data: toBase64(data) });
+      return r.success ? { success: true, data: null } : { success: false, message: r.message };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
   }
 
-  /**
-   * 写入或更新缓存内容
-   * @param type 缓存资源类型
-   * @param key 缓存 key（文件名或相对路径）
-   * @param data 要写入的数据（自动转换为二进制）
-   */
-  set(type: CacheResourceType, key: string, data: CacheWriteData): Promise<CacheResult<null>> {
-    const payload = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-    return this.invoke("cache-put", type, key, payload);
+  async remove(type: CacheResourceType, key: string): Promise<CacheResult<null>> {
+    const r = await AndroidCache.remove({ type: mapType(type), key });
+    return { success: r.success, data: null };
   }
 
-  /**
-   * 删除单个缓存文件
-   * @param type 缓存资源类型
-   * @param key 缓存 key（文件名或相对路径）
-   */
-  remove(type: CacheResourceType, key: string): Promise<CacheResult<null>> {
-    return this.invoke("cache-remove", type, key);
+  async clear(type: CacheResourceType): Promise<CacheResult<null>> {
+    const r = await AndroidCache.clear({ type: mapType(type) });
+    return { success: r.success, data: null };
   }
 
-  /**
-   * 清空指定类型的缓存目录
-   * @param type 缓存资源类型
-   */
-  clear(type: CacheResourceType): Promise<CacheResult<null>> {
-    return this.invoke("cache-clear", type);
+  async clearAll(): Promise<CacheResult<null>> {
+    const r = await AndroidCache.clearAll();
+    return { success: r.success, data: null };
   }
 
-  /**
-   * 清空所有缓存
-   */
-  clearAll(): Promise<CacheResult<null>> {
-    return this.invoke("cache-clear-all");
+  async getSize(): Promise<CacheResult<number>> {
+    try {
+      const stats = await AndroidCache.getStats();
+      return { success: true, data: stats.totalBytes };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
   }
 
-  /**
-   * 获取所有缓存类型的总大小（字节）
-   */
-  getSize(): Promise<CacheResult<number>> {
-    return this.invoke("cache-size");
+  async getStats(): Promise<
+    CacheResult<{
+      totalBytes: number;
+      deviceFreeBytes: number;
+      maxBytes: number;
+      /** 设备空间不足时的运行期生效上限（min(maxBytes, deviceFreeBytes * 0.6)） */
+      effectiveMaxBytes: number;
+      perType: Partial<Record<CacheResourceType, number>>;
+    }>
+  > {
+    try {
+      const stats = await AndroidCache.getStats();
+      return {
+        success: true,
+        data: {
+          totalBytes: stats.totalBytes,
+          deviceFreeBytes: stats.deviceFreeBytes,
+          maxBytes: stats.maxBytes,
+          // 老版本 native 端无此字段时 fallback 到 maxBytes（向前兼容）
+          effectiveMaxBytes: stats.effectiveMaxBytes ?? stats.maxBytes,
+          // exo 子目录映射回业务类型 music
+          perType: {
+            lyrics: stats.perType.lyrics,
+            covers: stats.perType.covers,
+            "list-covers": stats.perType["list-covers"],
+            "list-data": stats.perType["list-data"],
+            music: stats.perType.exo,
+          },
+        },
+      };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
+  }
+
+  async setMaxBytes(maxBytes: number): Promise<CacheResult<{ appliedMaxBytes: number }>> {
+    try {
+      const r = await AndroidCache.setMaxBytes({ maxBytes });
+      return { success: r.success, data: { appliedMaxBytes: r.appliedMaxBytes } };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
+  }
+
+  async enforceLimit(): Promise<CacheResult<{ totalBytes: number }>> {
+    try {
+      const r = await AndroidCache.enforceLimit();
+      return { success: r.success, data: { totalBytes: r.totalBytes } };
+    } catch (e: any) {
+      return { success: false, message: String(e?.message ?? e) };
+    }
   }
 }
 
 let cacheManager: CacheManager | null = null;
 
-/**
- * 获取全局单例的缓存管理器
- * @returns CacheManager 实例
- */
+/** 获取全局单例的缓存管理器。 */
 export const useCacheManager = (): CacheManager => {
   if (!cacheManager) cacheManager = new CacheManager();
   return cacheManager;

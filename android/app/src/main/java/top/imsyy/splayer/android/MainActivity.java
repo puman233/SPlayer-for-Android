@@ -3,26 +3,42 @@ package top.imsyy.splayer.android;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.view.View;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import top.imsyy.splayer.android.cache.AndroidCachePlugin;
+import top.imsyy.splayer.android.cache.AudioPrefetchTtlIndex;
 import top.imsyy.splayer.android.download.AndroidDownloadPlugin;
 import top.imsyy.splayer.android.lyric.AndroidLocalLyricPlugin;
 import top.imsyy.splayer.android.playback.AndroidNativePlaybackPlugin;
 
 public class MainActivity extends BridgeActivity {
   private static final String PREF_SHOW_STATUS_BAR = "androidShowStatusBar";
+  /** 进程级 sweep 启动标记：Activity 重建（旋屏 / 配置变更）时不再重复 post Runnable。 */
+  private static volatile boolean sweepBootstrapped = false;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     registerPlugin(AndroidNativePlaybackPlugin.class);
     registerPlugin(AndroidLocalLyricPlugin.class);
     registerPlugin(AndroidDownloadPlugin.class);
+    registerPlugin(AndroidCachePlugin.class);
     super.onCreate(savedInstanceState);
     applyImmersiveMode();
+    // 音频预载 TTL：推迟到首帧后再初始化（构造期会同步读 SharedPreferences，冷启动加密磁盘可能耗百毫秒）。
+    // 这里 post 2s，startPeriodicSweep 内部再 postDelayed 5s，首次 sweep 实际 ≈7s 后开始；
+    // 之后每 30min 周期清理；TTL=50min；期间用户重复播放该 url 会通过 PlaybackManager.load 续期。
+    if (!sweepBootstrapped) {
+      sweepBootstrapped = true;
+      new Handler(Looper.getMainLooper()).postDelayed(
+          () -> AudioPrefetchTtlIndex.getInstance(getApplicationContext()).startPeriodicSweep(),
+          2_000L);
+    }
   }
 
   @Override

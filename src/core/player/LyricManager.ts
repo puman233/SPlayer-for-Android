@@ -78,9 +78,9 @@ class LyricManager {
    */
   private async getRawLyricCache(id: number, type: "lrc" | "ttml" | "qrc"): Promise<string | null> {
     const settingStore = useSettingStore();
-    if (!isElectron || !settingStore.cacheEnabled) return null;
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return null;
     try {
-      const cacheManager = useCacheManager();
       const ext = type === "ttml" ? "ttml" : type === "qrc" ? "qrc.json" : "json";
       const result = await cacheManager.get("lyrics", `${id}.${ext}`);
       if (result.success && result.data) {
@@ -102,9 +102,9 @@ class LyricManager {
    */
   private async saveRawLyricCache(id: number, type: "lrc" | "ttml" | "qrc", data: string) {
     const settingStore = useSettingStore();
-    if (!isElectron || !settingStore.cacheEnabled) return;
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
     try {
-      const cacheManager = useCacheManager();
       const ext = type === "ttml" ? "ttml" : type === "qrc" ? "qrc.json" : "json";
       await cacheManager.set("lyrics", `${id}.${ext}`, data);
     } catch (error) {

@@ -19,18 +19,37 @@ export const useLocalSettings = (): SettingConfig => {
   const cacheSizeDisplay = ref<string>("--");
   const cachePath = ref<string>("");
 
-  // 统计全部缓存目录占用大小
+  // 各类分项占用（人类可读格式）
+  const lyricsSizeDisplay = ref<string>("--");
+  const coversSizeDisplay = ref<string>("--");
+  const listCoversSizeDisplay = ref<string>("--");
+  const listDataSizeDisplay = ref<string>("--");
+  const musicSizeDisplay = ref<string>("--");
+
+  /**
+   * 拉取总占用与各类分项。Android 端走 Capacitor 插件 stat；Electron 仅取总数。
+   */
   const loadCacheSize = async () => {
-    const res = await cacheManager.getSize();
-    if (res.success && res.data !== undefined) {
-      cacheSizeDisplay.value = formatFileSize(res.data);
+    const res = await cacheManager.getStats();
+    if (res.success && res.data) {
+      cacheSizeDisplay.value = formatFileSize(res.data.totalBytes);
+      const per = res.data.perType;
+      lyricsSizeDisplay.value = formatFileSize(per?.lyrics ?? 0);
+      coversSizeDisplay.value = formatFileSize(per?.covers ?? 0);
+      listCoversSizeDisplay.value = formatFileSize(per?.["list-covers"] ?? 0);
+      listDataSizeDisplay.value = formatFileSize(per?.["list-data"] ?? 0);
+      musicSizeDisplay.value = formatFileSize(per?.music ?? 0);
     } else {
       cacheSizeDisplay.value = "--";
     }
   };
 
-  // 获取缓存目录
+  // 获取缓存目录（Electron 遗留，Android 不使用）
   const loadCachePath = async () => {
+    if (isCapacitorAndroid) {
+      cachePath.value = "";
+      return;
+    }
     try {
       const path = await window.api.store.get("cachePath");
       cachePath.value = path || "";
@@ -45,26 +64,21 @@ export const useLocalSettings = (): SettingConfig => {
     loadCachePath();
   };
 
-  // 更改缓存目录
-  const changeCachePath = async () => {
-    const path = await window.electron.ipcRenderer.invoke("choose-path");
-    if (path) {
-      cachePath.value = path;
-      await window.api.store.set("cachePath", path);
+  /**
+   * 按类型清空：改动面小，避免一键清除所有。
+   */
+  const clearByType = async (
+    types: ("lyrics" | "covers" | "list-covers" | "list-data" | "music")[],
+    label: string,
+  ) => {
+    let allOk = true;
+    for (const t of types) {
+      const r = await cacheManager.clear(t);
+      if (!r.success) allOk = false;
     }
-  };
-
-  // 确认更改缓存目录
-  const confirmChangeCachePath = () => {
-    window.$dialog.warning({
-      title: "更改缓存目录",
-      content: "更改缓存目录不会自动移动已有缓存文件，建议在清空缓存后再更改目录。确定要继续吗？",
-      positiveText: "确定更改",
-      negativeText: "取消",
-      onPositiveClick: () => {
-        return changeCachePath();
-      },
-    });
+    await loadCacheSize();
+    if (allOk) window.$message.success(`${label} 已清空`);
+    else window.$message.error(`${label} 清理失败（部分项未删除）`);
   };
 
   // 清空所有缓存目录
@@ -82,13 +96,26 @@ export const useLocalSettings = (): SettingConfig => {
   const confirmClearCache = () => {
     window.$dialog.warning({
       title: "清空缓存",
-      content: "将删除所有缓存的音乐、歌词和本地数据，此操作不可恢复，确定要继续吗？",
+      content: "将删除所有缓存的音乐、歌词、封面与列表数据，此操作不可恢复，确定要继续吗？",
       positiveText: "清空缓存",
       negativeText: "取消",
       onPositiveClick: () => {
         return clearCache();
       },
     });
+  };
+
+  /** 手动触发一次全局 LRU 驱逐：供设置面板「立即整理」使用。 */
+  const enforceCacheLimit = async () => {
+    const res = await cacheManager.enforceLimit();
+    await loadCacheSize();
+    if (res.success) {
+      window.$message.success(
+        `整理完成，当前总占用 ${formatFileSize(res.data?.totalBytes ?? 0)}`,
+      );
+    } else {
+      window.$message.error(`整理失败: ${res.message || "未知错误"}`);
+    }
   };
 
   // --- 下载逻辑 ---
@@ -199,7 +226,7 @@ export const useLocalSettings = (): SettingConfig => {
       }
       return;
     }
-    const path = await window.electron.ipcRenderer.invoke("choose-path");
+    const path = (await window.electron.ipcRenderer.invoke("choose-path")) as string | undefined;
     if (path) settingStore.downloadPath = path;
   };
 
@@ -287,28 +314,62 @@ export const useLocalSettings = (): SettingConfig => {
             key: "cacheLimit",
             label: "缓存大小上限",
             type: "custom",
-            description: "达到上限后将清理最旧的缓存，可以是小数，最低 2GB",
+            description: "达到上限后将清理最旧的缓存，可以是小数，最低 256 MB",
             component: markRaw(CacheSizeLimit),
             condition: () => settingStore.cacheEnabled,
             noWrapper: true,
           },
           {
-            key: "cachePath",
-            label: "缓存目录",
-            type: "button",
-            description: computed(() => cachePath.value || "未配置时将使用默认缓存目录"),
-            buttonLabel: "更改",
-            action: confirmChangeCachePath,
-            condition: () => settingStore.cacheEnabled,
-          },
-          {
             key: "clearCache",
-            label: "缓存占用与清理",
+            label: "缓存总占用",
             type: "button",
-            description: () => `当前缓存占用：${cacheSizeDisplay.value}`,
-            buttonLabel: "清空缓存",
+            description: () =>
+              `总占用：${cacheSizeDisplay.value}。清空后仅下次访问重新下载，不影响账号与设置。`,
+            buttonLabel: "清空全部",
             action: confirmClearCache,
             componentProps: { type: "error" },
+          },
+          {
+            key: "clearMusicCache",
+            label: "音频缓存",
+            type: "button",
+            description: () => `音频（边播边缓存）：${musicSizeDisplay.value}`,
+            buttonLabel: "清空音频",
+            action: () => clearByType(["music"], "音频缓存"),
+          },
+          {
+            key: "clearLyricsCache",
+            label: "歌词缓存",
+            type: "button",
+            description: () => `歌词：${lyricsSizeDisplay.value}`,
+            buttonLabel: "清空歌词",
+            action: () => clearByType(["lyrics"], "歌词缓存"),
+          },
+          {
+            key: "clearCoversCache",
+            label: "封面缓存",
+            type: "button",
+            description: () =>
+              `歌曲封面：${coversSizeDisplay.value}、列表封面：${listCoversSizeDisplay.value}`,
+            buttonLabel: "清空封面",
+            action: () => clearByType(["covers", "list-covers"], "封面缓存"),
+          },
+          {
+            key: "clearListDataCache",
+            label: "列表数据缓存",
+            type: "button",
+            description: () => `歌单 / 专辑 / 电台等元信息：${listDataSizeDisplay.value}`,
+            buttonLabel: "清空列表数据",
+            action: () => clearByType(["list-data"], "列表数据缓存"),
+          },
+          {
+            key: "enforceCacheLimit",
+            label: "立即整理",
+            type: "button",
+            description:
+              "主动触发一次全局 LRU 驱逐，把占用压缩到上限的 80%。达到上限时本来也会自动触发。",
+            buttonLabel: "整理",
+            action: enforceCacheLimit,
           },
         ],
       },

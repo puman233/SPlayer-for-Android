@@ -92,7 +92,8 @@ const openDropdown = (
                   },
                 ),
               ];
-              if (!props.hiddenCover) list.unshift(h(SImage, { src: song.coverSize?.s }));
+              if (!props.hiddenCover)
+                list.unshift(h(SImage, { src: song.coverSize?.s, cacheType: "covers" }));
               return list;
             },
           },
