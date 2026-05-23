@@ -52,6 +52,15 @@ class SongManager {
   /** 预载下一首歌曲播放信息 */
   private nextPrefetch: AudioSource | undefined;
 
+  private encodeLocalFilePath(path: string): string {
+    const safePath = path.replace(/%(?![0-9a-fA-F]{2})/g, "%25");
+    return encodeURI(safePath)
+      .replace(/#/g, "%23")
+      .replace(/\?/g, "%3F")
+      .replace(/\[/g, "%5B")
+      .replace(/\]/g, "%5D");
+  }
+
   public peekPrefetch(id: number): AudioSource | undefined {
     if (!this.nextPrefetch) return;
     if (this.nextPrefetch.id !== id) return;
@@ -464,8 +473,21 @@ class SongManager {
     // 本地文件直接返回
     if (song.path && song.type !== "streaming") {
       // Android SAF URI 直接交给 ExoPlayer，无需 file:// 前缀
-      if (song.path.startsWith("content://")) {
-        return { id: song.id, url: song.path, source: "local" };
+      if (isCapacitorAndroid) {
+        if (song.path.startsWith("content://")) {
+          return { id: song.id, url: song.path, quality: song.quality, source: "local" };
+        }
+        if (song.path.startsWith("file://")) {
+          // file:// 路径仍需转义 # / ?，否则 Uri.parse 会截断为 fragment/query
+          const rawPath = song.path.slice("file://".length);
+          const encodedPath = this.encodeLocalFilePath(rawPath);
+          return {
+            id: song.id,
+            url: `file://${encodedPath}`,
+            quality: song.quality,
+            source: "local",
+          };
+        }
       }
       // 检查本地文件是否存在
       const result = await window.electron.ipcRenderer.invoke("file-exists", song.path);
@@ -474,8 +496,8 @@ class SongManager {
         console.error("❌ 本地文件不存在");
         return { id: song.id, url: undefined };
       }
-      const encodedPath = song.path.replace(/#/g, "%23").replace(/\?/g, "%3F");
-      return { id: song.id, url: `file://${encodedPath}`, source: "local" };
+      const encodedPath = this.encodeLocalFilePath(song.path);
+      return { id: song.id, url: `file://${encodedPath}`, quality: song.quality, source: "local" };
     }
 
     // Stream songs (Subsonic / Jellyfin)

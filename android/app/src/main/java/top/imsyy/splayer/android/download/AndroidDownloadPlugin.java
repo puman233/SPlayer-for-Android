@@ -4,6 +4,8 @@ import android.app.DownloadManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Environment;
@@ -19,6 +21,9 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.ActivityCallback;
 import android.content.Intent;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -26,6 +31,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,6 +50,7 @@ public class AndroidDownloadPlugin extends Plugin {
 
   private final ExecutorService executor = Executors.newFixedThreadPool(2);
   private final ConcurrentHashMap<Long, PluginCall> activeDownloads = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Object> coverWriteLocks = new ConcurrentHashMap<>();
 
   @Override
   protected void handleOnDestroy() {
@@ -416,6 +423,8 @@ public class AndroidDownloadPlugin extends Plugin {
     String artist = fallbackArtist;
     String album = "未知专辑";
     long duration = 0L;
+    long bitrate = 0L;
+    String cover = "";
 
     // 尝试用 MediaMetadataRetriever 读取标签信息
     MediaMetadataRetriever retriever = null;
@@ -427,6 +436,7 @@ public class AndroidDownloadPlugin extends Plugin {
       String mArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
       String mAlbum = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
       String mDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+      String mBitrate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
 
       if (mTitle != null && !mTitle.trim().isEmpty()) title = mTitle.trim();
       if (mArtist != null && !mArtist.trim().isEmpty()) artist = mArtist.trim();
@@ -436,6 +446,19 @@ public class AndroidDownloadPlugin extends Plugin {
           duration = Long.parseLong(mDuration);
         } catch (NumberFormatException ignored) {
         }
+      }
+      if (mBitrate != null) {
+        try {
+          bitrate = Long.parseLong(mBitrate);
+        } catch (NumberFormatException ignored) {
+        }
+      }
+
+      // 提取嵌入封面，压缩后写入 cacheDir/local-covers/<idHash>.jpg 并返回 file:// URI。
+      // 用 file:// 而非 base64 data URL：避免上千首歌每首 ~30KB 字符串经 Capacitor 桥响应造成 IPC 肨胀 / OOM。
+      byte[] embeddedPicture = retriever.getEmbeddedPicture();
+      if (embeddedPicture != null) {
+        cover = writeEmbeddedCoverToCache(uri, embeddedPicture);
       }
     } catch (Exception ignored) {
       // 文件不可解析，使用文件名兜底
@@ -458,11 +481,116 @@ public class AndroidDownloadPlugin extends Plugin {
     song.put("album", album);
     song.put("duration", duration);
     song.put("size", size);
+    song.put("quality", bitrate);
     song.put("path", uri);
     song.put("fileName", fileName);
     song.put("ext", extension);
     song.put("lastModified", lastModified);
+    song.put("cover", cover);
     return song;
+  }
+
+  /**
+   * 嵌入封面落盘：按源 URI hash 成名，写入 {@code cacheDir/local-covers/}。返回 file:// URI。
+   * 已存在则复用。压缩到 1024px 内 JPEG quality 80。完全失败返回 ""。
+   */
+  private String writeEmbeddedCoverToCache(String sourceUri, byte[] pictureBytes) {
+    Context ctx = getContext();
+    if (ctx == null) return "";
+    Bitmap original = null;
+    Bitmap scaled = null;
+    try {
+      File coverDir = new File(ctx.getCacheDir(), "local-covers");
+      if (!coverDir.exists() && !coverDir.mkdirs()) {
+        return "";
+      }
+      String idHash = sha256Hex(sourceUri);
+      if (idHash.isEmpty()) return "";
+      File coverFile = new File(coverDir, idHash + ".jpg");
+      Object writeLock = coverWriteLocks.computeIfAbsent(idHash, key -> new Object());
+      try {
+        synchronized (writeLock) {
+          if (coverFile.isFile() && coverFile.length() > 0) {
+            return "file://" + coverFile.getAbsolutePath();
+          }
+          BitmapFactory.Options boundsOptions = new BitmapFactory.Options();
+          boundsOptions.inJustDecodeBounds = true;
+          BitmapFactory.decodeByteArray(pictureBytes, 0, pictureBytes.length, boundsOptions);
+          int maxSize = 1024;
+          BitmapFactory.Options decodeOptions = new BitmapFactory.Options();
+          decodeOptions.inSampleSize = calculateInSampleSize(boundsOptions, maxSize);
+          original = BitmapFactory.decodeByteArray(pictureBytes, 0, pictureBytes.length, decodeOptions);
+          if (original == null) return "";
+          int w = original.getWidth();
+          int h = original.getHeight();
+          float scale = Math.min((float) maxSize / w, (float) maxSize / h);
+          scaled = original;
+          if (scale < 1.0f) {
+            scaled = Bitmap.createScaledBitmap(original, Math.round(w * scale), Math.round(h * scale), true);
+          }
+          try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            scaled.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+            byte[] jpegBytes = baos.toByteArray();
+            // 原子写：tmp → rename，避免进程被杀产生半截断文件
+            File tmp = new File(coverDir, idHash + ".jpg.tmp");
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+              fos.write(jpegBytes);
+              fos.getFD().sync();
+            } catch (IOException e) {
+              // noinspection ResultOfMethodCallIgnored
+              tmp.delete();
+              return "";
+            }
+            if (coverFile.exists()) {
+              // noinspection ResultOfMethodCallIgnored
+              coverFile.delete();
+            }
+            if (!tmp.renameTo(coverFile)) {
+              // noinspection ResultOfMethodCallIgnored
+              tmp.delete();
+              return "";
+            }
+          }
+        }
+      } finally {
+        coverWriteLocks.remove(idHash, writeLock);
+      }
+      return "file://" + coverFile.getAbsolutePath();
+    } catch (Throwable ignored) {
+      return "";
+    } finally {
+      if (scaled != null && scaled != original) {
+        scaled.recycle();
+      }
+      if (original != null) {
+        original.recycle();
+      }
+    }
+  }
+
+  private String sha256Hex(String value) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+      StringBuilder builder = new StringBuilder(hash.length * 2);
+      for (byte b : hash) {
+        builder.append(String.format("%02x", b));
+      }
+      return builder.toString();
+    } catch (Exception ignored) {
+      return "";
+    }
+  }
+
+  private int calculateInSampleSize(BitmapFactory.Options options, int maxSize) {
+    int height = options.outHeight;
+    int width = options.outWidth;
+    if (height <= 0 || width <= 0) return maxSize;
+    int inSampleSize = 1;
+    while (height / inSampleSize > maxSize || width / inSampleSize > maxSize) {
+      inSampleSize *= 2;
+    }
+    return inSampleSize;
   }
 
   private boolean isAudioFile(String name) {

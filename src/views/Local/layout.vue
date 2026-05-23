@@ -135,13 +135,22 @@
         <KeepAlive v-if="settingStore.useKeepAlive">
           <component
             :is="Component"
+            :key="routeKey"
             :data="listData"
             :loading="loading"
             :list-version="listVersion"
             class="router-view"
           />
         </KeepAlive>
-        <component v-else :is="Component" :data="listData" :loading="loading" class="router-view" />
+        <component
+          v-else
+          :is="Component"
+          :key="routeKey"
+          :data="listData"
+          :loading="loading"
+          :list-version="listVersion"
+          class="router-view"
+        />
       </Transition>
     </RouterView>
     <!-- 空状态 -->
@@ -188,6 +197,7 @@ const localEventBus = useEventBus("local");
 
 // 本地歌曲路由
 const localType = ref<string>((router.currentRoute.value?.name as string) || "local-songs");
+const routeKey = computed(() => (router.currentRoute.value?.name as string) || "local-songs");
 
 // 选中的文件夹
 const selectedFolder = ref<string>("all");
@@ -385,6 +395,14 @@ interface SyncCompleteData {
   tracks?: Record<string, unknown>[];
 }
 
+const isSyncCompleteData = (value: unknown): value is SyncCompleteData => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { success?: unknown }).success === "boolean"
+  );
+};
+
 // 获取全部路径歌曲（流式接收）
 const getAllLocalMusic = debounce(
   async (showTip: boolean = false) => {
@@ -513,7 +531,7 @@ const getAllLocalMusic = debounce(
       // 触发同步
       const res = await window.electron.ipcRenderer.invoke("local-music-sync", allPath);
       // 检查返回值，如果是扫描正在进行中
-      if (res && !res.success) {
+      if (isSyncCompleteData(res) && !res.success) {
         isCompleted = true;
         loading.value = false;
         loadingMsg.value?.destroy();
@@ -705,7 +723,10 @@ onUnmounted(() => {
     overflow: hidden;
     max-height: calc((var(--layout-height) - 132) * 1px);
   }
-  @media (max-width: 768px) {
+  @media (max-width: 767px) and (orientation: portrait) {
+    height: 100%;
+    min-height: calc(100dvh - var(--app-header-height) - var(--phone-nav-total-height) - 16px);
+
     .title {
       margin-top: 8px;
       margin-bottom: 16px;
@@ -749,8 +770,8 @@ onUnmounted(() => {
     }
 
     .router-view {
-      max-height: none;
       min-height: 0;
+      max-height: none;
     }
   }
   @media (max-width: 512px) {

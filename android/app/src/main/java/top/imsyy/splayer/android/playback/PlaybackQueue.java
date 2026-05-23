@@ -46,7 +46,7 @@ public final class PlaybackQueue {
 
   /** 单首曲目元数据 + 已解析 URL。 */
   public static final class Track {
-    /** 网易云 songId。必须 long：2024+ 部分 ID 超过 Integer.MAX_VALUE，int 会溢出为负。 */
+    /** 内部 songId。必须 long：2024+ 部分 ID 超过 Integer.MAX_VALUE，int 会溢出为负。 */
     public long songId;
     public long durationMs;
     public boolean canLike;

@@ -1,4 +1,5 @@
 import { ref, watch, onBeforeUnmount, type Ref } from "vue";
+import { Capacitor } from "@capacitor/core";
 import { useCacheManager, type CacheResourceType } from "@/core/resource/CacheManager";
 import { isCapacitorAndroid } from "@/utils/env";
 import { useSettingStore } from "@/stores";
@@ -304,7 +305,21 @@ export const useCoverCache = (
         resolved.value = undefined;
         return;
       }
-      // 非 http(s) 直接透传：本地路径 / data URI / blob URL / capacitor://
+      // Capacitor WebView 禁止 <img src="file://">，先做代理转换
+      if (isCapacitorAndroid && (url.startsWith("file://") || url.startsWith("content://"))) {
+        try {
+          resolved.value = Capacitor.convertFileSrc(url);
+        } catch {
+          resolved.value = url;
+        }
+        return;
+      }
+      // 已是代理 URL 的直接透传，不需要再走缓存 IPC
+      if (url.includes("_capacitor_file_")) {
+        resolved.value = url;
+        return;
+      }
+      // 非 http(s) 直接透传：data URI / blob URL / 其他 scheme
       if (!url.startsWith("http")) {
         resolved.value = url;
         return;
@@ -321,7 +336,7 @@ export const useCoverCache = (
         if (cached.startsWith("blob:")) {
           // resolveCachedCover 已 pre-retain（修复 #2），这里只需记录 url 等卸载时 release
           retainedUrls.push(url);
-        } else if (cached.startsWith("blob:") === false) {
+        } else {
           // 极少见：返回非 blob URL（透传场景），不持有引用
         }
       } else if (cached && cached.startsWith("blob:")) {

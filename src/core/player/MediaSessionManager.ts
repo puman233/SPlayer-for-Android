@@ -332,12 +332,20 @@ class MediaSessionManager {
 
     if (isCapacitorAndroid) {
       await this.syncAndroidApiContext();
+      // 本地歌曲封面：JS 侧 metadata.coverUrl 已经被 Capacitor.convertFileSrc 转成
+      // https://localhost/_capacitor_file_/...，原生 HttpURLConnection 拿不到自签证书。
+      // 这里优先取 song.cover 的原始 file:// 路径交给 Java，Java 侧的 file:// 分支可直接 decodeFile。
+      const rawCover = typeof song.cover === "string" ? song.cover : "";
+      const nativeCoverUrl =
+        song.path && (rawCover.startsWith("file://") || rawCover.startsWith("content://"))
+          ? rawCover
+          : metadata.coverUrl;
       await AndroidNativePlayback.updateMetadata({
         songId: typeof song.id === "number" ? song.id : undefined,
         title: metadata.title,
         artist: metadata.artist,
         album: metadata.album,
-        coverUrl: metadata.coverUrl,
+        coverUrl: nativeCoverUrl,
         durationMs: song.duration || 0,
         canLike: !song.path && song.type !== "streaming",
       });

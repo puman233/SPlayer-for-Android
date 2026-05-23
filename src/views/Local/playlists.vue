@@ -49,5 +49,19 @@ const playlistData = computed<CoverType[]>(() => {
   .empty {
     margin-top: 100px;
   }
+  @media (max-width: 767px) and (orientation: portrait) {
+    max-height: none;
+    min-height: 100%;
+    overflow: visible;
+    :deep(.n-scrollbar) {
+      max-height: none;
+    }
+    .cover-list {
+      padding: 0 2px 12px;
+    }
+    .empty {
+      margin-top: 48px;
+    }
+  }
 }
 </style>
