@@ -1,6 +1,6 @@
 <!-- 播放器 - 评论 -->
 <template>
-  <div class="player-comment" :class="{ 'no-song-data': hideSongData }">
+  <div class="player-comment" :class="{ 'no-song-data': hideSongData, embedded }">
     <n-flex v-if="!hideSongData" :wrap="false" align="center" class="song-data">
       <n-image
         :src="musicStore.songCover"
@@ -33,12 +33,7 @@
         <n-flex class="close" align="center" justify="center" @click="openExcludeComment">
           <SvgIcon name="Tag" :size="20" />
         </n-flex>
-        <n-flex
-          class="close"
-          align="center"
-          justify="center"
-          @click="statusStore.showPlayerComment = false"
-        >
+        <n-flex v-if="!embedded" class="close" align="center" justify="center" @click="handleClose">
           <SvgIcon name="Music" :size="24" />
         </n-flex>
       </div>
@@ -97,13 +92,19 @@ import { NScrollbar } from "naive-ui";
 import { coverLoaded } from "@/utils/helper";
 import { openExcludeComment } from "@/utils/modal";
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** 隐藏顶部歌曲卡片 */
     hideSongData?: boolean;
+    /** 嵌入模式下是否激活 */
+    active?: boolean;
+    /** 嵌入式布局 */
+    embedded?: boolean;
   }>(),
-  { hideSongData: false },
+  { hideSongData: false, embedded: false },
 );
+
+const emit = defineEmits<{ (e: "close"): void }>();
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
@@ -112,7 +113,16 @@ const settingStore = useSettingStore();
 const commentScroll = ref<InstanceType<typeof NScrollbar> | null>(null);
 
 // 是否展示
-const isShowComment = computed<boolean>(() => statusStore.showPlayerComment);
+const isShowComment = computed<boolean>(() =>
+  props.embedded ? !!props.active : statusStore.showPlayerComment,
+);
+
+const handleClose = () => {
+  emit("close");
+  if (!props.embedded) {
+    statusStore.showPlayerComment = false;
+  }
+};
 
 // 歌曲 id
 const songId = computed<number | string>(() => musicStore.playSong.id);
@@ -123,7 +133,7 @@ const songType = computed<0 | 1 | 7 | 2 | 3 | 4 | 5 | 6>(() =>
 );
 
 // 评论数据
-const commentLoading = ref<boolean>(true);
+const commentLoading = ref<boolean>(props.embedded ? !!props.active : true);
 const commentData = ref<CommentType[]>([]);
 const commentHotData = ref<CommentType[] | null>(null);
 const commentPage = ref<number>(1);
@@ -282,6 +292,23 @@ onMounted(() => {
   width: 100%;
   height: calc(100vh - 160px);
   overflow: hidden;
+  // 嵌入式布局
+  &.embedded {
+    position: relative;
+    right: auto;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    .song-data {
+      flex: 0 0 auto;
+    }
+    :deep(.comment-scroll) {
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
+    }
+  }
   :deep(.n-text),
   :deep(.n-icon),
   :deep(.n-button) {

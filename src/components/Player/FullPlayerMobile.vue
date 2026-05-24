@@ -1,5 +1,6 @@
 <script lang="ts">
-let savedPageIndex = 0;
+type MobilePageType = "comment" | "info" | "lyric";
+let savedPageType: MobilePageType = "info";
 </script>
 
 <template>
@@ -24,9 +25,13 @@ let savedPageIndex = 0;
 
     <div
       :class="['mobile-content', { swiping: isHorizontalSwipe }]"
-      :style="{ transform: contentTransform }"
+      :style="{ transform: contentTransform, '--page-count': totalPages }"
       @click.stop
     >
+      <div v-if="hasComment" class="page comment-page">
+        <PlayerComment :active="pageIndex === commentIdx" embedded class="mobile-comment" />
+      </div>
+
       <div class="page info-page">
         <div class="cover-section">
           <PlayerCover :no-lyric="true" />
@@ -122,7 +127,7 @@ let savedPageIndex = 0;
         </div>
       </div>
 
-      <div class="page lyric-page">
+      <div v-if="hasLyric" class="page lyric-page">
         <div class="lyric-header">
           <s-image :src="musicStore.getSongCover('s')" cache-type="covers" class="lyric-cover" />
           <div class="lyric-info">
@@ -155,9 +160,9 @@ let savedPageIndex = 0;
       </div>
     </div>
 
-    <div v-if="hasLyric" class="pagination">
+    <div v-if="totalPages > 1" class="pagination">
       <div
-        v-for="i in 2"
+        v-for="i in totalPages"
         :key="i"
         :class="['dot', { active: pageIndex === i - 1 }]"
         @click="pageIndex = i - 1"
@@ -196,24 +201,56 @@ const LYRIC_HEADER_MAX_PADDING = 60;
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
 const dragHandleRef = ref<HTMLElement | null>(null);
-// 当前歌曲无歌词时强制初始化为信息页，否则恢复模块级缓存
-// 避免「上次停在歌词页 → 切到无歌词歌曲再打开」时 watch 不触发导致空白歌词页
-const pageIndex = ref(
-  musicStore.isHasLrc && musicStore.playSong.type !== "radio" ? savedPageIndex : 0,
-);
+
+// 歌词/评论可用性
+const hasLyric = computed(() => musicStore.isHasLrc && musicStore.playSong.type !== "radio");
+const hasComment = computed(() => {
+  if (musicStore.playSong.path) return false;
+  if (statusStore.pureLyricMode) return false;
+  if (settingStore.fullscreenPlayerElements?.comments === false) return false;
+  const id = musicStore.playSong.id;
+  return typeof id === "number" && id > 0;
+});
+
+// 总页数（信息页恒存在，评论/歌词按需）
+const totalPages = computed(() => 1 + (hasComment.value ? 1 : 0) + (hasLyric.value ? 1 : 0));
+// 页面顺序: [评论 | 信息 | 歌词]
+// 评论页索引（恒为 0，若不存在则 -1）
+const commentIdx = computed(() => (hasComment.value ? 0 : -1));
+// 信息页索引（评论存在则后移一位）
+const infoIdx = computed(() => (hasComment.value ? 1 : 0));
+// 歌词页索引（在信息页之后）
+const lyricIdx = computed(() => (hasLyric.value ? infoIdx.value + 1 : -1));
+
+// 上次访问的页面类型 → 当前布局下的实际索引；不存在则回退到信息页
+const resolveSavedPageIndex = (type: MobilePageType): number => {
+  if (type === "comment" && hasComment.value) return commentIdx.value;
+  if (type === "lyric" && hasLyric.value) return lyricIdx.value;
+  return infoIdx.value;
+};
+
+// 默认落在「信息」页，并尽量恢复上次浏览的页面类型
+const pageIndex = ref(resolveSavedPageIndex(savedPageType));
 
 const lyricHeaderHorizontalPadding = computed(() => {
   const padding = Math.max(0, settingStore.lyricHorizontalOffset);
   return `${Math.min(padding, LYRIC_HEADER_MAX_PADDING)}px`;
 });
 
-// 下拉关闭手势捕获区高度：信息页仅覆盖顶栏 + 封面上半段，避免遮挡下方按钮
-// 歌词页含顶栏 + 歌曲信息条
-const dragHandleHeight = computed(() =>
-  pageIndex.value === 0
-    ? "calc(40px + var(--mobile-safe-top) + 32vh)"
-    : "calc(140px + var(--mobile-safe-top))",
-);
+// 当前页面类型
+const currentPageType = computed<MobilePageType>(() => {
+  if (pageIndex.value === commentIdx.value) return "comment";
+  if (pageIndex.value === lyricIdx.value) return "lyric";
+  return "info";
+});
+
+// 下拉关闭手势捕获区高度：信息页覆盖顶栏 + 封面区域；歌词页含顶栏 + 歌曲信息条；
+// 评论页仅顶栏（让出滚动空间给评论列表）
+const dragHandleHeight = computed(() => {
+  if (currentPageType.value === "info") return "calc(40px + var(--mobile-safe-top) + 32vh)";
+  if (currentPageType.value === "lyric") return "calc(140px + var(--mobile-safe-top))";
+  return "calc(56px + var(--mobile-safe-top))";
+});
 
 // 顶部区域下拉关闭：整个全屏播放器（含背景蒙层）跟手下移，露出底部主页面
 let dragValue = 0;
@@ -381,8 +418,6 @@ onBeforeUnmount(() => {
   resetInlineStyles();
 });
 
-const hasLyric = computed(() => musicStore.isHasLrc && musicStore.playSong.type !== "radio");
-
 const artistName = computed(() => {
   const artists = musicStore.playSong.artists;
   if (Array.isArray(artists)) {
@@ -391,25 +426,35 @@ const artistName = computed(() => {
   return (artists as string) || "未知艺术家";
 });
 
-watch(hasLyric, (value) => {
-  if (!value) pageIndex.value = 0;
+// 页面可用性变化时按页面语义迁移 pageIndex
+watch([hasComment, hasLyric], (_n, [prevHasComment, prevHasLyric]) => {
+  const prevCommentIdx = prevHasComment ? 0 : -1;
+  const prevInfoIdx = prevHasComment ? 1 : 0;
+  const prevLyricIdx = prevHasLyric ? prevInfoIdx + 1 : -1;
+
+  let prevType: MobilePageType = "info";
+  if (pageIndex.value === prevCommentIdx) prevType = "comment";
+  else if (pageIndex.value === prevLyricIdx) prevType = "lyric";
+
+  pageIndex.value = resolveSavedPageIndex(prevType);
 });
 
-watch(pageIndex, (value) => {
-  savedPageIndex = value;
+// 同步缓存页面语义
+watch(currentPageType, (t) => {
+  savedPageType = t;
 });
 
 const { direction, isSwiping, lengthX, lengthY } = useSwipe(mobileStart, {
   threshold: 5,
   onSwipeEnd: () => {
-    if (!hasLyric.value) return;
-    // 仅在主方向为水平时触发翻页，避免上下滑动歌词误触
+    if (totalPages.value <= 1) return;
+    // 仅在主方向为水平时触发翻页，避免上下滑动歌词/评论误触
     if (Math.abs(lengthX.value) <= Math.abs(lengthY.value)) return;
 
     if (direction.value === "left" && lengthX.value > 100) {
-      pageIndex.value = 1;
+      pageIndex.value = Math.min(pageIndex.value + 1, totalPages.value - 1);
     } else if (direction.value === "right" && lengthX.value < -100) {
-      pageIndex.value = 0;
+      pageIndex.value = Math.max(pageIndex.value - 1, 0);
     }
   },
 });
@@ -420,8 +465,9 @@ const isHorizontalSwipe = computed(
 );
 
 const contentTransform = computed(() => {
-  const baseOffset = pageIndex.value * 50;
-  if (!isHorizontalSwipe.value || !hasLyric.value) {
+  const pageWidthPct = 100 / totalPages.value;
+  const baseOffset = pageIndex.value * pageWidthPct;
+  if (!isHorizontalSwipe.value || totalPages.value <= 1) {
     return `translateX(-${baseOffset}%)`;
   }
 
@@ -429,7 +475,7 @@ const contentTransform = computed(() => {
   if (pageIndex.value === 0 && pixelOffset < 0) {
     pixelOffset *= 0.3;
   }
-  if (pageIndex.value === 1 && pixelOffset > 0) {
+  if (pageIndex.value === totalPages.value - 1 && pixelOffset > 0) {
     pixelOffset *= 0.3;
   }
 
@@ -500,18 +546,20 @@ const contentTransform = computed(() => {
   .mobile-content {
     flex: 1;
     display: flex;
-    width: 200%;
+    width: calc(var(--page-count, 1) * 100%);
     height: 100%;
     transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    // 横滑交给 useSwipe
+    touch-action: pan-y;
 
     &.swiping {
       transition: none;
     }
 
     .page {
-      width: 50%;
+      width: calc(100% / var(--page-count, 1));
+      flex: 0 0 calc(100% / var(--page-count, 1));
       height: 100%;
-      flex-shrink: 0;
       position: relative;
     }
   }
@@ -761,6 +809,67 @@ const contentTransform = computed(() => {
     }
   }
 
+  .comment-page {
+    padding: calc(56px + var(--mobile-safe-top)) 0 calc(24px + var(--mobile-safe-bottom));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    // 小屏视觉调优
+    :deep(.mobile-comment) {
+      .song-data {
+        height: 80px;
+        margin: 0 16px 12px;
+        padding: 0 14px;
+
+        .cover-img {
+          width: 56px;
+          height: 56px;
+          border-radius: 10px;
+        }
+
+        .title {
+          font-size: 17px;
+        }
+
+        .artist {
+          font-size: 12px;
+        }
+
+        .actions {
+          gap: 8px;
+
+          .close {
+            width: 36px;
+            height: 36px;
+          }
+        }
+      }
+
+      .comment-scroll .n-scrollbar-content {
+        padding: 0 16px;
+      }
+
+      .placeholder {
+        height: 56px;
+        padding-bottom: 10px;
+
+        &:last-child {
+          height: 0;
+          padding-top: 24px;
+        }
+
+        .title {
+          font-size: 18px;
+
+          .n-icon {
+            margin-right: 4px;
+          }
+        }
+      }
+    }
+  }
+
   .pagination {
     position: absolute;
     left: 0;
@@ -818,6 +927,23 @@ const contentTransform = computed(() => {
 
       .lyric-header {
         gap: 12px;
+      }
+    }
+
+    .comment-page {
+      padding: calc(52px + var(--mobile-safe-top)) 0 calc(20px + var(--mobile-safe-bottom));
+
+      :deep(.mobile-comment) {
+        .song-data {
+          margin: 0 12px 10px;
+          padding: 0 12px;
+        }
+
+        .comment-scroll {
+          .n-scrollbar-content {
+            padding: 0 12px;
+          }
+        }
       }
     }
   }
