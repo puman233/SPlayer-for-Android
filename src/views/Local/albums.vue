@@ -117,8 +117,11 @@ watch(
 .local-albums {
   display: flex;
   height: calc((var(--layout-height) - 80) * 1px);
+  min-height: 0;
   :deep(.album-list) {
+    flex: 0 0 260px;
     width: 260px;
+    height: 100%;
     .n-scrollbar-content {
       padding: 0 5px 0 0 !important;
     }
@@ -183,7 +186,55 @@ watch(
   .song-list {
     width: 100%;
     flex: 1;
+    min-width: 0;
     margin-left: 15px;
+  }
+  @media (max-width: 767px) and (orientation: portrait) {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    :deep(.album-list) {
+      flex: 0 0 auto;
+      width: 100%;
+      height: auto;
+      max-height: 260px;
+      margin-bottom: 12px;
+      .n-scrollbar-content {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 0 0 4px 0 !important;
+      }
+    }
+    .album-item {
+      margin-bottom: 0;
+      :deep(.n-card__content) {
+        padding: 10px;
+      }
+      &:last-child {
+        margin-bottom: 0;
+      }
+      .cover {
+        width: 42px;
+        height: 42px;
+        margin-right: 10px;
+        border-radius: 10px;
+      }
+      .data {
+        min-width: 0;
+      }
+      .name {
+        font-size: 14px;
+      }
+      .num {
+        font-size: 12px;
+      }
+    }
+    .song-list {
+      flex: 1;
+      width: 100%;
+      margin-left: 0;
+    }
   }
 }
 </style>

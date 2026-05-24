@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { Capacitor } from "@capacitor/core";
 import type { SongType } from "@/types/main";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { cloneDeep } from "lodash-es";
@@ -69,9 +70,7 @@ export const useMusicStore = defineStore("music", {
     },
     /** 歌曲封面 */
     songCover(state): string {
-      return state.playSong.path
-        ? state.playSong.cover
-        : state.playSong.coverSize?.s || state.playSong.cover;
+      return resolveCoverForWebView(state.playSong.coverSize?.s || state.playSong.cover);
     },
     // 私人FM播放歌曲
     personalFMSong(state): SongType {
@@ -134,11 +133,7 @@ export const useMusicStore = defineStore("music", {
     },
     // 获取歌曲封面
     getSongCover(size: "s" | "m" | "l" | "xl" | "cover" = "s") {
-      return this.playSong.path
-        ? this.playSong.cover
-        : size === "cover"
-          ? this.playSong.cover
-          : this.playSong.coverSize?.[size] || this.playSong.cover;
+      return resolveCoverForWebView(size === "cover" ? this.playSong.cover : this.playSong.coverSize?.[size] || this.playSong.cover);
     },
   },
   // 持久化
@@ -151,3 +146,13 @@ export const useMusicStore = defineStore("music", {
     pick: ["playSong", "playPlaylistId", "personalFM", "dailySongsData"],
   },
 });
+
+const resolveCoverForWebView = (url?: string) => {
+  if (!url) return "";
+  if (!isCapacitorAndroid || (!url.startsWith("file://") && !url.startsWith("content://"))) return url;
+  try {
+    return Capacitor.convertFileSrc(url);
+  } catch {
+    return url;
+  }
+};

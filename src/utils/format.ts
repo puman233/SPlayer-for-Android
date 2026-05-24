@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { useDataStore, useMusicStore, useStatusStore } from "@/stores";
 import type { ArtistType, CatType, CommentType, CoverType, MetaData, SongType } from "@/types/main";
 import { flatMap, isArray, uniqBy } from "lodash-es";
@@ -283,6 +284,17 @@ const getCoverUrl = (item: any): CoverDataType => {
 const getCoverSizeUrl = (url: string, size: number | null = null) => {
   try {
     if (!url) return "/images/song.jpg?asset";
+    // 本地 / SAF 来源的封面：Capacitor WebView 不允许直接 file:// / content:// 加载，
+    // 需经 Capacitor.convertFileSrc 转成 https://localhost/_capacitor_file_/... 代理。
+    // 同时不能拼 ?param= 参数（仅在线服务 CDN 支持）。data: URL 直接返回。
+    if (url.startsWith("data:")) return url;
+    if (url.startsWith("file://") || url.startsWith("content://")) {
+      try {
+        return Capacitor.convertFileSrc(url);
+      } catch {
+        return url;
+      }
+    }
     const sizeUrl = size
       ? typeof size === "number"
         ? `?param=${size}y${size}`

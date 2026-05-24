@@ -30,6 +30,8 @@
 </template>
 
 <script setup lang="ts">
+import { Capacitor } from "@capacitor/core";
+import { isCapacitorAndroid } from "@/utils/env";
 import { useCoverCache } from "@/composables/useCoverCache";
 
 const props = withDefaults(
@@ -80,7 +82,20 @@ const props = withDefaults(
 
 // Android 端命中本地封面缓存返回 blob URL，未命中时后台下载并保存；其他平台直接透传 src。
 // cacheType="none" 时退化为透传，避免大图（背景模糊）走 base64 IPC 浪费 CPU/内存。
-const srcRef = computed(() => props.src);
+const srcRef = computed(() => {
+  const url = props.src;
+  if (!url) return undefined;
+  // Capacitor WebView 禁止 <img src="file://"> / <img src="content://">，
+  // 必须用 convertFileSrc 转成 https://localhost/_capacitor_file_/... 代理。
+  if (isCapacitorAndroid && (url.startsWith("file://") || url.startsWith("content://"))) {
+    try {
+      return Capacitor.convertFileSrc(url);
+    } catch {
+      return url;
+    }
+  }
+  return url;
+});
 const cachedSrc =
   props.cacheType === "none"
     ? srcRef

@@ -469,6 +469,9 @@ const getListData = async (id: number | string): Promise<SongType[]> => {
       border: 2px solid rgba(var(--primary), 0.12);
       padding: 0;
       overflow: hidden;
+      @media (max-width: 767px) and (orientation: portrait) {
+        min-height: 72px;
+      }
       &:hover {
         border-color: rgba(var(--primary), 0.58);
       }
@@ -478,6 +481,12 @@ const getListData = async (id: number | string): Promise<SongType[]> => {
         .name {
           font-size: 18px;
           font-weight: bold;
+        }
+        @media (max-width: 767px) and (orientation: portrait) {
+          padding: 10px 12px;
+          .name {
+            font-size: 15px;
+          }
         }
       }
     }

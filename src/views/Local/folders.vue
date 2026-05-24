@@ -99,14 +99,18 @@ const treeData = computed<TreeOption[]>(() => {
   sortedPaths.forEach((fullPath) => {
     const isWindows = fullPath.includes("\\");
     const sep = isWindows ? "\\" : "/";
-    const segments = fullPath.split(/[/\\]/).filter(Boolean);
+    // 提取 scheme://（如 content://、file://），避免 filter(Boolean) 吃掉空串导致双斜杠变单斜杠
+    const schemeMatch = fullPath.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/+)/);
+    const scheme = schemeMatch ? schemeMatch[1] : "";
+    const rest = scheme ? fullPath.slice(scheme.length) : fullPath;
+    const segments = rest.split(/[/\\]/).filter(Boolean);
 
-    let currentPath = "";
-    if (fullPath.startsWith(sep)) currentPath = sep;
+    let currentPath = scheme;
+    if (!scheme && fullPath.startsWith(sep)) currentPath = sep;
 
     segments.forEach((segment, index) => {
       const prevPath = currentPath;
-      if (index === 0 && !fullPath.startsWith(sep)) {
+      if (index === 0 && !scheme && !fullPath.startsWith(sep)) {
         currentPath = segment;
       } else {
         currentPath = currentPath.endsWith(sep)
@@ -288,8 +292,10 @@ onDeactivated(() => {
 .local-folders {
   display: flex;
   height: calc((var(--layout-height) - 80) * 1px);
+  min-height: 0;
 
   :deep(.folder-list) {
+    flex: 0 0 280px;
     width: 280px;
     height: 100%;
     background-color: var(--surface-container-hex);
@@ -305,7 +311,29 @@ onDeactivated(() => {
   .song-list {
     width: 100%;
     flex: 1;
+    min-width: 0;
     margin-left: 15px;
+  }
+
+  @media (max-width: 767px) and (orientation: portrait) {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+
+    :deep(.folder-list) {
+      flex: 0 0 auto;
+      width: 100%;
+      height: auto;
+      max-height: 240px;
+      margin-bottom: 12px;
+      padding: 8px;
+    }
+
+    .song-list {
+      flex: 1;
+      width: 100%;
+      margin-left: 0;
+    }
   }
 }
 </style>

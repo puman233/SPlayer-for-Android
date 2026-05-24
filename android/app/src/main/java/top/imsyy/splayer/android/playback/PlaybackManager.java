@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -18,6 +19,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
 import androidx.annotation.NonNull;
@@ -60,7 +62,10 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import top.imsyy.splayer.android.MainActivity;
@@ -83,6 +88,7 @@ public final class PlaybackManager {
   private static final long FAVORITE_REQUEST_RETRY_DELAY_MS = 350L;
   private static final long SEEK_STATE_GRACE_MS = 4000L;
   private static final long SEEK_POSITION_TOLERANCE_MS = 1500L;
+  private static final int CONTENT_MIME_CACHE_MAX_SIZE = 1024;
   private static volatile PlaybackManager instance;
 
   private final Context appContext;
@@ -101,7 +107,7 @@ public final class PlaybackManager {
   /** 暴露给 MediaSession 的包装 Player：覆写 availableCommands，让系统媒体面板始终展示上一/下一首。 */
   private Player sessionPlayer;
   private MediaSession mediaSession;
-  private PlaybackService service;
+  private volatile PlaybackService service;
   /** PlaybackService 是否已通过 onCreate→attachService 启动并保持运行；用于 ensureServiceRunning 节流。 */
   private volatile boolean serviceStarted;
   private AndroidNativePlaybackPlugin plugin;
@@ -130,6 +136,9 @@ public final class PlaybackManager {
   /** Java 端 URL 解析器：WebView 冻结时仍可自治取地址。 */
   private final PlaybackUrlResolver urlResolver = new PlaybackUrlResolver();
   private TrackMetadata currentMetadata = new TrackMetadata();
+  private static final int NATIVE_ERROR_RECOVERY_MAX_ATTEMPTS = 2;
+  private long nativeRecoverySongId = 0L;
+  private int nativeRecoveryAttempts = 0;
   /**
    * Java 端自治播放队列（滑动窗口）。
    *
@@ -582,6 +591,8 @@ public final class PlaybackManager {
           windowResetFromWrap ? playbackQueue.current() : playbackQueue.advanceRaw(false);
       if (resume != null) {
         resolveAndPlayAsync(resume, "auto", true, 5);
+      } else {
+        emitCustomAction("next", null, null, null, null, true, null);
       }
     }
   }
@@ -899,6 +910,9 @@ public final class PlaybackManager {
 
           @Override
           public void onPlayerError(PlaybackException error) {
+            if (recoverCurrentTrackAfterError(error)) {
+              return;
+            }
             emitError(error.errorCode, error.getMessage());
             updateNotification();
           }
@@ -1026,10 +1040,44 @@ public final class PlaybackManager {
   private MediaItem buildMediaItem(String url) {
     MediaItem.Builder builder = new MediaItem.Builder();
     if (url != null && !url.isEmpty()) {
-      builder.setUri(Uri.parse(url));
+      Uri uri = Uri.parse(url);
+      builder.setUri(uri);
+      if ("content".equals(uri.getScheme())) {
+        builder.setMimeType(resolveContentMimeType(uri));
+      }
     }
     builder.setMediaMetadata(buildMediaMetadata());
     return builder.build();
+  }
+
+  /** content:// MIME 缓存：避免 buildMediaItem 在主线程对未冷启的 ContentProvider 做同步 IPC。 */
+  private final Map<String, String> contentMimeCache =
+      Collections.synchronizedMap(
+          new LinkedHashMap<String, String>(CONTENT_MIME_CACHE_MAX_SIZE, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+              return size() > CONTENT_MIME_CACHE_MAX_SIZE;
+            }
+          });
+
+  @Nullable
+  private String resolveContentMimeType(Uri uri) {
+    String key = uri.toString();
+    String cached = contentMimeCache.get(key);
+    if (cached != null) {
+      // 空字符串 sentinel：曾经查到过 null（未知 MIME），不再重复查
+      return cached.isEmpty() ? null : cached;
+    }
+    try {
+      ContentResolver resolver = appContext.getContentResolver();
+      String mime = resolver.getType(uri);
+      contentMimeCache.put(key, mime == null ? "" : mime);
+      return mime;
+    } catch (Exception error) {
+      Log.w(TAG, "resolveContentMimeType failed", error);
+      contentMimeCache.put(key, "");
+      return null;
+    }
   }
 
   private MediaMetadata buildMediaMetadata() {
@@ -1247,6 +1295,8 @@ public final class PlaybackManager {
     // 切歌即失效旧 async 回调 + 清 pending，防止旧 URL 覆盖 / 补窗误消费
     resolveTokenCounter.incrementAndGet();
     pendingResumeAfterRefill = false;
+    nativeRecoverySongId = 0L;
+    nativeRecoveryAttempts = 0;
     TrackMetadata metadata = trackToMetadata(track);
     startTrackFromState(track.url, metadata, track.liked, true);
 
@@ -1265,6 +1315,72 @@ public final class PlaybackManager {
 
     // 窗口边缘提前补 URL
     requestUrlsIfWindowExhausted();
+  }
+
+  private boolean recoverCurrentTrackAfterError(PlaybackException error) {
+    long songId = currentMetadata.songId;
+    if (songId <= 0 || !currentMetadata.canLike) return false;
+    if (currentSource == null || currentSource.isEmpty()) return false;
+    if (!isRecoverablePlaybackError(error)) return false;
+    if (nativeRecoverySongId != songId) {
+      nativeRecoverySongId = songId;
+      nativeRecoveryAttempts = 0;
+    }
+    if (nativeRecoveryAttempts >= NATIVE_ERROR_RECOVERY_MAX_ATTEMPTS) return false;
+    nativeRecoveryAttempts++;
+    long positionMs = Math.max(0L, getPositionMs());
+    TrackMetadata metadataSnapshot = currentMetadata.copy();
+    boolean likedSnapshot = liked;
+    Log.w(TAG, "native recover playback error code=" + error.errorCode + " songId=" + songId);
+    final long myToken = resolveTokenCounter.incrementAndGet();
+    urlResolver.clear(songId);
+    urlResolver.submitResolve(
+        songId,
+        url ->
+            mainHandler.post(
+                () -> {
+                  if (player == null) return;
+                  if (myToken != resolveTokenCounter.get()) return;
+                  if (url == null || url.isEmpty()) {
+                    emitError(error.errorCode, error.getMessage());
+                    updateNotification();
+                    return;
+                  }
+                  metadataSnapshot.url = url;
+                  currentSource = url;
+                  currentMetadata = metadataSnapshot.copy();
+                  playbackQueue.updateTrackUrl(songId, url);
+                  liked = likedSnapshot;
+                  clearPendingSeek();
+                  durationCalibratedForSource = "";
+                  player.setMediaItem(buildMediaItem(url));
+                  player.prepare();
+                  if (positionMs > 0) {
+                    player.seekTo(positionMs);
+                    beginPendingSeek(positionMs);
+                  }
+                  player.play();
+                  updateNotification();
+                  emitPlaybackState(true);
+                  emitProgressChanged();
+                  nativeRecoverySongId = 0L;
+                  nativeRecoveryAttempts = 0;
+                  prefetchUpcomingUrls();
+                }));
+    return true;
+  }
+
+  private boolean isRecoverablePlaybackError(PlaybackException error) {
+    int code = error.errorCode;
+    return code == PlaybackException.ERROR_CODE_IO_UNSPECIFIED
+        || code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        || code == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        || code == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE
+        || code == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+        || code == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
+        || code == PlaybackException.ERROR_CODE_IO_NO_PERMISSION
+        || code == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED
+        || code == PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE;
   }
 
   /** 转换 PlaybackQueue.Track → TrackMetadata（复用现有切歌路径） */
@@ -1452,10 +1568,20 @@ public final class PlaybackManager {
     } catch (IllegalStateException error) {
       // Android 12+ ForegroundServiceStartNotAllowedException 继承 IllegalStateException，
       // 在 Doze 边缘 / 系统极限场景偶发。仅记录，让通知降级为普通通知，避免崩溃。
+      if (!isForegroundServiceStartNotAllowed(error)) {
+        throw error;
+      }
       Log.w(TAG, "Failed to enter foreground service from background", error);
       NotificationManagerCompat.from(appContext)
           .notify(PlaybackConstants.NOTIFICATION_ID, notification);
     }
+  }
+
+  private boolean isForegroundServiceStartNotAllowed(IllegalStateException error) {
+    String className = error.getClass().getName();
+    String message = error.getMessage();
+    return className.contains("ForegroundServiceStartNotAllowedException")
+        || (message != null && message.contains("ForegroundService"));
   }
 
   private Notification buildNotification() {
@@ -1867,7 +1993,23 @@ public final class PlaybackManager {
           HttpURLConnection connection = null;
 
           try {
-            if (coverUrl.startsWith("http://") || coverUrl.startsWith("https://")) {
+            if (coverUrl.startsWith("data:")) {
+              // 仅支持 data:image/*;base64,xxx 形式；非 base64 / 非 image 的 data URL 直接忽略
+              int commaIdx = coverUrl.indexOf(',');
+              int base64MarkerIdx = coverUrl.indexOf(";base64");
+              if (commaIdx > 0
+                  && base64MarkerIdx > 0
+                  && base64MarkerIdx < commaIdx
+                  && coverUrl.startsWith("data:image/")) {
+                String base64Data = coverUrl.substring(commaIdx + 1);
+                try {
+                  byte[] decoded = Base64.decode(base64Data, Base64.DEFAULT);
+                  bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.length);
+                } catch (IllegalArgumentException ignored) {
+                  // 非法 base64：忽略
+                }
+              }
+            } else if (coverUrl.startsWith("http://") || coverUrl.startsWith("https://")) {
               connection = (HttpURLConnection) new URL(coverUrl).openConnection();
               connection.setConnectTimeout(8000);
               connection.setReadTimeout(8000);
@@ -1875,6 +2017,12 @@ public final class PlaybackManager {
               connection.connect();
               inputStream = connection.getInputStream();
               bitmap = BitmapFactory.decodeStream(inputStream);
+            } else if (coverUrl.startsWith("content://")) {
+              ContentResolver resolver = appContext.getContentResolver();
+              inputStream = resolver.openInputStream(Uri.parse(coverUrl));
+              if (inputStream != null) {
+                bitmap = BitmapFactory.decodeStream(inputStream);
+              }
             } else if (coverUrl.startsWith("file://")) {
               bitmap = BitmapFactory.decodeFile(Uri.parse(coverUrl).getPath());
             }

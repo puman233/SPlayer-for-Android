@@ -356,7 +356,8 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
         ) {
           return;
         }
-        this.lastEndedSrc = this._src;
+        const endedSrc = this._src;
+        this.lastEndedSrc = endedSrc;
         this.lastEndedEventAt = now;
 
         const endDuration = Math.max(0, event.durationMs) / 1000;
@@ -365,6 +366,9 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
         this._paused = true;
         this.lastTimeSyncAt = performance.now();
         this.dispatchEvent(new Event(AUDIO_EVENTS.TIME_UPDATE));
+        // 同步比对 _src 与事件捕获的 endedSrc：若已切换说明 ENDED 来自旧轨，丢弃。
+        // 不再走异步 getState()，避免 IPC 期间用户切歌导致 legitimate 自然终止被吞掉。
+        if (this._src !== endedSrc) return;
         this.dispatchEvent(new Event(AUDIO_EVENTS.ENDED));
       }),
     );

@@ -5,10 +5,13 @@ import android.net.Uri;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.database.StandaloneDatabaseProvider;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.TransferListener;
 import androidx.media3.datasource.cache.CacheDataSink;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheSpan;
@@ -128,24 +131,36 @@ public final class AudioCacheProvider {
   public static DataSource.Factory buildCachedDataSourceFactory(@NonNull Context appContext) {
     SimpleCache cache = getOrCreate(appContext);
 
-    DataSource.Factory upstreamFactory =
+    DataSource.Factory httpFactory =
         new DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(15_000)
-            .setUserAgent("SPlayer-Android/1.0");
+            .setReadTimeoutMs(15_000);
 
-    // 写入器：把 upstream 拉到的字节落到 SimpleCache。fragmentSize=MAX 让单首歌只产生 1 个文件
+    // http(s) 走 CacheDataSource；本地 file:// / content:// 直接 DefaultDataSource，
+    // 避免本地文件被复制一份到 cacheDir/exo/。
+    DataSource.Factory httpCacheFactory = buildHttpCacheFactory(appContext, httpFactory, cache);
+    DataSource.Factory localFactory = new DefaultDataSource.Factory(appContext);
+
+    return () -> new SchemeRoutingDataSource(httpCacheFactory, localFactory);
+  }
+
+  /**
+   * 构造仅用于 http(s) 的 CacheDataSource 工厂；prefetch 路径直接使用此工厂，
+   * 以便 {@code (CacheDataSource) ds} 强转保持有效。
+   */
+  @NonNull
+  private static DataSource.Factory buildHttpCacheFactory(
+      @NonNull Context appContext,
+      @NonNull DataSource.Factory httpFactory,
+      @NonNull SimpleCache cache) {
     CacheDataSink.Factory cacheSinkFactory =
         new CacheDataSink.Factory().setCache(cache).setFragmentSize(Long.MAX_VALUE);
-
-    // 包装为动态 Factory：每次 createDataSource 重新判断是否低磁盘，
-    // 低磁盘时不传 sinkFactory → CacheDataSource 只读不写，已缓存仍可命中，新字节不落盘。
     return () -> {
       CacheDataSource.Factory cf =
           new CacheDataSource.Factory()
               .setCache(cache)
-              .setUpstreamDataSourceFactory(upstreamFactory)
+              .setUpstreamDataSourceFactory(httpFactory)
               .setCacheKeyFactory(spec -> resolveCacheKey(spec.uri))
               .setFlags(
                   CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
@@ -157,6 +172,104 @@ public final class AudioCacheProvider {
       }
       return cf.createDataSource();
     };
+  }
+
+  /**
+   * 内部使用：prefetch / CacheWriter 路径专用的 CacheDataSource 工厂。
+   * 始终返回 CacheDataSource 实例（http 上游 + cache 落盘），不做 scheme 路由。
+   */
+  @NonNull
+  static DataSource.Factory buildHttpCacheFactoryForPrefetch(@NonNull Context appContext) {
+    SimpleCache cache = getOrCreate(appContext);
+    DataSource.Factory httpFactory =
+        new DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(15_000);
+    return buildHttpCacheFactory(appContext, httpFactory, cache);
+  }
+
+  /**
+   * 根据首次 open 的 DataSpec scheme 选择 http cache 或本地直读。<br>
+   * 同一实例的多次 open 不应跨 scheme（ExoPlayer 不会复用 DataSource 跨 MediaItem），
+   * 这里仍按每次 open 重新选择以稳健处理边界情况。
+   */
+  private static final class SchemeRoutingDataSource implements DataSource {
+    private final DataSource.Factory httpCacheFactory;
+    private final DataSource.Factory localFactory;
+    private final java.util.List<TransferListener> pendingListeners = new java.util.ArrayList<>();
+    private final Object routeLock = new Object();
+    @Nullable private volatile DataSource current;
+
+    SchemeRoutingDataSource(
+        @NonNull DataSource.Factory httpCacheFactory, @NonNull DataSource.Factory localFactory) {
+      this.httpCacheFactory = httpCacheFactory;
+      this.localFactory = localFactory;
+    }
+
+    @Override
+    public void addTransferListener(@NonNull TransferListener transferListener) {
+      DataSource ds;
+      synchronized (routeLock) {
+        ds = current;
+        if (ds == null) {
+          pendingListeners.add(transferListener);
+        }
+      }
+      if (ds != null) ds.addTransferListener(transferListener);
+    }
+
+    @Override
+    public long open(@NonNull DataSpec dataSpec) throws java.io.IOException {
+      DataSource previous;
+      synchronized (routeLock) {
+        previous = current;
+        current = null;
+      }
+      if (previous != null) {
+        try {
+          previous.close();
+        } catch (java.io.IOException ignored) {
+        }
+      }
+      String scheme = dataSpec.uri.getScheme();
+      boolean isHttp = "http".equals(scheme) || "https".equals(scheme);
+      DataSource ds = isHttp ? httpCacheFactory.createDataSource() : localFactory.createDataSource();
+      synchronized (routeLock) {
+        for (TransferListener listener : pendingListeners) {
+          ds.addTransferListener(listener);
+        }
+        pendingListeners.clear();
+        current = ds;
+      }
+      return ds.open(dataSpec);
+    }
+
+    @Override
+    public int read(@NonNull byte[] buffer, int offset, int length) throws java.io.IOException {
+      DataSource ds = current;
+      if (ds == null) return C.RESULT_END_OF_INPUT;
+      return ds.read(buffer, offset, length);
+    }
+
+    @Nullable
+    @Override
+    public Uri getUri() {
+      DataSource ds = current;
+      return ds == null ? null : ds.getUri();
+    }
+
+    @Override
+    public void close() throws java.io.IOException {
+      DataSource ds;
+      synchronized (routeLock) {
+        ds = current;
+        current = null;
+      }
+      if (ds != null) {
+        ds.close();
+      }
+    }
   }
 
   /** 已知的临时签名 / 过期参数：仅这些会被剔除以保证同曲目缓存命中。其余 query 参与 key 防碰撞。 */
@@ -384,7 +497,7 @@ public final class AudioCacheProvider {
       final Object writerLock = cacheKeyWriterLocks.computeIfAbsent(cacheKey, k -> new Object());
       try {
         synchronized (writerLock) {
-          DataSource.Factory factory = buildCachedDataSourceFactory(appContext);
+          DataSource.Factory factory = buildHttpCacheFactoryForPrefetch(appContext);
           DataSource ds = factory.createDataSource();
           DataSpec.Builder specBuilder =
               new DataSpec.Builder().setUri(uri).setKey(cacheKey).setPosition(0);

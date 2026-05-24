@@ -87,6 +87,17 @@ public final class PlaybackUrlResolver {
     }
   }
 
+  public void clear(long songId) {
+    if (songId <= 0) return;
+    String prefix = songId + ":";
+    synchronized (cache) {
+      cache.entrySet().removeIf(entry -> entry.getKey().startsWith(prefix));
+    }
+    synchronized (negativeCache) {
+      negativeCache.entrySet().removeIf(entry -> entry.getKey().startsWith(prefix));
+    }
+  }
+
   /** 阻塞解析 songId 的 URL；命中缓存 / 失败 / 未配置返 null。 */
   @Nullable
   public String resolveSync(long songId) {

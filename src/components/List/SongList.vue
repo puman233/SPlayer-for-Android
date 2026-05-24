@@ -552,6 +552,9 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 .song-list {
   height: 100%;
+  @media (max-width: 767px) and (orientation: portrait) {
+    min-height: 360px;
+  }
   border-radius: 12px 0 0 12px;
   overflow: hidden;
   // 离场时脱离文档流，避免新旧内容同时存在时布局跳动

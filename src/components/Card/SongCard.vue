@@ -23,7 +23,7 @@
         <s-image
           v-if="!hiddenCover"
           :key="song.cover"
-          :src="song.path ? song.cover : song.coverSize?.s || song.cover"
+          :src="song.coverSize?.s || song.cover"
           cache-type="covers"
           class="cover"
         />

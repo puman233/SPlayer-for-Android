@@ -1,7 +1,7 @@
 import { toRaw } from "vue";
 import { AudioErrorCode } from "@/core/audio-player/BaseAudioPlayer";
 import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/stores";
-import type { AudioSourceType, QualityType, SongType } from "@/types/main";
+import { QualityType, type AudioSourceType, type SongType } from "@/types/main";
 import type { RepeatModeType, ShuffleModeType } from "@/types/shared/play-mode";
 import { type AudioAnalysis } from "@/types/audio/automix";
 import { calculateLyricIndex } from "@/utils/calc";
@@ -613,7 +613,7 @@ class PlayerController {
     ).requestIdleCallback;
     const runSync = () => void this.syncAndroidPlaybackContext(song);
     if (typeof ric === "function") {
-      ric(runSync, { timeout: 500 });
+      this.runIdleWithTimeout(runSync);
     } else {
       setTimeout(runSync, 0);
     }
@@ -1044,6 +1044,8 @@ class PlayerController {
       if (musicStore.playSong.type === "streaming") return;
       // Android: 没有 Electron IPC，跳过封面/元数据 IPC，仅做媒体会话刷新
       if (typeof window === "undefined" || !window.electron?.ipcRenderer) {
+        const statusStore = useStatusStore();
+        statusStore.songQuality = musicStore.playSong.quality;
         getCoverColor(musicStore.playSong.cover);
         mediaSessionManager.updateMetadata();
         await this.syncAndroidPlaybackContext(musicStore.playSong);
@@ -1153,11 +1155,11 @@ class PlayerController {
       // 同步状态到 Android 通知栏（仅在非原生 ExoPlayer 引擎下）
       if (isCapacitorAndroid) {
         if (useAudioManager().engineType !== "android-native") {
-          // statusStore 单位为秒，原生 API 用 ms
+          // statusStore 单位为 ms，原生 API 用 ms
           void AndroidNativePlayback.syncRemoteState({
             playing: true,
-            positionMs: Math.max(0, Math.round(statusStore.currentTime * 1000)),
-            durationMs: Math.max(0, Math.round(statusStore.duration * 1000)),
+            positionMs: Math.max(0, Math.round(statusStore.currentTime)),
+            durationMs: Math.max(0, Math.round(statusStore.duration)),
           });
         }
         this.syncFloatingLyricProgress(statusStore.currentTime, true);
@@ -1179,11 +1181,11 @@ class PlayerController {
       // 同步状态到 Android 通知栏（仅在非原生 ExoPlayer 引擎下）
       if (isCapacitorAndroid) {
         if (useAudioManager().engineType !== "android-native") {
-          // statusStore 单位为秒，原生 API 用 ms
+          // statusStore 单位为 ms，原生 API 用 ms
           void AndroidNativePlayback.syncRemoteState({
             playing: false,
-            positionMs: Math.max(0, Math.round(statusStore.currentTime * 1000)),
-            durationMs: Math.max(0, Math.round(statusStore.duration * 1000)),
+            positionMs: Math.max(0, Math.round(statusStore.currentTime)),
+            durationMs: Math.max(0, Math.round(statusStore.duration)),
           });
         }
         this.syncFloatingLyricProgress(statusStore.currentTime, false);
@@ -2133,10 +2135,23 @@ class PlayerController {
     const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
       .requestIdleCallback;
     if (typeof ric === "function") {
-      ric(() => run(), { timeout: 500 });
+      this.runIdleWithTimeout(run);
     } else {
       setTimeout(run, 0);
     }
+  }
+
+  private runIdleWithTimeout(callback: () => void, timeout = 500) {
+    let done = false;
+    const runOnce = () => {
+      if (done) return;
+      done = true;
+      callback();
+    };
+    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
+      .requestIdleCallback;
+    ric?.(runOnce, { timeout });
+    setTimeout(runOnce, timeout);
   }
 
   /**

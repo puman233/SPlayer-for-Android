@@ -1,4 +1,5 @@
 import { qqMusicMatch } from "@/api/qqmusic";
+import { searchResult, SearchTypes } from "@/api/search";
 import { songLyric, songLyricTTML } from "@/api/song";
 import { keywords as defaultKeywords, regexes as defaultRegexes } from "@/assets/data/exclude";
 import { useCacheManager } from "@/core/resource/CacheManager";
@@ -29,6 +30,35 @@ interface LyricFetchResult {
     usingTTMLLyric: boolean;
     usingQRCLyric: boolean;
   };
+}
+
+interface SearchSongArtist {
+  name?: string;
+}
+
+interface SearchSongAlbum {
+  name?: string;
+}
+
+interface SearchSongCandidate {
+  id?: number;
+  name?: string;
+  ar?: SearchSongArtist[];
+  artists?: SearchSongArtist[];
+  al?: SearchSongAlbum;
+  album?: SearchSongAlbum;
+  dt?: number;
+  duration?: number;
+}
+
+interface ElectronLyricResult {
+  lyric?: string;
+  format?: "lrc" | "ttml" | "yrc";
+}
+
+interface LocalLyricOverrideResult {
+  lrc?: unknown;
+  ttml?: unknown;
 }
 
 /**
@@ -76,6 +106,16 @@ class LyricManager {
    * @param type 缓存类型
    * @returns 缓存数据
    */
+  private getArtistsText(song: SongType): string {
+    return Array.isArray(song.artists)
+      ? song.artists.map((artist) => artist.name).join("/")
+      : String(song.artists || "");
+  }
+
+  private getAlbumText(song: SongType): string {
+    return typeof song.album === "string" ? song.album : song.album?.name || "";
+  }
+
   private async getRawLyricCache(id: number, type: "lrc" | "ttml" | "qrc"): Promise<string | null> {
     const settingStore = useSettingStore();
     const cacheManager = useCacheManager();
@@ -119,9 +159,7 @@ class LyricManager {
    */
   private async fetchQQMusicLyric(song: SongType): Promise<SongLyric | null> {
     // 构建歌手字符串
-    const artistsStr = Array.isArray(song.artists)
-      ? song.artists.map((a) => a.name).join("/")
-      : String(song.artists || "");
+    const artistsStr = this.getArtistsText(song);
     // 判断本地/在线，生成缓存 key
     const isLocal = Boolean(song.path);
     const cacheKey = isLocal ? `local_${song.id}` : String(song.id);
@@ -208,6 +246,218 @@ class LyricManager {
     if (!result.lrcData.length && !result.yrcData.length) {
       return null;
     }
+    return result;
+  }
+
+  /** 本地歌曲在线匹配缓存 TTL：成功 30 天 / 失败 1 天，避免反复打云搜索。 */
+  private static readonly LOCAL_MATCH_TTL_OK_MS = 30 * 24 * 60 * 60 * 1000;
+  private static readonly LOCAL_MATCH_TTL_NEG_MS = 24 * 60 * 60 * 1000;
+
+  /** 进程内 in-flight 去重：同一首歌的并发查询合并。 */
+  private localMatchInFlight = new Map<string, Promise<number | null>>();
+
+  private async readLocalMatchCache(cacheKey: string): Promise<number | null | undefined> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return undefined;
+    try {
+      const result = await cacheManager.get("lyrics", `${cacheKey}.match.v2.json`);
+      if (!result.success || !result.data) return undefined;
+      const decoder = new TextDecoder();
+      const parsed = JSON.parse(decoder.decode(result.data));
+      const ts = Number(parsed?.ts || 0);
+      const onlineId = parsed?.onlineId;
+      const ttl =
+        onlineId === null
+          ? LyricManager.LOCAL_MATCH_TTL_NEG_MS
+          : LyricManager.LOCAL_MATCH_TTL_OK_MS;
+      if (Date.now() - ts > ttl) return undefined;
+      return typeof onlineId === "number" ? onlineId : null;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async writeLocalMatchCache(cacheKey: string, onlineId: number | null): Promise<void> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
+    try {
+      await cacheManager.set(
+        "lyrics",
+        `${cacheKey}.match.v2.json`,
+        JSON.stringify({ onlineId, ts: Date.now() }),
+      );
+    } catch {
+      // 忽略写入失败
+    }
+  }
+
+  /** 本地歌曲常见的占位元数据：识别后视为"无元数据"。 */
+  private static readonly METADATA_SENTINELS = new Set([
+    "未知歌手",
+    "未知艺术家",
+    "未知专辑",
+    "未知",
+    "unknown",
+    "unknownartist",
+    "unknownalbum",
+    "various",
+    "variousartists",
+    "n/a",
+    "na",
+  ]);
+
+  private static normalizeMetadataField(value: string): string {
+    const normalized = value
+      .toLowerCase()
+      .replace(/[（(].*?[）)]/g, "")
+      .replace(/\s+/g, "")
+      .trim();
+    if (!normalized) return "";
+    if (LyricManager.METADATA_SENTINELS.has(normalized)) return "";
+    return normalized;
+  }
+
+  private async findOnlineSongIdForLocal(song: SongType): Promise<number | null> {
+    const artistsText = this.getArtistsText(song);
+    const targetName = LyricManager.normalizeMetadataField(song.name || "");
+    const targetArtists = LyricManager.normalizeMetadataField(artistsText);
+    const targetAlbum = LyricManager.normalizeMetadataField(this.getAlbumText(song));
+    const duration = Number(song.duration || 0);
+    const hasReliableDuration = duration > 5_000;
+
+    // 元数据过弱：title 太短直接放弃；
+    // 缺 artist 时，需要 title 稳定 + 时长可比对，否则极易错配
+    if (!targetName || targetName.length < 2) return null;
+    if (!targetArtists && (!hasReliableDuration || targetName.length < 4)) return null;
+
+    const cacheKey = `local_${song.id}`;
+    const cached = await this.readLocalMatchCache(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const inFlight = this.localMatchInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const task = (async (): Promise<number | null> => {
+      const keyword = artistsText && targetArtists ? `${song.name} ${artistsText}` : song.name;
+      try {
+        const response = await searchResult(keyword, 8, 0, SearchTypes.Single);
+        const songs = response?.result?.songs as SearchSongCandidate[] | undefined;
+        if (!Array.isArray(songs)) {
+          await this.writeLocalMatchCache(cacheKey, null);
+          return null;
+        }
+        const sorted = songs
+          .map((candidate) => {
+            const candidateName = LyricManager.normalizeMetadataField(candidate.name || "");
+            const candidateArtists = LyricManager.normalizeMetadataField(
+              Array.isArray(candidate.ar)
+                ? candidate.ar.map((artist) => artist?.name).join("/")
+                : Array.isArray(candidate.artists)
+                  ? candidate.artists.map((artist) => artist?.name).join("/")
+                  : "",
+            );
+            const candidateAlbum = LyricManager.normalizeMetadataField(
+              candidate.al?.name || candidate.album?.name || "",
+            );
+            const candidateDuration = Number(candidate.dt || candidate.duration || 0);
+
+            // title 评分
+            let titleScore = 0;
+            if (candidateName === targetName) titleScore = 5;
+            else if (candidateName.includes(targetName) || targetName.includes(candidateName)) {
+              titleScore = 2;
+            }
+
+            // artist 评分：仅 target 与 candidate 都非空时才参与
+            let artistScore = 0;
+            let artistAgrees = false;
+            if (targetArtists && candidateArtists) {
+              if (candidateArtists === targetArtists) {
+                artistScore = 4;
+                artistAgrees = true;
+              } else if (
+                candidateArtists.includes(targetArtists) ||
+                targetArtists.includes(candidateArtists)
+              ) {
+                artistScore = 2;
+                artistAgrees = true;
+              }
+            }
+
+            // album 评分
+            let albumScore = 0;
+            if (targetAlbum && candidateAlbum && targetAlbum === candidateAlbum) albumScore = 2;
+
+            // duration 评分
+            let durationScore = 0;
+            let durationAgrees = false;
+            if (duration > 0 && candidateDuration > 0) {
+              const diff = Math.abs(candidateDuration - duration);
+              if (diff <= 3000) {
+                durationScore = 3;
+                durationAgrees = true;
+              } else if (diff > 8000) durationScore = -4;
+            }
+
+            const score = titleScore + artistScore + albumScore + durationScore;
+            return {
+              id: candidate.id,
+              score,
+              titleScore,
+              artistAgrees,
+              durationAgrees,
+              candidateArtists,
+            };
+          })
+          .filter(
+            (
+              candidate,
+            ): candidate is {
+              id: number;
+              score: number;
+              titleScore: number;
+              artistAgrees: boolean;
+              durationAgrees: boolean;
+              candidateArtists: string;
+            } => typeof candidate.id === "number",
+          )
+          .sort((a, b) => b.score - a.score);
+
+        const best = sorted[0];
+        // 命中条件分两类：
+        //   (a) 有可靠 artist 元数据：要求 title 至少有重合 + artist 互相包含 + score>=7
+        //   (b) artist 缺失但 title 长度>=4 + 时长接近：score>=8 且 title 是精确匹配
+        let ok = false;
+        if (best) {
+          if (targetArtists) {
+            ok = best.score >= 7 && best.titleScore > 0 && best.artistAgrees;
+          } else {
+            ok = best.score >= 8 && best.titleScore === 5 && best.durationAgrees;
+          }
+        }
+        const onlineId = ok && best ? best.id : null;
+        await this.writeLocalMatchCache(cacheKey, onlineId);
+        return onlineId;
+      } catch (error) {
+        console.warn("本地歌曲在线歌词匹配失败:", error);
+        await this.writeLocalMatchCache(cacheKey, null);
+        return null;
+      } finally {
+        this.localMatchInFlight.delete(cacheKey);
+      }
+    })();
+    this.localMatchInFlight.set(cacheKey, task);
+    return task;
+  }
+
+  private async fetchMatchedOnlineLyricForLocal(song: SongType): Promise<LyricFetchResult | null> {
+    const onlineId = await this.findOnlineSongIdForLocal(song);
+    if (!onlineId) return null;
+    const matchedSong: SongType = { ...song, id: onlineId, path: undefined };
+    const result = await this.fetchOnlineLyric(matchedSong);
+    if (!result.data.lrcData.length && !result.data.yrcData.length) return null;
     return result;
   }
 
@@ -344,7 +594,7 @@ class LyricManager {
           yrcLines = alignLyrics(yrcLines, parseLrc(data.yromalrc.lyric), "romanLyric");
       }
       if (lrcLines.length) result.lrcData = lrcLines;
-      // 如果没有 TTML 且没有 QM YRC，则采用 网易云 YRC
+      // 如果没有 TTML 且没有 QM YRC，则采用在线 YRC
       if (!result.yrcData.length && yrcLines.length) {
         // 再次确认优先级，如果是 TTML 优先但 TTML 没结果，这里可以用 YRC
         result.yrcData = yrcLines;
@@ -460,7 +710,9 @@ class LyricManager {
           // sidecar 查找失败，继续后续流程
         }
 
-        // 无本地歌词，尝试在线 QQ 匹配
+        // 无本地歌词，尝试在线匹配
+        const matchedOnline = await this.fetchMatchedOnlineLyricForLocal(song);
+        if (matchedOnline) return matchedOnline;
         if (settingStore.localLyricQQMusicMatch && song) {
           const qqLyric = await this.fetchQQMusicLyric(song);
           if (qqLyric && (qqLyric.lrcData.length > 0 || qqLyric.yrcData.length > 0)) {
@@ -474,9 +726,16 @@ class LyricManager {
       }
 
       // Electron 端：使用原有 IPC 逻辑
-      const { lyric, format }: { lyric?: string; format?: "lrc" | "ttml" | "yrc" } =
-        await window.electron.ipcRenderer.invoke("get-music-lyric", song.path);
-      if (!lyric) return defaultResult;
+      const electron = window.electron;
+      if (!electron) return defaultResult;
+      const { lyric, format } = await electron.ipcRenderer.invoke<ElectronLyricResult>(
+        "get-music-lyric",
+        song.path,
+      );
+      if (!lyric) {
+        const matchedOnline = await this.fetchMatchedOnlineLyricForLocal(song);
+        return matchedOnline || defaultResult;
+      }
       // YRC 直接解析
       if (format === "yrc") {
         let lines: LyricLine[] = [];
@@ -558,7 +817,9 @@ class LyricManager {
 
       const lyricDirs = Array.isArray(localLyricPath) ? localLyricPath.map((p) => String(p)) : [];
       // 读取本地歌词
-      const { lrc, ttml } = await window.electron.ipcRenderer.invoke(
+      const electron = window.electron;
+      if (!electron) return defaultResult;
+      const { lrc, ttml } = await electron.ipcRenderer.invoke<LocalLyricOverrideResult>(
         "read-local-lyric",
         lyricDirs,
         id,
@@ -798,7 +1059,7 @@ class LyricManager {
           return false;
         }
         // ttml 特有属性
-        if (newLine.isBG !== oldLine.isBG) return false;
+        if (!!newLine.isBG !== !!oldLine.isBG) return false;
       }
       return true;
     };
@@ -861,8 +1122,9 @@ class LyricManager {
       // 仅更新加载状态，不更新歌词数据
       statusStore.lyricLoading = false;
       // 单曲循环时，歌词数据未变，需通知桌面歌词取消加载状态
-      if (isElectron) {
-        window.electron.ipcRenderer.send("desktop-lyric:update-data", {
+      const electron = window.electron;
+      if (isElectron && electron) {
+        electron.ipcRenderer.send("desktop-lyric:update-data", {
           lyricLoading: false,
         });
       }
@@ -965,7 +1227,7 @@ class LyricManager {
 
     try {
       // 判断歌词来源
-      const isLocal = Boolean(song.path) || false;
+      const isLocal = Boolean(song.path);
       if (isStreaming) {
         fetchResult = await this.fetchStreamingLyric(song);
       } else {
