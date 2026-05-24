@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="#app">
     <Transition
       :name="useCompactMobilePlayer ? 'mobile-card' : settingStore.playerExpandAnimation"
       :css="!useCompactMobilePlayer"
@@ -121,7 +121,7 @@ const onMobileEnter = (el: Element, done: () => void) => {
     parent.style.transformOrigin = "50% 0";
     parent.style.willChange = "transform";
     parent.style.transition = "none";
-    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+    parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
     parent.style.borderRadius = "28px";
     parent.style.backfaceVisibility = "hidden";
     done();
@@ -131,7 +131,7 @@ const onMobileEnter = (el: Element, done: () => void) => {
   parent.style.transformOrigin = "50% 0";
   parent.style.willChange = "transform";
   parent.style.transition = "none";
-  parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+  parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
   parent.style.borderRadius = "28px";
   parent.style.backfaceVisibility = "hidden";
   // 强制重排，确保起始状态生效
@@ -162,7 +162,7 @@ const onMobileLeave = (el: Element, done: () => void) => {
   parent.style.borderRadius = "28px";
   parent.style.backfaceVisibility = "hidden";
   requestAnimationFrame(() => {
-    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+    parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
   });
   window.setTimeout(() => {
     done();
@@ -383,7 +383,7 @@ onBeforeUnmount(() => {
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: calc(100dvh - 160px);
+    height: calc(var(--page-zoom-100dvh, 100dvh) - 160px);
     transition:
       opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
       transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -455,7 +455,8 @@ onBeforeUnmount(() => {
           .player-data {
             width: 100%;
             max-width: 100%;
-            transform: translateY(30vh);
+            // 30vh 表示相对屏幕高度的初始偏移，需走 --page-zoom-100vh 防止 transform 二次缩放
+            transform: translateY(calc(var(--page-zoom-100vh, 100vh) * 0.3));
           }
         }
       }

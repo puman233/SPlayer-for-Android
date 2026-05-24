@@ -233,14 +233,14 @@ watchDebounced(
   width: 300px;
   border-radius: 8px;
   overflow: hidden;
-  max-height: calc(100vh - 160px);
+  max-height: calc(var(--page-zoom-100vh, 100vh) - 160px);
   z-index: 101;
   transition:
     height 0.3s ease,
     opacity 0.3s ease,
     transform 0.3s ease;
   :deep(.scrollbar) {
-    max-height: calc(100vh - 160px);
+    max-height: calc(var(--page-zoom-100vh, 100vh) - 160px);
     .n-scrollbar-content {
       padding: 10px;
     }

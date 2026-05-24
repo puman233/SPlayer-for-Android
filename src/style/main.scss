@@ -100,10 +100,15 @@ audio {
 }
 
 #app {
-  width: 100%;
-  height: 100%;
+  width: var(--page-zoom-width, 100%);
+  height: var(--page-zoom-height, 100%);
   display: flex;
   flex-direction: column;
+  transform-origin: 0 0;
+  // transform 由 usePageZoom 在 ratio !== 1 时按需设置，避免 scale(1) 引入额外
+  // stacking context / fixed containing block 切换；100% 缩放路径保持原生行为
+  // 在缩放容器内补偿安卓全面屏底部，弹出层 teleport 到 body 不会被影响
+  --safe-area-bottom: max(env(safe-area-inset-bottom), var(--android-fullscreen-safe-bottom, 0px));
 }
 
 .android-capacitor {

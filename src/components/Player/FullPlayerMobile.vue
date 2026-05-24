@@ -247,7 +247,10 @@ const currentPageType = computed<MobilePageType>(() => {
 // 下拉关闭手势捕获区高度：信息页覆盖顶栏 + 封面区域；歌词页含顶栏 + 歌曲信息条；
 // 评论页仅顶栏（让出滚动空间给评论列表）
 const dragHandleHeight = computed(() => {
-  if (currentPageType.value === "info") return "calc(40px + var(--mobile-safe-top) + 32vh)";
+  if (currentPageType.value === "info") {
+    // 32vh 表示相对屏幕高度的比例热区，需走 --page-zoom-100vh 防止被 transform 二次缩放
+    return "calc(40px + var(--mobile-safe-top) + var(--page-zoom-100vh, 100vh) * 0.32)";
+  }
   if (currentPageType.value === "lyric") return "calc(140px + var(--mobile-safe-top))";
   return "calc(56px + var(--mobile-safe-top))";
 });
@@ -486,7 +489,7 @@ const contentTransform = computed(() => {
 <style lang="scss" scoped>
 .full-player-mobile {
   --mobile-safe-top: max(env(safe-area-inset-top), 0px);
-  --mobile-safe-bottom: max(env(safe-area-inset-bottom), 0px);
+  --mobile-safe-bottom: var(--safe-area-bottom);
   width: 100%;
   height: 100%;
   position: relative;

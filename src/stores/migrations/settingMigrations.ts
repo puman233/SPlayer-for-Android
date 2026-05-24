@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
 /**
  * 当前设置 Schema 版本号
  */
-export const CURRENT_SETTING_SCHEMA_VERSION = 17;
+export const CURRENT_SETTING_SCHEMA_VERSION = 19;
 
 /**
  * 迁移函数类型
@@ -228,6 +228,20 @@ export const settingMigrations: Record<number, MigrationFunction> = {
   17: () => {
     return {
       pageZoom: 100,
+    };
+  },
+  18: () => {
+    // 旧版 pageZoom 在 Android 是通过 viewport initial-scale 改 innerWidth 来切换布局，
+    // 新版 phonePortraitPageZoom / padPageZoom 是 CSS 缩放，语义完全不同；
+    // 若直接迁移旧值会导致老用户升级后 UI 被等比缩小，故强制重置为 100。
+    return {
+      phonePortraitPageZoom: 100,
+      padPageZoom: 100,
+    };
+  },
+  19: () => {
+    return {
+      androidFullscreenSafeAreaOptimize: true,
     };
   },
 };

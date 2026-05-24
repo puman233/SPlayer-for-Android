@@ -143,7 +143,7 @@ import { isDev, isElectron } from "@/utils/env";
 const router = useRouter();
 const settingStore = useSettingStore();
 const statusStore = useStatusStore();
-const { isPad, isPhone, isLandscape } = useDevice();
+const { isPad, isPhone, isLandscape, isPhonePortrait } = useDevice();
 
 // 更新按钮提示
 const updateBtnTitle = computed(() => {
@@ -230,7 +230,7 @@ const setOptions = computed<DropdownOption[]>(() => [
     key: "zoom",
     label: "界面缩放",
     icon: renderIcon("ZoomIn"),
-    show: isElectron,
+    show: isElectron || isPad.value || isPhonePortrait.value,
   },
   {
     key: "divider-1",

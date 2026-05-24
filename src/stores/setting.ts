@@ -272,8 +272,14 @@ export interface SettingState {
   androidDownloadDirectoryUri: string;
   /** Android 本地音乐目录列表（SAF URI） */
   androidLocalMusicDirectories: { uri: string; name: string }[];
-  /** 页面缩放（百分比，70-150，默认 100） */
+  /** 桌面页面缩放 */
   pageZoom: number;
+  /** 手机竖屏页面缩放 */
+  phonePortraitPageZoom: number;
+  /** 平板模式页面缩放 */
+  padPageZoom: number;
+  /** 安卓全面屏优化 */
+  androidFullscreenSafeAreaOptimize: boolean;
   /** 本地文件分隔符 */
   localSeparators: string[];
   /** 显示本地封面 */
@@ -640,6 +646,9 @@ export const useSettingStore = defineStore("setting", {
     androidDownloadDirectoryUri: "",
     androidLocalMusicDirectories: [],
     pageZoom: 100,
+    phonePortraitPageZoom: 100,
+    padPageZoom: 100,
+    androidFullscreenSafeAreaOptimize: true,
     showDefaultLocalPath: true,
     localFolderDisplayMode: "tab",
     localSeparators: ["/", "&"],

@@ -662,7 +662,8 @@ export const openScalingModal = async () => {
     size: "small",
     autoFocus: false,
     showMask: false,
-    style: { width: "400px" },
+    // Naive UI modal teleport 到 body，已脱离 #app 缩放上下文，直接用真实 viewport 宽度即可
+    style: { width: "min(400px, calc(100vw - 32px))" },
     title: "界面缩放",
     content: () => {
       return h(ScalingModal);
