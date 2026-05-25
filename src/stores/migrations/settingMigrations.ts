@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
 /**
  * 当前设置 Schema 版本号
  */
-export const CURRENT_SETTING_SCHEMA_VERSION = 19;
+export const CURRENT_SETTING_SCHEMA_VERSION = 20;
 
 /**
  * 迁移函数类型
@@ -242,6 +242,17 @@ export const settingMigrations: Record<number, MigrationFunction> = {
   19: () => {
     return {
       androidFullscreenSafeAreaOptimize: true,
+    };
+  },
+  20: (state) => {
+    // 初始化动态背景记忆字段：
+    //  - 若用户当前背景不是 animation，就记录作为上次非 animation 值；
+    //  - 否则默认 blur（与 store 默认一致）。
+    // amllAnimationBgEverActivated 默认 false，老用户首次从快捷菜单打开动态背景时仍会被默认激活低频脉动。
+    const cur = state.playerBackgroundType;
+    return {
+      lastNonAnimationPlayerBg: cur && cur !== "animation" ? cur : "blur",
+      amllAnimationBgEverActivated: false,
     };
   },
 };

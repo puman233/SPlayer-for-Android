@@ -97,6 +97,7 @@
 import { useDevice } from "@/composables/useDevice";
 import { useStatusStore, useMusicStore, useSettingStore } from "@/stores";
 import { isElectron } from "@/utils/env";
+import { PLAYER_META_HOLD_KEY, type PlayerMetaHold } from "@/composables/usePlayerMetaHold";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
@@ -279,14 +280,18 @@ const instantLyrics = computed(() => {
   return { content: contentStr, tran: settingStore.showTran && content?.translatedLyric };
 });
 
+/** 由 popover 等弹层 acquire / release 的引用计数，hold > 0 期间禁止自动隐藏 */
+const playerMetaHoldCount = ref(0);
+
 const {
   isPending,
   start: startShow,
   stop: stopShow,
 } = useTimeoutFn(() => {
-  if (settingStore.autoHidePlayerMeta) {
-    statusStore.playerMetaShow = false;
-  }
+  if (!settingStore.autoHidePlayerMeta) return;
+  // 有弹层 hold 时不隐藏，避免 popover trigger DOM 消失导致定位错乱
+  if (playerMetaHoldCount.value > 0) return;
+  statusStore.playerMetaShow = false;
 }, 3000);
 
 /** 鼠标是否在操作区域（菜单/控制栏） */
@@ -311,17 +316,39 @@ const stopHide = () => {
 
 const resumeHide = () => {
   inControlArea.value = false;
-  if (settingStore.autoHidePlayerMeta) {
+  if (settingStore.autoHidePlayerMeta && playerMetaHoldCount.value === 0) {
     startShow();
   }
 };
 
 const playerLeave = () => {
-  if (settingStore.autoHidePlayerMeta) {
+  if (settingStore.autoHidePlayerMeta && playerMetaHoldCount.value === 0) {
     statusStore.playerMetaShow = false;
     stopShow();
   }
 };
+
+// 弹层 hold：popover 打开期间 acquire，关闭后 release
+const playerMetaHold: PlayerMetaHold = {
+  acquire: () => {
+    playerMetaHoldCount.value++;
+    // autoHide 关闭时无自动隐藏可阻止，hold 仅记账，不主动写 playerMetaShow
+    if (!settingStore.autoHidePlayerMeta) return;
+    stopShow();
+    statusStore.playerMetaShow = true;
+  },
+  release: () => {
+    playerMetaHoldCount.value = Math.max(0, playerMetaHoldCount.value - 1);
+    if (
+      playerMetaHoldCount.value === 0 &&
+      settingStore.autoHidePlayerMeta &&
+      !inControlArea.value
+    ) {
+      startShow();
+    }
+  },
+};
+provide(PLAYER_META_HOLD_KEY, playerMetaHold);
 
 watch(
   () => statusStore.mainColor,

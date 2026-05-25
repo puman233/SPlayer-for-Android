@@ -205,6 +205,10 @@ export interface SettingState {
   playerBackgroundLowFreqVolume: boolean;
   /** 背景动画渲染比例 */
   playerBackgroundRenderScale: number;
+  /** 上次非 animation 背景类型，用于快捷菜单关闭动态背景时回退 */
+  lastNonAnimationPlayerBg: "none" | "blur" | "color";
+  /** AMLL 动态背景是否已被首次激活过（首次默认启动低频脉动） */
+  amllAnimationBgEverActivated: boolean;
   /** 播放器元素自动隐藏 */
   autoHidePlayerMeta: boolean;
   /** 记忆最后进度 */
@@ -578,6 +582,8 @@ export const useSettingStore = defineStore("setting", {
     playerBackgroundPause: false,
     playerBackgroundLowFreqVolume: false,
     playerBackgroundRenderScale: 0.5,
+    lastNonAnimationPlayerBg: "blur",
+    amllAnimationBgEverActivated: false,
     autoHidePlayerMeta: true,
     memoryLastSeek: true,
     progressTooltipShow: true,

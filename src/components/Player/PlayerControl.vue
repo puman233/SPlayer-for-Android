@@ -54,6 +54,8 @@
               <SvgIcon :depth="statusStore.showPlayerComment ? 1 : 3" name="Message" />
             </div>
           </n-badge>
+          <!-- 快捷操作菜单：频谱 / AMLL / 动态封面 / 音量 / 桌面歌词 / 逐词 / TTML -->
+          <PlayerQuickActionsMenu variant="control" />
         </n-flex>
         <div class="center">
           <div class="btn">

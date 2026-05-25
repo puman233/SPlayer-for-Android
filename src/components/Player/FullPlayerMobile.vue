@@ -64,6 +64,8 @@ let savedPageType: MobilePageType = "info";
               >
                 <SvgIcon name="AddList" :size="26" />
               </div>
+              <!-- 快捷操作菜单 -->
+              <PlayerQuickActionsMenu />
             </div>
           </div>
 
