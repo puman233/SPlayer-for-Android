@@ -37,6 +37,7 @@
     "@capacitor/android": "^8.0.0",
     "@capacitor/app": "8.0.0",
     "@capacitor/core": "^8.0.0",
+    "@capacitor/screen-orientation": "^7.0.4",
     "@capacitor/status-bar": "^8.0.0",
     "@imsyy/color-utils": "^1.0.2",
     "@material/material-color-utilities": "^0.4.0",
