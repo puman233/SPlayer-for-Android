@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
 /**
  * 当前设置 Schema 版本号
  */
-export const CURRENT_SETTING_SCHEMA_VERSION = 17;
+export const CURRENT_SETTING_SCHEMA_VERSION = 20;
 
 /**
  * 迁移函数类型
@@ -228,6 +228,31 @@ export const settingMigrations: Record<number, MigrationFunction> = {
   17: () => {
     return {
       pageZoom: 100,
+    };
+  },
+  18: () => {
+    // 旧版 pageZoom 在 Android 是通过 viewport initial-scale 改 innerWidth 来切换布局，
+    // 新版 phonePortraitPageZoom / padPageZoom 是 CSS 缩放，语义完全不同；
+    // 若直接迁移旧值会导致老用户升级后 UI 被等比缩小，故强制重置为 100。
+    return {
+      phonePortraitPageZoom: 100,
+      padPageZoom: 100,
+    };
+  },
+  19: () => {
+    return {
+      androidFullscreenSafeAreaOptimize: true,
+    };
+  },
+  20: (state) => {
+    // 初始化动态背景记忆字段：
+    //  - 若用户当前背景不是 animation，就记录作为上次非 animation 值；
+    //  - 否则默认 blur（与 store 默认一致）。
+    // amllAnimationBgEverActivated 默认 false，老用户首次从快捷菜单打开动态背景时仍会被默认激活低频脉动。
+    const cur = state.playerBackgroundType;
+    return {
+      lastNonAnimationPlayerBg: cur && cur !== "animation" ? cur : "blur",
+      amllAnimationBgEverActivated: false,
     };
   },
 };

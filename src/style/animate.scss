@@ -236,7 +236,7 @@
 }
 .mobile-card-enter-from,
 .mobile-card-leave-to {
-  transform: translate3d(0, 100vh, 0) scale(0.92);
+  transform: translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92);
   border-radius: 28px;
 }
 

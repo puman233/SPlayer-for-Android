@@ -725,7 +725,10 @@ onUnmounted(() => {
   }
   @media (max-width: 767px) and (orientation: portrait) {
     height: 100%;
-    min-height: calc(100dvh - var(--app-header-height) - var(--phone-nav-total-height) - 16px);
+    min-height: calc(
+      var(--page-zoom-100dvh, 100dvh) - var(--app-header-height) - var(--phone-nav-total-height) -
+        16px
+    );
 
     .title {
       margin-top: 8px;

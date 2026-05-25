@@ -1,7 +1,7 @@
 <template>
   <Transition name="fade" mode="out-in">
     <div
-      :key="amLyricsData?.[0]?.words?.length"
+      :key="`${musicStore.playSong?.id ?? 'no-song'}|${settingStore.showWordLyrics ? 'yrc' : 'lrc'}`"
       :class="[
         'lyric-am',
         {

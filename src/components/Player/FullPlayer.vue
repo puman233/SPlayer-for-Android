@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="#app">
     <Transition
       :name="useCompactMobilePlayer ? 'mobile-card' : settingStore.playerExpandAnimation"
       :css="!useCompactMobilePlayer"
@@ -97,6 +97,7 @@
 import { useDevice } from "@/composables/useDevice";
 import { useStatusStore, useMusicStore, useSettingStore } from "@/stores";
 import { isElectron } from "@/utils/env";
+import { PLAYER_META_HOLD_KEY, type PlayerMetaHold } from "@/composables/usePlayerMetaHold";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
@@ -121,7 +122,7 @@ const onMobileEnter = (el: Element, done: () => void) => {
     parent.style.transformOrigin = "50% 0";
     parent.style.willChange = "transform";
     parent.style.transition = "none";
-    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+    parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
     parent.style.borderRadius = "28px";
     parent.style.backfaceVisibility = "hidden";
     done();
@@ -131,7 +132,7 @@ const onMobileEnter = (el: Element, done: () => void) => {
   parent.style.transformOrigin = "50% 0";
   parent.style.willChange = "transform";
   parent.style.transition = "none";
-  parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+  parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
   parent.style.borderRadius = "28px";
   parent.style.backfaceVisibility = "hidden";
   // 强制重排，确保起始状态生效
@@ -162,7 +163,7 @@ const onMobileLeave = (el: Element, done: () => void) => {
   parent.style.borderRadius = "28px";
   parent.style.backfaceVisibility = "hidden";
   requestAnimationFrame(() => {
-    parent.style.transform = "translate3d(0, 100vh, 0) scale(0.92)";
+    parent.style.transform = "translate3d(0, var(--page-zoom-100vh, 100vh), 0) scale(0.92)";
   });
   window.setTimeout(() => {
     done();
@@ -279,14 +280,18 @@ const instantLyrics = computed(() => {
   return { content: contentStr, tran: settingStore.showTran && content?.translatedLyric };
 });
 
+/** 由 popover 等弹层 acquire / release 的引用计数，hold > 0 期间禁止自动隐藏 */
+const playerMetaHoldCount = ref(0);
+
 const {
   isPending,
   start: startShow,
   stop: stopShow,
 } = useTimeoutFn(() => {
-  if (settingStore.autoHidePlayerMeta) {
-    statusStore.playerMetaShow = false;
-  }
+  if (!settingStore.autoHidePlayerMeta) return;
+  // 有弹层 hold 时不隐藏，避免 popover trigger DOM 消失导致定位错乱
+  if (playerMetaHoldCount.value > 0) return;
+  statusStore.playerMetaShow = false;
 }, 3000);
 
 /** 鼠标是否在操作区域（菜单/控制栏） */
@@ -311,17 +316,39 @@ const stopHide = () => {
 
 const resumeHide = () => {
   inControlArea.value = false;
-  if (settingStore.autoHidePlayerMeta) {
+  if (settingStore.autoHidePlayerMeta && playerMetaHoldCount.value === 0) {
     startShow();
   }
 };
 
 const playerLeave = () => {
-  if (settingStore.autoHidePlayerMeta) {
+  if (settingStore.autoHidePlayerMeta && playerMetaHoldCount.value === 0) {
     statusStore.playerMetaShow = false;
     stopShow();
   }
 };
+
+// 弹层 hold：popover 打开期间 acquire，关闭后 release
+const playerMetaHold: PlayerMetaHold = {
+  acquire: () => {
+    playerMetaHoldCount.value++;
+    // autoHide 关闭时无自动隐藏可阻止，hold 仅记账，不主动写 playerMetaShow
+    if (!settingStore.autoHidePlayerMeta) return;
+    stopShow();
+    statusStore.playerMetaShow = true;
+  },
+  release: () => {
+    playerMetaHoldCount.value = Math.max(0, playerMetaHoldCount.value - 1);
+    if (
+      playerMetaHoldCount.value === 0 &&
+      settingStore.autoHidePlayerMeta &&
+      !inControlArea.value
+    ) {
+      startShow();
+    }
+  },
+};
+provide(PLAYER_META_HOLD_KEY, playerMetaHold);
 
 watch(
   () => statusStore.mainColor,
@@ -383,7 +410,7 @@ onBeforeUnmount(() => {
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: calc(100dvh - 160px);
+    height: calc(var(--page-zoom-100dvh, 100dvh) - 160px);
     transition:
       opacity 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
       transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -455,7 +482,8 @@ onBeforeUnmount(() => {
           .player-data {
             width: 100%;
             max-width: 100%;
-            transform: translateY(30vh);
+            // 30vh 表示相对屏幕高度的初始偏移，需走 --page-zoom-100vh 防止 transform 二次缩放
+            transform: translateY(calc(var(--page-zoom-100vh, 100vh) * 0.3));
           }
         }
       }

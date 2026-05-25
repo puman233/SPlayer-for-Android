@@ -55,7 +55,9 @@
           id="main-sider"
           :style="{
             height:
-              musicStore.isHasPlayer && statusStore.showPlayBar ? 'calc(100dvh - 80px)' : '100dvh',
+              musicStore.isHasPlayer && statusStore.showPlayBar
+                ? 'calc(var(--page-zoom-100dvh, 100dvh) - 80px)'
+                : 'var(--page-zoom-100dvh, 100dvh)',
           }"
           :content-style="{
             overflow: 'hidden',
@@ -309,7 +311,7 @@ onBeforeUnmount(() => {
 <style lang="scss" scoped>
 #app-layout {
   --safe-area-top: max(env(safe-area-inset-top), 0px);
-  --safe-area-bottom: max(env(safe-area-inset-bottom), 0px);
+  --safe-area-bottom: max(env(safe-area-inset-bottom), var(--android-fullscreen-safe-bottom, 0px));
   --app-header-height: calc(72px + var(--safe-area-top));
   --phone-nav-height: 56px;
   --phone-nav-total-height: calc(var(--phone-nav-height) + var(--safe-area-bottom));

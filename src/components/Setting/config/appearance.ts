@@ -10,14 +10,42 @@ import {
   openFullscreenPlayerManager,
   openCoverManager,
   openContextMenuManager,
+  openScalingModal,
 } from "@/utils/modal";
 import { SettingConfig } from "@/types/settings";
 import { computed, ref } from "vue";
 import { isLogin } from "@/utils/auth";
+import { useDevice } from "@/composables/useDevice";
 
 export const useAppearanceSettings = (): SettingConfig => {
   const settingStore = useSettingStore();
   const statusStore = useStatusStore();
+  const { isPad, isPhonePortrait } = useDevice();
+  // useDevice 的 isPad 仅按 shortestSide 判断，桌面 Electron 大窗口也会满足；
+  // 缩放路径仅对 Capacitor / 真机移动端生效，因此入口判定必须先排除 Electron，
+  // 否则桌面设置里会出现移动端缩放入口，且写入字段与 usePageZoom 的消费路径不一致
+  const showMobileZoom = computed(() => !isElectron && (isPhonePortrait.value || isPad.value));
+  const activePageZoom = computed({
+    get: () => {
+      if (isElectron) return 100;
+      if (isPad.value) return settingStore.padPageZoom;
+      if (isPhonePortrait.value) return settingStore.phonePortraitPageZoom;
+      return 100;
+    },
+    set: (v) => {
+      // Electron 走原生 zoom-factor IPC，不应写入移动端字段
+      if (isElectron) return;
+      if (isPad.value) {
+        settingStore.padPageZoom = v;
+        return;
+      }
+      if (isPhonePortrait.value) {
+        settingStore.phonePortraitPageZoom = v;
+        return;
+      }
+      // 其他模式（如手机横屏）没有对应缩放路径，丢弃写入
+    },
+  });
 
   // --- Window / Borderless Logic (from general.ts) ---
   const useBorderless = ref(true);
@@ -72,6 +100,17 @@ export const useAppearanceSettings = (): SettingConfig => {
             description: "更改主题色或自定义图片",
             buttonLabel: "配置",
             action: openThemeConfig,
+          },
+          {
+            key: "pageScalingOptimize",
+            label: "页面缩放优化",
+            type: "button",
+            show: showMobileZoom,
+            description: computed(() =>
+              isPad.value ? "调整平板模式缩放比例" : "调整手机竖屏缩放比例",
+            ),
+            buttonLabel: "调整",
+            action: openScalingModal,
           },
           {
             key: "useBorderless",
@@ -193,27 +232,23 @@ export const useAppearanceSettings = (): SettingConfig => {
             key: "pageZoom",
             label: "页面缩放",
             type: "slider",
-            show: computed(() => statusStore.isDeveloperMode),
-            description:
-              "整体界面缩放比例。缩小后等效视口变宽，达到阈值会切换到 Pad 布局（底栏变侧栏，列表显示更多列）",
+            show: computed(() => statusStore.isDeveloperMode && showMobileZoom.value),
+            description: "调整当前模式界面缩放比例",
             min: 50,
-            max: 150,
+            max: 200,
             step: 5,
             marks: { 100: "默认" },
             formatTooltip: (v) => `${v}%`,
-            value: computed({
-              get: () => settingStore.pageZoom,
-              set: (v) => (settingStore.pageZoom = v),
-            }),
+            value: activePageZoom,
             extraButton: {
               label: "重置",
               type: "primary",
               secondary: true,
               strong: true,
               action: () => {
-                settingStore.pageZoom = 100;
+                activePageZoom.value = 100;
               },
-              show: computed(() => settingStore.pageZoom !== 100),
+              show: computed(() => activePageZoom.value !== 100),
             },
           },
         ],
