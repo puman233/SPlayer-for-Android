@@ -3,9 +3,9 @@
     <Transition name="fade" mode="out-in">
       <div v-show="statusStore.playerMetaShow" class="control-content" @click.stop>
         <n-flex class="left" align="center">
-          <!-- 收起 -->
-          <div class="menu-icon" @click.stop="statusStore.showFullPlayer = false">
-            <SvgIcon name="Down" />
+          <!-- 收起：沉浸式横屏 / 平板下改为隐藏页面 UI（用 WindowHide 图标区分，再次轻触播放器主体恢复）；其他场景关闭全屏播放器 -->
+          <div class="menu-icon" @click.stop="onDownClick">
+            <SvgIcon :name="hideUiOnly ? 'WindowHide' : 'Down'" />
           </div>
           <!-- 喜欢歌曲 -->
           <div
@@ -158,11 +158,24 @@ import { useTimeFormat } from "@/composables/useTimeFormat";
 import { openDownloadSong, openPlaylistAdd } from "@/utils/modal";
 import { getComment } from "@/api/comment";
 import { formatCommentCount } from "@/utils/format";
+import { useDevice } from "@/composables/useDevice";
 
 const dataStore = useDataStore();
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
+
+const { isPad } = useDevice();
+
+// 沉浸式 / 平板下 Down 仅藏 UI（轻触屏幕恢复）；其他场景关闭全屏
+const hideUiOnly = computed(() => statusStore.isImmersiveFullscreen || isPad.value);
+const onDownClick = () => {
+  if (hideUiOnly.value) {
+    statusStore.playerMetaShow = false;
+    return;
+  }
+  statusStore.showFullPlayer = false;
+};
 
 const songManager = useSongManager();
 const player = usePlayerController();
@@ -188,7 +201,7 @@ const fetchCommentCount = async () => {
 const showCommentButton = computed(
   () =>
     !musicStore.playSong.path &&
-    !statusStore.pureLyricMode &&
+    !statusStore.effectivePureLyricMode &&
     settingStore.fullscreenPlayerElements.comments,
 );
 

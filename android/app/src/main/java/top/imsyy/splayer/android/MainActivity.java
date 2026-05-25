@@ -18,7 +18,10 @@ import top.imsyy.splayer.android.lyric.AndroidLocalLyricPlugin;
 import top.imsyy.splayer.android.playback.AndroidNativePlaybackPlugin;
 
 public class MainActivity extends BridgeActivity {
-  private static final String PREF_SHOW_STATUS_BAR = "androidShowStatusBar";
+  // 供 plugin 跨类引用，避免双源硬编码
+  public static final String PREF_SHOW_STATUS_BAR = "androidShowStatusBar";
+  /** 横屏沉浸式：同时隐藏状态栏与全面屏导航手势条 */
+  public static final String PREF_IMMERSIVE_LANDSCAPE = "immersiveLandscape";
   /** 进程级 sweep 启动标记：Activity 重建（旋屏 / 配置变更）时不再重复 post Runnable。 */
   private static volatile boolean sweepBootstrapped = false;
 
@@ -29,6 +32,17 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(AndroidDownloadPlugin.class);
     registerPlugin(AndroidCachePlugin.class);
     super.onCreate(savedInstanceState);
+    // 冷启动重置沉浸式 pref，避免强杀残留隐藏导航栏；旋屏重建（savedInstanceState != null）保留
+    if (savedInstanceState == null) {
+      try {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (prefs.getBoolean(PREF_IMMERSIVE_LANDSCAPE, false)) {
+          prefs.edit().putBoolean(PREF_IMMERSIVE_LANDSCAPE, false).apply();
+        }
+      } catch (Exception ignored) {
+        // pref 读写失败不阻塞启动
+      }
+    }
     applyImmersiveMode();
     // 音频预载 TTL：推迟到首帧后再初始化（构造期会同步读 SharedPreferences，冷启动加密磁盘可能耗百毫秒）。
     // 这里 post 2s，startPeriodicSweep 内部再 postDelayed 5s，首次 sweep 实际 ≈7s 后开始；
@@ -64,13 +78,23 @@ public class MainActivity extends BridgeActivity {
     }
   }
 
+  private boolean isImmersiveLandscape() {
+    try {
+      SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+      return prefs.getBoolean(PREF_IMMERSIVE_LANDSCAPE, false);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   public void applyImmersiveMode() {
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
     View decorView = getWindow().getDecorView();
     WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), decorView);
+    boolean immersiveLandscape = isImmersiveLandscape();
+    boolean showStatusBar = shouldShowStatusBar() && !immersiveLandscape;
     if (controller != null) {
-      boolean showStatusBar = shouldShowStatusBar();
       if (showStatusBar) {
         controller.setSystemBarsBehavior(
             WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
@@ -80,13 +104,24 @@ public class MainActivity extends BridgeActivity {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         controller.hide(WindowInsetsCompat.Type.statusBars());
       }
+      // 沉浸式才隐藏导航栏，其他场景始终显示
+      if (immersiveLandscape) {
+        controller.hide(WindowInsetsCompat.Type.navigationBars());
+      } else {
+        controller.show(WindowInsetsCompat.Type.navigationBars());
+      }
     }
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
       int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
           | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
-      if (!shouldShowStatusBar()) {
+      if (!showStatusBar) {
         flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+      }
+      if (immersiveLandscape) {
+        flags |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
       }
       decorView.setSystemUiVisibility(flags);

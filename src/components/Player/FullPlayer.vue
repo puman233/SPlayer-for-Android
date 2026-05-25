@@ -1,8 +1,8 @@
 <template>
   <Teleport to="#app">
     <Transition
-      :name="useCompactMobilePlayer ? 'mobile-card' : settingStore.playerExpandAnimation"
-      :css="!useCompactMobilePlayer"
+      :name="isCompactMobilePlayer ? 'mobile-card' : settingStore.playerExpandAnimation"
+      :css="!isCompactMobilePlayer"
       mode="out-in"
       @enter="onMobileEnter"
       @leave="onMobileLeave"
@@ -13,15 +13,26 @@
           cursor: statusStore.playerMetaShow || showComment ? 'auto' : 'none',
           '--lyric-blend-mode': settingStore.lyricsBlendMode,
         }"
-        :class="['full-player', { 'fullscreen-comment': isFullscreenComment }]"
+        :class="[
+          'full-player',
+          { 'fullscreen-comment': isFullscreenComment, landscape: isMobileLandscape },
+        ]"
+        :data-orientation-phase="orientationPhase"
         @mouseleave="playerLeave"
         @mousemove="playerMove"
         @click="playerMove"
       >
         <!-- 背景 -->
         <PlayerBackground />
+        <!-- UI 隐藏时的拦截层：首次触摸恢复 UI，并短暂保留以吞掉后续合成 click，避免误触底栏按钮。 -->
+        <div
+          v-if="tapRestoreEnabled && (!statusStore.playerMetaShow || tapRestoreShield)"
+          class="tap-restore-overlay"
+          @pointerdown.stop.prevent="onTapRestoreStart"
+          @click.stop.prevent="onTapRestoreClick"
+        />
         <!-- 移动端 -->
-        <FullPlayerMobile v-if="useCompactMobilePlayer" />
+        <FullPlayerMobile v-if="isCompactMobilePlayer" />
         <!-- 桌面端 -->
         <template v-else>
           <!-- 独立歌词 -->
@@ -39,8 +50,15 @@
           <!-- 切歌不再 unmount/remount 整个 player-content（之前 :key 含 playSong.id 会导致每次切歌都缩放重建，视觉抖动）；
                仅当布局形态切换（pureLyricMode 等）时才走 zoom 过渡 -->
           <Transition name="zoom" mode="out-in">
+            <!-- 手机横屏：紧凑专用布局 -->
+            <FullPlayerMobileLandscape
+              v-if="isMobileLandscape"
+              :key="`landscape-${playerContentKey}`"
+            />
+            <!-- 桌面 / 平板 -->
             <div
-              :key="playerContentKey"
+              v-else
+              :key="`desktop-${playerContentKey}`"
               :class="['player-content', playerContentClasses]"
               @mousemove="playerMove"
             >
@@ -90,6 +108,7 @@
         </template>
       </div>
     </Transition>
+    <OrientationOverlay />
   </Teleport>
 </template>
 
@@ -98,20 +117,32 @@ import { useDevice } from "@/composables/useDevice";
 import { useStatusStore, useMusicStore, useSettingStore } from "@/stores";
 import { isElectron } from "@/utils/env";
 import { PLAYER_META_HOLD_KEY, type PlayerMetaHold } from "@/composables/usePlayerMetaHold";
+import { useOrientationTransition } from "@/composables/useOrientationTransition";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 
-const { isPhonePortrait } = useDevice();
-const useCompactMobilePlayer = computed(() => isPhonePortrait.value);
+// 横竖屏切换状态机：phase 写到 root data-attribute，供 [data-stagger] CSS 触发
+const { phase: orientationPhase } = useOrientationTransition();
+
+const { isPhone, isPhonePortrait, isPad } = useDevice();
+// tap-restore 仅沉浸式 / 平板生效；其他场景保留 autohide
+const tapRestoreEnabled = computed(
+  () => statusStore.isImmersiveFullscreen || isPad.value,
+);
+const tapRestoreShield = ref(false);
+let tapRestoreShieldTimer: number | undefined;
+const isCompactMobilePlayer = computed(() => isPhonePortrait.value);
+// 手机横屏走紧凑布局（左小封面 + 右歌词），不走桌面/平板分支
+const isMobileLandscape = computed(() => isPhone.value && !isPhonePortrait.value);
 
 // 移动端卡片化进出场动画：兼容拖拽中的 inline transform，从当前位置平滑过渡
 const MOBILE_CARD_ENTER = "transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)";
 const MOBILE_CARD_LEAVE = "transform 0.32s cubic-bezier(0.4, 0, 1, 1)";
 
 const onMobileEnter = (el: Element, done: () => void) => {
-  if (!useCompactMobilePlayer.value) {
+  if (!isCompactMobilePlayer.value) {
     done();
     return;
   }
@@ -152,7 +183,7 @@ const onMobileEnter = (el: Element, done: () => void) => {
 };
 
 const onMobileLeave = (el: Element, done: () => void) => {
-  if (!useCompactMobilePlayer.value) {
+  if (!isCompactMobilePlayer.value) {
     done();
     return;
   }
@@ -183,32 +214,47 @@ const noLrc = computed<boolean>(() => {
   return noNormalLrc && noYrcAvailable;
 });
 
-/** 是否处于纯净歌词模式 */
-const pureLyricMode = computed<boolean>(() => statusStore.pureLyricMode && musicStore.isHasLrc);
+/** 是否处于纯净歌词模式（按模式分路） */
+const pureLyricMode = computed<boolean>(
+  () => statusStore.effectivePureLyricMode && musicStore.isHasLrc,
+);
 
 /** 评论是否可见（综合判断） */
 const showComment = computed<boolean>(
   () =>
     statusStore.showPlayerComment &&
     !musicStore.playSong.path &&
-    !statusStore.pureLyricMode &&
+    !statusStore.effectivePureLyricMode &&
     !isPhonePortrait.value,
 );
 
 /** 评论显示模式 */
 const commentDisplayMode = computed(() => settingStore.commentDisplayMode);
 
+/** 沉浸式 / 平板强制左侧半屏评论，忽略 commentDisplayMode */
+const forceLeftHalfComment = computed(
+  () => statusStore.isImmersiveFullscreen || isPad.value,
+);
+
 /** 评论是否在右侧 */
-const commentOnRight = computed(() => commentDisplayMode.value === "right");
+const commentOnRight = computed(
+  () => !forceLeftHalfComment.value && commentDisplayMode.value === "right",
+);
 
 /** 是否半屏评论（无歌词时回退全屏） */
-const isHalfComment = computed(() => commentDisplayMode.value !== "fullscreen" && !noLrc.value);
+const isHalfComment = computed(
+  () =>
+    (forceLeftHalfComment.value || commentDisplayMode.value !== "fullscreen") &&
+    !noLrc.value,
+);
 
 /** 是否全屏评论 */
 const isFullscreenComment = computed(() => showComment.value && !isHalfComment.value);
 
 /** 主内容 key（仅在布局形态变化时切换，不在切歌时切换，避免抖动） */
-const playerContentKey = computed(() => `${statusStore.pureLyricMode ? "pure" : "normal"}`);
+const playerContentKey = computed(
+  () => `${statusStore.effectivePureLyricMode ? "pure" : "normal"}`,
+);
 
 /** 主内容 class */
 const playerContentClasses = computed(() => ({
@@ -265,7 +311,7 @@ const showInstantLyrics = computed(
 const playerDataCenter = computed<boolean>(
   () =>
     !musicStore.isHasLrc ||
-    statusStore.pureLyricMode ||
+    statusStore.effectivePureLyricMode ||
     settingStore.playerType === "record" ||
     musicStore.playSong.type === "radio",
 );
@@ -328,6 +374,46 @@ const playerLeave = () => {
   }
 };
 
+const restorePlayerMeta = () => {
+  statusStore.playerMetaShow = true;
+  if (settingStore.autoHidePlayerMeta && playerMetaHoldCount.value === 0) {
+    startShow();
+  }
+};
+
+const clearTapRestoreShieldTimer = () => {
+  if (tapRestoreShieldTimer === undefined) return;
+  window.clearTimeout(tapRestoreShieldTimer);
+  tapRestoreShieldTimer = undefined;
+};
+
+const releaseTapRestoreShield = () => {
+  clearTapRestoreShieldTimer();
+  tapRestoreShield.value = false;
+};
+
+const holdTapRestoreShield = (duration = 420) => {
+  clearTapRestoreShieldTimer();
+  tapRestoreShield.value = true;
+  tapRestoreShieldTimer = window.setTimeout(() => {
+    tapRestoreShield.value = false;
+    tapRestoreShieldTimer = undefined;
+  }, duration);
+};
+
+// 拦截层 touch：恢复 UI 后短暂保留 overlay 吞掉合成 click
+// 不变量：playerMetaHoldCount > 0 或 inControlArea 时不会隐藏 meta，overlay 不出现
+const onTapRestoreStart = () => {
+  holdTapRestoreShield();
+  restorePlayerMeta();
+};
+
+// pointerdown 已 .prevent，多数 WebView 不会再派发 click；此处仅兜底恢复 UI，
+// 不再立即 release shield，让 holdTapRestoreShield 的计时器自然走完
+const onTapRestoreClick = () => {
+  restorePlayerMeta();
+};
+
 // 弹层 hold：popover 打开期间 acquire，关闭后 release
 const playerMetaHold: PlayerMetaHold = {
   acquire: () => {
@@ -366,6 +452,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopShow();
+  clearTapRestoreShieldTimer();
   if (isElectron) window.electron?.ipcRenderer.send("prevent-sleep", false);
 });
 </script>
@@ -386,6 +473,14 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(80px);
   overflow: hidden;
   z-index: 1000;
+  // 全屏透明拦截层：吞掉首次触摸 + 合成 click
+  .tap-restore-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 200;
+    background: transparent;
+    cursor: default;
+  }
   .lrc-instant {
     position: absolute;
     top: 0;
@@ -503,6 +598,51 @@ onBeforeUnmount(() => {
       &:not(.pure) {
         transform: scale(0.95);
         opacity: 0;
+      }
+    }
+  }
+
+  // === 手机横屏：紧凑顶/底栏 ===
+  &.landscape {
+    :deep(.player-menu) {
+      min-height: 56px;
+      .menu-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        .n-icon {
+          font-size: 22px !important;
+        }
+      }
+      .left,
+      .right {
+        padding: 0 12px;
+      }
+      .drag-dom {
+        margin: 0 40px;
+      }
+    }
+    :deep(.player-control) {
+      height: 60px;
+      .control-content {
+        .left,
+        .right {
+          padding: 0 12px;
+        }
+        .center {
+          max-height: 60px;
+          .btn {
+            gap: 0;
+            .btn-icon {
+              width: 32px;
+              height: 32px;
+            }
+            .play-pause {
+              --n-width: 38px;
+              --n-height: 38px;
+            }
+          }
+        }
       }
     }
   }

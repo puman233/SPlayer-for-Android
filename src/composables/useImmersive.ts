@@ -1,7 +1,7 @@
 import { onBeforeUnmount, onMounted } from "vue";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar, Style } from "@capacitor/status-bar";
-import { useSettingStore } from "@/stores";
+import { useSettingStore, useStatusStore } from "@/stores";
 
 /**
  * Android immersive mode:
@@ -20,7 +20,9 @@ export const useImmersive = () => {
       await StatusBar.setStyle({ style: Style.Light });
       await StatusBar.setOverlaysWebView({ overlay: true });
       const settingStore = useSettingStore();
-      if (settingStore.androidShowStatusBar) {
+      const statusStore = useStatusStore();
+      // 沉浸式期间状态栏由 native 接管，不按 androidShowStatusBar 恢复
+      if (settingStore.androidShowStatusBar && !statusStore.isImmersiveFullscreen) {
         await StatusBar.show();
       } else {
         await StatusBar.hide();
@@ -39,16 +41,20 @@ export const useImmersive = () => {
     }, delay);
   };
 
+  // 沉浸式期间前端守护跳过，由 native applyImmersiveMode 接管
+  const isImmersiveActive = () => useStatusStore().isImmersiveFullscreen;
+  const wantsStatusBar = () => useSettingStore().androidShowStatusBar && !isImmersiveActive();
+
   const handleFocus = () => {
-    if (useSettingStore().androidShowStatusBar) return;
+    if (wantsStatusBar()) return;
     scheduleImmersive(120);
   };
   const handleResize = () => {
-    if (useSettingStore().androidShowStatusBar) return;
+    if (wantsStatusBar()) return;
     scheduleImmersive(220);
   };
   const handleOrientationChange = () => {
-    if (useSettingStore().androidShowStatusBar) {
+    if (wantsStatusBar()) {
       void StatusBar.show().catch(() => {});
       return;
     }
@@ -56,7 +62,7 @@ export const useImmersive = () => {
   };
   const handleVisibilityChange = () => {
     if (document.visibilityState === "visible") {
-      if (useSettingStore().androidShowStatusBar) {
+      if (wantsStatusBar()) {
         void StatusBar.show().catch(() => {});
         return;
       }

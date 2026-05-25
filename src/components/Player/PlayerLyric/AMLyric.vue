@@ -5,7 +5,7 @@
       :class="[
         'lyric-am',
         {
-          pure: statusStore.pureLyricMode,
+          pure: statusStore.effectivePureLyricMode,
           duet: hasDuet,
           'align-right': settingStore.lyricAlignRight,
         },

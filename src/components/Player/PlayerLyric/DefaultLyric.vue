@@ -23,7 +23,7 @@
       settingStore.lyricsPosition,
       settingStore.lyricsPosition,
       {
-        pure: statusStore.pureLyricMode,
+        pure: statusStore.effectivePureLyricMode,
         'align-right': settingStore.lyricAlignRight,
         'meta-show': statusStore.playerMetaShow,
       },

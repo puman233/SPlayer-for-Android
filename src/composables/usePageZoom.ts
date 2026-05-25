@@ -6,12 +6,13 @@ import { isCapacitorAndroid, isElectron } from "@/utils/env";
 /** 页面缩放 */
 export const usePageZoom = () => {
   const settingStore = useSettingStore();
-  const { isPad, isPhonePortrait } = useDevice();
+  const { isPad, isPhone, isPhonePortrait } = useDevice();
 
   const activeZoom = computed(() => {
     if (isElectron) return 100;
     if (isPad.value) return settingStore.padPageZoom;
-    if (isPhonePortrait.value) return settingStore.phonePortraitPageZoom;
+    // 手机端竖屏与横屏沉浸式共享同一缩放值，避免进入沉浸式后界面突变回 100%
+    if (isPhone.value) return settingStore.phonePortraitPageZoom;
     return 100;
   });
 

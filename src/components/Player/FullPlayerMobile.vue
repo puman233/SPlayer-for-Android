@@ -10,6 +10,12 @@ let savedPageType: MobilePageType = "info";
     :style="{ '--lyric-h-offset': lyricHeaderHorizontalPadding }"
   >
     <div ref="topBarRef" class="top-bar">
+      <!-- 左：进入横屏沉浸式（仅 Android 手机有意义） -->
+      <div v-if="canEnterImmersive" class="btn" @click.stop="enterImmersive">
+        <SvgIcon name="Fullscreen" :size="24" />
+      </div>
+      <div v-else class="btn-placeholder" aria-hidden="true" />
+      <!-- 右：下拉关闭 -->
       <div class="btn" @click.stop="statusStore.showFullPlayer = false">
         <SvgIcon name="Down" :size="26" />
       </div>
@@ -33,7 +39,7 @@ let savedPageType: MobilePageType = "info";
       </div>
 
       <div class="page info-page">
-        <div class="cover-section">
+        <div ref="coverSectionRef" class="cover-section">
           <PlayerCover :no-lyric="true" />
         </div>
 
@@ -187,6 +193,9 @@ import { useSwipe } from "@vueuse/core";
 import { useMusicStore, useStatusStore, useDataStore, useSettingStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { useTimeFormat } from "@/composables/useTimeFormat";
+import { useDevice } from "@/composables/useDevice";
+import { useOrientationTransition } from "@/composables/useOrientationTransition";
+import { isCapacitorAndroid } from "@/utils/env";
 import { toLikeSong } from "@/utils/auth";
 import { openPlaylistAdd } from "@/utils/modal";
 import { removeBrackets } from "@/utils/format";
@@ -200,6 +209,21 @@ const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const LYRIC_HEADER_MAX_PADDING = 60;
 
+// 沉浸式横屏入口：方向锁交给 native SENSOR_LANDSCAPE
+// 加 isPhone 守卫，防止父级门控被改后平板冒出无效按钮
+const { isPhone } = useDevice();
+const canEnterImmersive = computed(() => isCapacitorAndroid && isPhone.value);
+// 接入电影感切换协调器：Backdrop + Hero + Stagger 三层动效
+const orientationTransition = useOrientationTransition();
+const enterImmersive = async () => {
+  await orientationTransition.enter(musicStore.songCover);
+};
+
+// Hero 流转的起点位置（竖屏 cover 容器）
+const coverSectionRef = ref<HTMLElement | null>(null);
+watch(coverSectionRef, (el) => orientationTransition.setCoverEl(el, "portrait"));
+onBeforeUnmount(() => orientationTransition.setCoverEl(null, "portrait"));
+
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
 const dragHandleRef = ref<HTMLElement | null>(null);
@@ -208,7 +232,7 @@ const dragHandleRef = ref<HTMLElement | null>(null);
 const hasLyric = computed(() => musicStore.isHasLrc && musicStore.playSong.type !== "radio");
 const hasComment = computed(() => {
   if (musicStore.playSong.path) return false;
-  if (statusStore.pureLyricMode) return false;
+  if (statusStore.effectivePureLyricMode) return false;
   if (settingStore.fullscreenPlayerElements?.comments === false) return false;
   const id = musicStore.playSong.id;
   return typeof id === "number" && id > 0;
@@ -523,9 +547,14 @@ const contentTransform = computed(() => {
     height: calc(56px + var(--mobile-safe-top));
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     padding: var(--mobile-safe-top) 20px 0;
     z-index: 10;
+
+    .btn-placeholder {
+      width: 40px;
+      height: 40px;
+    }
 
     .btn {
       width: 40px;

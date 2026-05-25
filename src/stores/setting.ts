@@ -63,6 +63,12 @@ export interface SettingState {
   lyricFontSizeMode: "fixed" | "adaptive";
   /** 歌词字体大小 */
   lyricFontSize: number;
+  /** 手机横屏沉浸式歌词字体大小（独立于竖屏） */
+  lyricFontSizeLandscape: number;
+  /** 手机横屏沉浸式：封面+信息整体的水平偏移（px，正值右移） */
+  landscapeCoverOffsetX: number;
+  /** 手机横屏沉浸式：歌词区左右内边距（px） */
+  landscapeLyricPaddingX: number;
   /** 歌词翻译字体大小 */
   lyricTranFontSize: number;
   /** 歌词音译字体大小 */
@@ -599,6 +605,9 @@ export const useSettingStore = defineStore("setting", {
     dynamicCover: false,
     lyricFontSizeMode: "adaptive",
     lyricFontSize: 46,
+    lyricFontSizeLandscape: 24,
+    landscapeCoverOffsetX: 52,
+    landscapeLyricPaddingX: 58,
     lyricTranFontSize: 22,
     lyricRomaFontSize: 18,
     lyricFontWeight: 700,
@@ -847,11 +856,13 @@ export const useSettingStore = defineStore("setting", {
         // 计算需要更新的字段（迁移返回的更新）
         const updates: Partial<SettingState> = {};
         // 按版本顺序执行迁移，收集所有更新
+        // 注意：currentState 需随每步迁移结果同步合并，否则后续迁移读不到前序迁移写入的字段
         for (let version = currentVersion + 1; version <= targetVersion; version++) {
           const migration = settingMigrations[version];
           if (migration) {
             const migrationUpdates = migration(currentState);
             Object.assign(updates, migrationUpdates);
+            Object.assign(currentState, migrationUpdates);
           }
         }
         // 只 patch 需要更新的字段
