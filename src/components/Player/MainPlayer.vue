@@ -7,6 +7,8 @@
         show: musicStore.isHasPlayer && statusStore.showPlayBar,
         player: statusStore.showFullPlayer,
         'phone-floating': isPhone,
+        // 硬件层标记：用于 CSS 区分「手机窩屏」与「平板窩屏」（后者横向空间充足，保留上下首）
+        'pad-device': isPadDevice,
       },
     ]"
   >
@@ -60,7 +62,8 @@
                     ? removeBrackets(musicStore.playSong.name)
                     : musicStore.playSong.name
                 "
-                :speed="0.2"
+                :speed="0.35"
+                activate-on-click
                 class="name"
                 style="cursor: pointer"
                 @click.stop="
@@ -285,7 +288,7 @@ const settingStore = useSettingStore();
 const player = usePlayerController();
 const songManager = useSongManager();
 
-const { isPhone } = useDevice();
+const { isPhone, isPadDevice } = useDevice();
 
 const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
@@ -794,6 +797,12 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
   transition: bottom 0.3s;
   z-index: 10;
   touch-action: pan-x;
+  // 桌面/平板版控制栏：把底部安全区纳入条体，避免被系统手势条遮挡
+  // phone-floating 自带浮岛定位（已含 --safe-area-bottom），此处排除
+  &:not(.phone-floating) {
+    height: calc(80px + var(--safe-area-bottom));
+    padding-bottom: var(--safe-area-bottom);
+  }
   &.show {
     bottom: 0;
   }
@@ -1199,6 +1208,17 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
       @media (orientation: portrait) {
         .play-icon {
           display: none;
+        }
+      }
+    }
+  }
+
+  // 平板竖屏（phone-floating + pad-device）：横向空间充足，恢复上下首/随机/循环
+  &.phone-floating.pad-device {
+    .play-control {
+      @media (orientation: portrait) {
+        .play-icon {
+          display: flex;
         }
       }
     }

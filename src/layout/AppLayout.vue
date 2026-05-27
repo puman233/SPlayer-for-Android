@@ -284,14 +284,15 @@ const handleOrientationChange = () => {
   setTimeout(fire, 400);
 };
 
+// matchMedia 在部分设备上比 orientationchange 事件更可靠
+const orientationMql = window.matchMedia("(orientation: portrait)");
+
 onMounted(() => {
   loadBackgroundImage();
   window.addEventListener("orientationchange", handleOrientationChange);
   window.addEventListener("resize", updateIndicator);
   // 首次挂载也尝试一次（nav 可能尚未渲染，wait nextTick 更稳）
   nextTick(updateIndicator);
-  // matchMedia 在部分设备上比 orientationchange 事件更可靠
-  const orientationMql = window.matchMedia("(orientation: portrait)");
   orientationMql.addEventListener?.("change", handleOrientationChange);
   if (!isElectron) {
     window.addEventListener("beforeunload", (event) => {
@@ -305,6 +306,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("orientationchange", handleOrientationChange);
   window.removeEventListener("resize", updateIndicator);
+  orientationMql.removeEventListener?.("change", handleOrientationChange);
 });
 </script>
 
@@ -405,7 +407,8 @@ onBeforeUnmount(() => {
 #main.show-player {
   #pad-main {
     #main-content {
-      bottom: 80px;
+      // 同步纳入底部安全区，避免内容被加高后的播放栏挡住
+      bottom: calc(80px + var(--safe-area-bottom));
     }
   }
 }

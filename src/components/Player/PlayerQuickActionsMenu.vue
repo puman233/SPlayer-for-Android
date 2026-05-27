@@ -97,6 +97,93 @@
             @update:value="(v: number) => player.setVolume(v)"
           />
         </div>
+
+        <!-- 歌词字号：横屏沉浸式与竖屏完全隔离，分别绑定不同字段 -->
+        <div class="qa-item qa-volume">
+          <div class="qa-item-label">
+            <SvgIcon name="TextSizeAdd" :size="18" />
+            <span class="qa-item-text">{{ lyricFontSizeLabel }}</span>
+            <span class="qa-volume-value">{{ lyricFontSizeValue }}</span>
+          </div>
+          <div class="qa-stepper">
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="lyricFontSizeValue <= lyricFontSizeMin"
+              @click="adjustLyricFontSize(-lyricFontSizeStep)"
+            >
+              -
+            </n-button>
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="lyricFontSizeValue >= lyricFontSizeMax"
+              @click="adjustLyricFontSize(lyricFontSizeStep)"
+            >
+              +
+            </n-button>
+          </div>
+        </div>
+
+        <!-- 横屏专属：封面整体 X 偏移 -->
+        <div v-if="isLandscapeImmersive" class="qa-item qa-volume">
+          <div class="qa-item-label">
+            <SvgIcon name="Album" :size="18" />
+            <span class="qa-item-text">横屏封面位置</span>
+            <span class="qa-volume-value">{{ settingStore.landscapeCoverOffsetX }}</span>
+          </div>
+          <div class="qa-stepper">
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="settingStore.landscapeCoverOffsetX <= LANDSCAPE_COVER_OFFSET_MIN"
+              @click="adjustLandscapeCoverOffset(-LANDSCAPE_COVER_OFFSET_STEP)"
+            >
+              -
+            </n-button>
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="settingStore.landscapeCoverOffsetX >= LANDSCAPE_COVER_OFFSET_MAX"
+              @click="adjustLandscapeCoverOffset(LANDSCAPE_COVER_OFFSET_STEP)"
+            >
+              +
+            </n-button>
+          </div>
+        </div>
+
+        <!-- 横屏专属：歌词区左右内边距 -->
+        <div v-if="isLandscapeImmersive" class="qa-item qa-volume">
+          <div class="qa-item-label">
+            <SvgIcon name="TextPlay" :size="18" />
+            <span class="qa-item-text">横屏歌词边距</span>
+            <span class="qa-volume-value">{{ settingStore.landscapeLyricPaddingX }}</span>
+          </div>
+          <div class="qa-stepper">
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="settingStore.landscapeLyricPaddingX <= LANDSCAPE_LYRIC_PADDING_MIN"
+              @click="adjustLandscapeLyricPadding(-LANDSCAPE_LYRIC_PADDING_STEP)"
+            >
+              -
+            </n-button>
+            <n-button
+              block
+              secondary
+              size="tiny"
+              :disabled="settingStore.landscapeLyricPaddingX >= LANDSCAPE_LYRIC_PADDING_MAX"
+              @click="adjustLandscapeLyricPadding(LANDSCAPE_LYRIC_PADDING_STEP)"
+            >
+              +
+            </n-button>
+          </div>
+        </div>
       </div>
 
       <!-- AMLL 效果分组 -->
@@ -188,6 +275,61 @@ const player = usePlayerController();
 
 // 桌面歌词仅在桌面端 / 安卓端可用
 const canUseDesktopLyric = computed(() => isElectron || isCapacitorAndroid);
+
+// 横屏字号独立绑定，与竖屏不共享字段
+const isLandscapeImmersive = computed(() => statusStore.isImmersiveFullscreen);
+const lyricFontSizeLabel = computed(() =>
+  isLandscapeImmersive.value ? "横屏模式字号" : "歌词字号",
+);
+const lyricFontSizeValue = computed<number>({
+  get: () =>
+    isLandscapeImmersive.value
+      ? settingStore.lyricFontSizeLandscape
+      : settingStore.lyricFontSize,
+  set: (v) => {
+    if (isLandscapeImmersive.value) {
+      settingStore.lyricFontSizeLandscape = v;
+    } else {
+      settingStore.lyricFontSize = v;
+    }
+  },
+});
+// 横屏：12-35；竖屏：24-100
+const lyricFontSizeMin = computed(() => (isLandscapeImmersive.value ? 12 : 24));
+const lyricFontSizeMax = computed(() => (isLandscapeImmersive.value ? 35 : 100));
+const lyricFontSizeStep = computed(() => (isLandscapeImmersive.value ? 1 : 2));
+const LANDSCAPE_COVER_OFFSET_MIN = -80;
+const LANDSCAPE_COVER_OFFSET_MAX = 80;
+const LANDSCAPE_COVER_OFFSET_STEP = 2;
+const LANDSCAPE_LYRIC_PADDING_MIN = 0;
+const LANDSCAPE_LYRIC_PADDING_MAX = 120;
+const LANDSCAPE_LYRIC_PADDING_STEP = 2;
+
+const clampValue = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const adjustLyricFontSize = (delta: number) => {
+  lyricFontSizeValue.value = clampValue(
+    lyricFontSizeValue.value + delta,
+    lyricFontSizeMin.value,
+    lyricFontSizeMax.value,
+  );
+};
+
+const adjustLandscapeCoverOffset = (delta: number) => {
+  settingStore.landscapeCoverOffsetX = clampValue(
+    settingStore.landscapeCoverOffsetX + delta,
+    LANDSCAPE_COVER_OFFSET_MIN,
+    LANDSCAPE_COVER_OFFSET_MAX,
+  );
+};
+
+const adjustLandscapeLyricPadding = (delta: number) => {
+  settingStore.landscapeLyricPaddingX = clampValue(
+    settingStore.landscapeLyricPaddingX + delta,
+    LANDSCAPE_LYRIC_PADDING_MIN,
+    LANDSCAPE_LYRIC_PADDING_MAX,
+  );
+};
 
 // 开启 AMLL 逐词渲染时提示发热与耗电；关闭则静默
 const onToggleAMLyrics = (v: boolean) => {
@@ -297,8 +439,9 @@ onBeforeUnmount(() => {
 // 这里只负责内部布局，避免在浅色模式下因自定义颜色对比度不足看不清
 .quick-actions-panel {
   width: 220px;
-  // 适当限制最大高度，避免菜单过高遮挡播放器；超出后内部滚动浏览
-  max-height: min(48vh, 360px);
+  // 跟随页面缩放；dvh 不解析时 fallback 到 vh
+  max-height: min(calc(var(--page-zoom-100vh, 100vh) * 0.48), 360px);
+  max-height: min(calc(var(--page-zoom-100dvh, 100dvh) * 0.48), 360px);
   overflow-y: auto;
   overscroll-behavior: contain;
   font-size: 13px;
@@ -394,5 +537,12 @@ onBeforeUnmount(() => {
   .qa-volume-slider {
     width: 100%;
   }
+}
+
+.qa-stepper {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
 }
 </style>

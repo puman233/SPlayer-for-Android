@@ -63,6 +63,12 @@ export interface SettingState {
   lyricFontSizeMode: "fixed" | "adaptive";
   /** 歌词字体大小 */
   lyricFontSize: number;
+  /** 手机横屏沉浸式歌词字体大小（独立于竖屏） */
+  lyricFontSizeLandscape: number;
+  /** 手机横屏沉浸式：封面+信息整体的水平偏移（px，正值右移） */
+  landscapeCoverOffsetX: number;
+  /** 手机横屏沉浸式：歌词区左右内边距（px） */
+  landscapeLyricPaddingX: number;
   /** 歌词翻译字体大小 */
   lyricTranFontSize: number;
   /** 歌词音译字体大小 */
@@ -280,6 +286,8 @@ export interface SettingState {
   pageZoom: number;
   /** 手机竖屏页面缩放 */
   phonePortraitPageZoom: number;
+  /** 平板竖屏页面缩放 */
+  padPortraitPageZoom: number;
   /** 平板模式页面缩放 */
   padPageZoom: number;
   /** 安卓全面屏优化 */
@@ -513,6 +521,10 @@ export interface SettingState {
   enableGlobalErrorDialog: boolean;
   /** Android 显示系统状态栏 */
   androidShowStatusBar: boolean;
+  /** Android 竖屏隐藏底部导航栏（手机 / 平板竖屏共用） */
+  androidHidePortraitNavBar: boolean;
+  /** Android 设备形态强制覆盖：auto 跟随自动识别；phone 强制走手机 UI；pad 强制走平板 UI */
+  androidDeviceModeOverride: "auto" | "phone" | "pad";
   /** macOS 专属设置 */
   macos: {
     /** 状态栏歌词 */
@@ -599,6 +611,9 @@ export const useSettingStore = defineStore("setting", {
     dynamicCover: false,
     lyricFontSizeMode: "adaptive",
     lyricFontSize: 46,
+    lyricFontSizeLandscape: 24,
+    landscapeCoverOffsetX: 52,
+    landscapeLyricPaddingX: 58,
     lyricTranFontSize: 22,
     lyricRomaFontSize: 18,
     lyricFontWeight: 700,
@@ -653,6 +668,7 @@ export const useSettingStore = defineStore("setting", {
     androidLocalMusicDirectories: [],
     pageZoom: 100,
     phonePortraitPageZoom: 100,
+    padPortraitPageZoom: 100,
     padPageZoom: 100,
     androidFullscreenSafeAreaOptimize: true,
     showDefaultLocalPath: true,
@@ -809,6 +825,8 @@ export const useSettingStore = defineStore("setting", {
     automixMaxAnalyzeTime: 60,
     enableGlobalErrorDialog: true,
     androidShowStatusBar: false,
+    androidHidePortraitNavBar: true,
+    androidDeviceModeOverride: "auto",
     macos: {
       statusBarLyric: {
         enabled: false,
@@ -847,11 +865,13 @@ export const useSettingStore = defineStore("setting", {
         // 计算需要更新的字段（迁移返回的更新）
         const updates: Partial<SettingState> = {};
         // 按版本顺序执行迁移，收集所有更新
+        // 注意：currentState 需随每步迁移结果同步合并，否则后续迁移读不到前序迁移写入的字段
         for (let version = currentVersion + 1; version <= targetVersion; version++) {
           const migration = settingMigrations[version];
           if (migration) {
             const migrationUpdates = migration(currentState);
             Object.assign(updates, migrationUpdates);
+            Object.assign(currentState, migrationUpdates);
           }
         }
         // 只 patch 需要更新的字段

@@ -417,3 +417,160 @@
     opacity: 0;
   }
 }
+
+// 横竖屏切换：Backdrop + Stagger（Hero 见 OrientationOverlay.vue）
+
+// Backdrop fade
+.shutter-enter-active {
+  transition: opacity 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.shutter-leave-active {
+  transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1) 80ms;
+}
+.shutter-enter-from,
+.shutter-leave-to {
+  opacity: 0;
+}
+
+// Stagger reveal：横屏元素错开揭幕
+
+// 进入阶段先隐藏，避免裸态闪现
+[data-orientation-phase="enter-rising"] [data-stagger],
+[data-orientation-phase="enter-rotating"] [data-stagger],
+[data-orientation-phase="enter-revealing"] [data-stagger] {
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+[data-orientation-phase="enter-revealing"] [data-stagger="cover"] {
+  animation: stagger-reveal-cover 200ms cubic-bezier(0.22, 1, 0.36, 1) 0ms forwards;
+}
+[data-orientation-phase="enter-revealing"] [data-stagger="title"] {
+  animation: stagger-reveal-title 220ms cubic-bezier(0.22, 1, 0.36, 1) 80ms forwards;
+}
+[data-orientation-phase="enter-revealing"] [data-stagger="lyric"] {
+  animation: stagger-reveal-lyric 260ms cubic-bezier(0.22, 1, 0.36, 1) 120ms forwards;
+}
+[data-orientation-phase="enter-revealing"] [data-stagger="control"] {
+  animation: stagger-reveal-control 220ms cubic-bezier(0.22, 1, 0.36, 1) 160ms forwards;
+}
+
+// Stagger leave：横屏元素错开收起
+[data-orientation-phase="exit-collapsing"] [data-stagger="cover"] {
+  animation: stagger-leave-cover 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+[data-orientation-phase="exit-collapsing"] [data-stagger="title"] {
+  animation: stagger-leave-title 180ms cubic-bezier(0.4, 0, 1, 1) 20ms forwards;
+}
+[data-orientation-phase="exit-collapsing"] [data-stagger="lyric"] {
+  animation: stagger-leave-lyric 200ms cubic-bezier(0.4, 0, 1, 1) 40ms forwards;
+}
+[data-orientation-phase="exit-collapsing"] [data-stagger="control"] {
+  animation: stagger-leave-control 180ms cubic-bezier(0.4, 0, 1, 1) 60ms forwards;
+}
+
+// 旋转期持续隐藏
+[data-orientation-phase="exit-rotating"] [data-stagger],
+[data-orientation-phase="exit-revealing"] [data-stagger] {
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+// 竖屏由 mobile-card 接管，无需 stagger
+
+@keyframes stagger-reveal-cover {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes stagger-reveal-title {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stagger-reveal-lyric {
+  0% {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes stagger-reveal-control {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stagger-leave-cover {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes stagger-leave-title {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes stagger-leave-lyric {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes stagger-leave-control {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+// 减少动效偏好
+@media (prefers-reduced-motion: reduce) {
+  [data-orientation-phase] [data-stagger] {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

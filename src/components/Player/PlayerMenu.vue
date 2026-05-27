@@ -5,18 +5,18 @@
         <n-flex class="left">
           <div
             v-if="musicStore.isHasLrc && musicStore.playSong.type !== 'radio'"
-            :class="['menu-icon', { open: statusStore.pureLyricMode }]"
-            @click="statusStore.pureLyricMode = !statusStore.pureLyricMode"
+            :class="['menu-icon', { open: statusStore.effectivePureLyricMode }]"
+            @click="togglePureLyricMode"
           >
             <SvgIcon name="TextPlay" />
           </div>
         </n-flex>
         <div class="drag-dom" />
         <n-flex class="right" justify="end">
-          <div class="menu-icon" @click="toggleFullscreen">
-            <SvgIcon :name="isFullscreen ? 'FullscreenExit' : 'Fullscreen'" />
+          <div class="menu-icon" @click="onToggleFullscreen">
+            <SvgIcon :name="effectiveFullscreen ? 'FullscreenExit' : 'Fullscreen'" />
           </div>
-          <div v-if="!isFullscreen" class="menu-icon" @click="statusStore.showFullPlayer = false">
+          <div v-if="showCloseBtn" class="menu-icon" @click="onCloseFullPlayer">
             <SvgIcon name="Down" />
           </div>
         </n-flex>
@@ -27,12 +27,52 @@
 
 <script setup lang="ts">
 import { useStatusStore, useMusicStore } from "@/stores";
+import { useOrientationTransition } from "@/composables/useOrientationTransition";
+import { isCapacitorAndroid } from "@/utils/env";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 
-// Fullscreen
+// 桌面 / Electron 浏览器全屏 API
 const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
+// 接入电影感切换协调器
+const orientationTransition = useOrientationTransition();
+
+// 任意一种全屏均管图标切换
+const effectiveFullscreen = computed(() => isFullscreen.value || statusStore.isImmersiveFullscreen);
+
+// 浏览器全屏隐藏下拉；沉浸式保留为退出入口
+const showCloseBtn = computed(() => !isFullscreen.value);
+
+const exitImmersive = async () => {
+  await orientationTransition.exit(musicStore.songCover);
+};
+
+// 横屏沉浸式与竖屏的纯净歌词开关分别隔离，避免互相污染
+const togglePureLyricMode = () => {
+  if (statusStore.isImmersiveFullscreen) {
+    statusStore.pureLyricModeLandscape = !statusStore.pureLyricModeLandscape;
+  } else {
+    statusStore.pureLyricMode = !statusStore.pureLyricMode;
+  }
+};
+
+const onToggleFullscreen = async () => {
+  if (statusStore.isImmersiveFullscreen) {
+    await exitImmersive();
+    return;
+  }
+  // Capacitor 环境内 DOM Fullscreen API 多数无效，避免触发
+  if (isCapacitorAndroid) return;
+  toggleFullscreen();
+};
+
+const onCloseFullPlayer = async () => {
+  if (statusStore.isImmersiveFullscreen) {
+    await exitImmersive();
+  }
+  statusStore.showFullPlayer = false;
+};
 </script>
 
 <style lang="scss" scoped>

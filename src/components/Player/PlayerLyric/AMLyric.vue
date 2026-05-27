@@ -5,7 +5,7 @@
       :class="[
         'lyric-am',
         {
-          pure: statusStore.pureLyricMode,
+          pure: statusStore.effectivePureLyricMode,
           duet: hasDuet,
           'align-right': settingStore.lyricAlignRight,
         },
@@ -191,7 +191,7 @@ watch(lyricPlayerRef, (player) => {
     padding-left: var(--amll-lyric-left-padding, 10px);
     padding-right: 80px;
     div {
-      div[class^="_interludeDots"] {
+      div[class*="interludeDots"] {
         display: var(--display-count-down-show);
       }
     }
@@ -228,11 +228,20 @@ watch(lyricPlayerRef, (player) => {
       :deep(.am-lyric) div {
         transform-origin: center;
       }
-    }
 
-    :deep(.am-lyric) {
-      margin: 0;
-      padding: 0 80px;
+      :deep(.am-lyric div[class*="interludeDots"]) {
+        position: relative;
+        left: 50%;
+        translate: -50% 0;
+      }
+
+      :deep(.am-lyric) {
+        margin: 0;
+        padding: 0 80px;
+        @media (max-width: 990px) {
+          padding: 0 20px;
+        }
+      }
     }
   }
 

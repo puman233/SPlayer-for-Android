@@ -11,8 +11,19 @@ import { useDevice } from "@/composables/useDevice";
 import { useImmersive } from "@/composables/useImmersive";
 import { useAndroidBack } from "@/composables/useAndroidBack";
 import { usePageZoom } from "@/composables/usePageZoom";
+import { useSettingStore } from "@/stores";
 
-const { shellMode } = useDevice();
+const { shellMode, deviceModeOverride } = useDevice();
+const settingStore = useSettingStore();
+
+// 设备形态手动覆盖：从设置项同步到 useDevice 模块级 ref
+watch(
+  () => settingStore.androidDeviceModeOverride,
+  (mode) => {
+    deviceModeOverride.value = mode ?? "auto";
+  },
+  { immediate: true },
+);
 
 useImmersive();
 useAndroidBack();

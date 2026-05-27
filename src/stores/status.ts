@@ -25,6 +25,8 @@ interface StatusState {
   showPlayBar: boolean;
   /** 全屏播放器 */
   showFullPlayer: boolean;
+  /** 手机端沉浸式横屏全屏（锁横屏 + 复用平板/桌面布局） */
+  isImmersiveFullscreen: boolean;
   /** 播放器功能显示 */
   playerMetaShow: boolean;
   /** 播放列表状态 */
@@ -60,8 +62,10 @@ interface StatusState {
     /** 封面主题颜色（暗色） */
     dark?: ColorScheme;
   };
-  /** 纯净歌词模式 */
+  /** 纯净歌词模式（竖屏 / 桌面 / 平板） */
   pureLyricMode: boolean;
+  /** 纯净歌词模式（手机横屏沉浸式专用，与竖屏隔离） */
+  pureLyricModeLandscape: boolean;
   /** 当前是否正使用 TTML 歌词 */
   usingTTMLLyric: boolean;
   /** 当前是否正使用 QRC 歌词（来自QQ音乐） */
@@ -180,6 +184,7 @@ export const useStatusStore = defineStore("status", {
     playLoading: true,
     playListShow: false,
     showFullPlayer: false,
+    isImmersiveFullscreen: false,
     playerMetaShow: true,
     currentTime: 0,
     duration: 0,
@@ -187,6 +192,7 @@ export const useStatusStore = defineStore("status", {
     currentTimeOffsetMap: {},
     songCoverTheme: {},
     pureLyricMode: false,
+    pureLyricModeLandscape: false,
     usingTTMLLyric: false,
     usingQRCLyric: false,
     songQuality: undefined,
@@ -295,6 +301,10 @@ export const useStatusStore = defineStore("status", {
     /** 是否为开发者模式 */
     isDeveloperMode(state) {
       return state.developerMode || isDevBuild;
+    },
+    /** 有效纯净歌词模式：横屏沉浸式走独立字段，避免影响竖屏 */
+    effectivePureLyricMode(state) {
+      return state.isImmersiveFullscreen ? state.pureLyricModeLandscape : state.pureLyricMode;
     },
     /** 是否解锁 */
     isUnlocked(state) {
@@ -424,6 +434,7 @@ export const useStatusStore = defineStore("status", {
         playLoading: false,
         playListShow: false,
         showFullPlayer: false,
+        isImmersiveFullscreen: false,
         personalFmMode: false,
         playIndex: -1,
         repeatMode: "off",
@@ -444,11 +455,11 @@ export const useStatusStore = defineStore("status", {
       "progress",
       "currentTimeOffsetMap",
       "pureLyricMode",
+      "pureLyricModeLandscape",
       "playIndex",
       "playRate",
       "playVolume",
       "playVolumeMute",
-      "playSongType",
       "repeatMode",
       "shuffleMode",
       "songCoverTheme",

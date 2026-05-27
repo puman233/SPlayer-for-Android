@@ -6,10 +6,28 @@ let savedPageType: MobilePageType = "info";
 <template>
   <div
     ref="mobileStart"
-    class="full-player-mobile"
-    :style="{ '--lyric-h-offset': lyricHeaderHorizontalPadding }"
+    :class="['full-player-mobile', { 'pad-portrait': isPadDevice }]"
+    :style="{
+      '--lyric-h-offset': lyricHeaderHorizontalPadding,
+      '--pad-portrait-lrc-size': padPortraitLyricSize,
+      '--pad-portrait-lrc-tran-size': padPortraitLyricTranSize,
+      '--pad-portrait-lrc-roma-size': padPortraitLyricRomaSize,
+    }"
   >
     <div ref="topBarRef" class="top-bar">
+      <!-- 左：进入横屏沉浸式（仅 Android 手机有意义） -->
+      <div
+        v-if="showPureLyricButton && currentPageType === 'lyric'"
+        :class="['btn pure-btn', { open: statusStore.pureLyricMode }]"
+        @click.stop="togglePureLyricMode"
+      >
+        <SvgIcon name="TextPlay" :size="26" />
+      </div>
+      <div v-else-if="canEnterImmersive" class="btn" @click.stop="enterImmersive">
+        <SvgIcon name="Fullscreen" :size="24" />
+      </div>
+      <div v-else class="btn-placeholder" aria-hidden="true" />
+      <!-- 右：下拉关闭 -->
       <div class="btn" @click.stop="statusStore.showFullPlayer = false">
         <SvgIcon name="Down" :size="26" />
       </div>
@@ -33,39 +51,59 @@ let savedPageType: MobilePageType = "info";
       </div>
 
       <div class="page info-page">
-        <div class="cover-section">
+        <div ref="coverSectionRef" class="cover-section">
           <PlayerCover :no-lyric="true" />
         </div>
 
         <div class="info-group">
           <div class="song-info-bar">
             <div class="info-section">
-              <PlayerData :center="false" :light="false" class="mobile-data" />
-            </div>
-            <div class="info-actions">
-              <div
-                v-if="musicStore.playSong.type !== 'radio'"
-                class="action-btn"
-                @click="
-                  toLikeSong(musicStore.playSong, !dataStore.isLikeSong(musicStore.playSong.id))
-                "
-              >
-                <SvgIcon
-                  :name="
-                    dataStore.isLikeSong(musicStore.playSong.id) ? 'Favorite' : 'FavoriteBorder'
-                  "
-                  :size="26"
-                  :class="{ liked: dataStore.isLikeSong(musicStore.playSong.id) }"
-                />
-              </div>
-              <div
-                class="action-btn"
-                @click.stop="openPlaylistAdd([musicStore.playSong], !!musicStore.playSong.path)"
-              >
-                <SvgIcon name="AddList" :size="26" />
-              </div>
-              <!-- 快捷操作菜单 -->
-              <PlayerQuickActionsMenu />
+              <PlayerData :center="false" :light="false" class="mobile-data">
+                <template #actions>
+                  <div class="info-actions">
+                    <div
+                      v-if="musicStore.playSong.type !== 'radio'"
+                      class="action-btn"
+                      @click.stop="
+                        toLikeSong(
+                          musicStore.playSong,
+                          !dataStore.isLikeSong(musicStore.playSong.id),
+                        )
+                      "
+                    >
+                      <SvgIcon
+                        :name="
+                          dataStore.isLikeSong(musicStore.playSong.id)
+                            ? 'Favorite'
+                            : 'FavoriteBorder'
+                        "
+                        :size="26"
+                        :class="{ liked: dataStore.isLikeSong(musicStore.playSong.id) }"
+                      />
+                    </div>
+                    <div
+                      class="action-btn"
+                      @click.stop="
+                        openPlaylistAdd([musicStore.playSong], !!musicStore.playSong.path)
+                      "
+                    >
+                      <SvgIcon name="AddList" :size="26" />
+                    </div>
+                    <n-badge
+                      v-if="showPortraitPlaylistButton"
+                      :value="dataStore.playList?.length ?? 0"
+                      :show="settingStore.showPlaylistCount"
+                      :max="9999"
+                    >
+                      <div class="action-btn" @click.stop="statusStore.playListShow = true">
+                        <SvgIcon name="PlayList" :size="26" />
+                      </div>
+                    </n-badge>
+                    <!-- 快捷操作菜单 -->
+                    <PlayerQuickActionsMenu />
+                  </div>
+                </template>
+              </PlayerData>
             </div>
           </div>
 
@@ -187,9 +225,13 @@ import { useSwipe } from "@vueuse/core";
 import { useMusicStore, useStatusStore, useDataStore, useSettingStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { useTimeFormat } from "@/composables/useTimeFormat";
+import { useDevice } from "@/composables/useDevice";
+import { useOrientationTransition } from "@/composables/useOrientationTransition";
+import { isCapacitorAndroid } from "@/utils/env";
 import { toLikeSong } from "@/utils/auth";
 import { openPlaylistAdd } from "@/utils/modal";
 import { removeBrackets } from "@/utils/format";
+import { getFontSize } from "@/utils/style";
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
@@ -200,15 +242,43 @@ const { timeDisplay, toggleTimeFormat } = useTimeFormat();
 
 const LYRIC_HEADER_MAX_PADDING = 60;
 
+// 沉浸式横屏入口：方向锁交给 native SENSOR_LANDSCAPE
+// 走硬件层 isPhoneDevice，防止平板竖屏（布局是手机 UI）误冒出沉浸式入口
+const { isPadDevice, isPhoneDevice, isPhonePortrait } = useDevice();
+const canEnterImmersive = computed(() => isCapacitorAndroid && isPhoneDevice.value);
+// 纯净模式按钮：手机竖屏 / 平板竖屏 + 有歌词 + 非电台
+const showPureLyricButton = computed(
+  () =>
+    isPhonePortrait.value &&
+    musicStore.isHasLrc &&
+    musicStore.playSong.type !== "radio",
+);
+const showPortraitPlaylistButton = computed(
+  () => isPhonePortrait.value && !statusStore.personalFmMode,
+);
+const togglePureLyricMode = () => {
+  statusStore.pureLyricMode = !statusStore.pureLyricMode;
+};
+// 接入电影感切换协调器：Backdrop + Hero + Stagger 三层动效
+const orientationTransition = useOrientationTransition();
+const enterImmersive = async () => {
+  await orientationTransition.enter(musicStore.songCover);
+};
+
+// Hero 流转的起点位置（竖屏 cover 容器）
+const coverSectionRef = ref<HTMLElement | null>(null);
+watch(coverSectionRef, (el) => orientationTransition.setCoverEl(el, "portrait"));
+onBeforeUnmount(() => orientationTransition.setCoverEl(null, "portrait"));
+
 const mobileStart = ref<HTMLElement | null>(null);
 const topBarRef = ref<HTMLElement | null>(null);
 const dragHandleRef = ref<HTMLElement | null>(null);
 
 // 歌词/评论可用性
 const hasLyric = computed(() => musicStore.isHasLrc && musicStore.playSong.type !== "radio");
+// 纯净模式下仍保留评论页：用户可从最左侧滑出，按需查看评论
 const hasComment = computed(() => {
   if (musicStore.playSong.path) return false;
-  if (statusStore.pureLyricMode) return false;
   if (settingStore.fullscreenPlayerElements?.comments === false) return false;
   const id = musicStore.playSong.id;
   return typeof id === "number" && id > 0;
@@ -238,6 +308,16 @@ const lyricHeaderHorizontalPadding = computed(() => {
   const padding = Math.max(0, settingStore.lyricHorizontalOffset);
   return `${Math.min(padding, LYRIC_HEADER_MAX_PADDING)}px`;
 });
+
+const padPortraitLyricSize = computed(() =>
+  getFontSize(Math.min(settingStore.lyricFontSize, 40), settingStore.lyricFontSizeMode),
+);
+const padPortraitLyricTranSize = computed(() =>
+  getFontSize(Math.min(settingStore.lyricTranFontSize, 20), settingStore.lyricFontSizeMode),
+);
+const padPortraitLyricRomaSize = computed(() =>
+  getFontSize(Math.min(settingStore.lyricRomaFontSize, 16), settingStore.lyricFontSizeMode),
+);
 
 // 当前页面类型
 const currentPageType = computed<MobilePageType>(() => {
@@ -492,6 +572,7 @@ const contentTransform = computed(() => {
 .full-player-mobile {
   --mobile-safe-top: max(env(safe-area-inset-top), 0px);
   --mobile-safe-bottom: var(--safe-area-bottom);
+  --mobile-title-max-width: min(70vw, 50vh);
   width: 100%;
   height: 100%;
   position: relative;
@@ -523,9 +604,14 @@ const contentTransform = computed(() => {
     height: calc(56px + var(--mobile-safe-top));
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     padding: var(--mobile-safe-top) 20px 0;
     z-index: 10;
+
+    .btn-placeholder {
+      width: 40px;
+      height: 40px;
+    }
 
     .btn {
       width: 40px;
@@ -544,6 +630,27 @@ const contentTransform = computed(() => {
       .n-icon {
         color: rgb(var(--main-cover-color));
         opacity: 0.8;
+      }
+
+      &.pure-btn {
+        border-radius: 8px;
+        opacity: 0.6;
+        transition:
+          opacity 0.3s,
+          background-color 0.3s,
+          transform 0.3s;
+
+        &.open {
+          opacity: 1;
+        }
+
+        .n-icon {
+          opacity: 1;
+        }
+
+        &:active {
+          transform: scale(0.95);
+        }
       }
     }
   }
@@ -613,14 +720,10 @@ const contentTransform = computed(() => {
 
     .song-info-bar {
       width: 100%;
-      display: flex;
-      justify-content: space-between;
       margin-bottom: 20px;
 
       .info-section {
-        flex: 1;
-        min-width: 0;
-        margin-right: 12px;
+        width: 100%;
 
         :deep(.mobile-data) {
           width: 100%;
@@ -628,15 +731,23 @@ const contentTransform = computed(() => {
 
           .name {
             margin-left: 0;
+
+            .name-text {
+              max-width: min(100%, var(--mobile-title-max-width));
+            }
+          }
+
+          .info-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+
+            .qa-trigger--mobile {
+              width: 36px;
+              height: 36px;
+            }
           }
         }
-      }
-
-      .info-actions {
-        display: flex;
-        gap: 16px;
-        padding-top: 20px;
-        flex-shrink: 0;
       }
     }
 
@@ -644,8 +755,8 @@ const contentTransform = computed(() => {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       cursor: pointer;
       transition: background-color 0.2s;
@@ -948,6 +1059,217 @@ const contentTransform = computed(() => {
           .n-scrollbar-content {
             padding: 0 12px;
           }
+        }
+      }
+    }
+  }
+
+  &.pad-portrait {
+    --mobile-title-max-width: 100%;
+
+    .top-bar {
+      height: calc(72px + var(--mobile-safe-top));
+      padding: var(--mobile-safe-top) 32px 0;
+
+      .btn,
+      .btn-placeholder {
+        width: 52px;
+        height: 52px;
+      }
+    }
+
+    .info-page {
+      padding: 0 clamp(32px, 6vw, 56px) calc(32px + var(--mobile-safe-bottom));
+
+      .cover-section {
+        min-height: clamp(340px, 44vh, 520px);
+        margin-top: calc(72px + var(--mobile-safe-top));
+        margin-bottom: 24px;
+
+        :deep(.player-cover) {
+          width: min(100%, clamp(240px, 72vw, 380px));
+
+          &.record {
+            width: clamp(220px, 64vw, 360px);
+
+            .cover-img {
+              width: clamp(220px, 64vw, 360px);
+              height: clamp(220px, 64vw, 360px);
+              min-width: clamp(220px, 64vw, 360px);
+            }
+
+            .pointer {
+              width: clamp(56px, 16vw, 88px);
+              top: clamp(-72px, -12vw, -52px);
+            }
+          }
+        }
+      }
+
+      .info-group {
+        max-width: 640px;
+      }
+
+      .song-info-bar {
+        margin-bottom: 28px;
+
+        .info-section {
+          :deep(.mobile-data) {
+            .name .name-text {
+              font-size: 34px;
+            }
+
+            .alia {
+              font-size: 22px;
+            }
+
+            .artists .ar-list .ar,
+            .album,
+            .dj {
+              font-size: 20px;
+            }
+
+            .play-meta .meta-item {
+              font-size: 14px;
+              padding: 3px 8px;
+            }
+
+            .info-actions {
+              gap: 20px;
+
+              .qa-trigger--mobile {
+                width: 52px;
+                height: 52px;
+              }
+            }
+          }
+        }
+      }
+
+      .action-btn {
+        width: 52px;
+        height: 52px;
+      }
+
+      .progress-section {
+        margin-bottom: 32px;
+
+        .time {
+          width: 52px;
+          font-size: 14px;
+        }
+
+        .n-slider {
+          margin: 0 16px;
+        }
+      }
+
+      .control-section {
+        max-width: 520px;
+        margin-bottom: 32px;
+
+        .placeholder,
+        .mode-btn {
+          width: 52px;
+          height: 52px;
+        }
+
+        .ctrl-btn {
+          width: 64px;
+          height: 64px;
+        }
+
+        .play-btn {
+          width: 76px;
+          height: 76px;
+        }
+      }
+    }
+
+    .lyric-page {
+      padding: calc(72px + var(--mobile-safe-top)) 20px calc(32px + var(--mobile-safe-bottom));
+
+      .lyric-header {
+        gap: 20px;
+        margin-bottom: 28px;
+
+        .lyric-cover {
+          width: 64px;
+          height: 64px;
+          border-radius: 10px;
+
+          :deep(img) {
+            border-radius: 10px;
+          }
+        }
+
+        .lyric-info {
+          .name {
+            font-size: 22px;
+          }
+
+          .artist {
+            font-size: 15px;
+          }
+        }
+
+        .action-btn {
+          width: 52px;
+          height: 52px;
+        }
+      }
+
+      .lyric-main {
+        flex: 1;
+        --lrc-size: var(--pad-portrait-lrc-size);
+        --lrc-tran-size: var(--pad-portrait-lrc-tran-size);
+        --lrc-roma-size: var(--pad-portrait-lrc-roma-size);
+        --lrc-left-padding: var(--lyric-h-offset, 0px);
+        --amll-lyric-left-padding: var(--lyric-h-offset, 0px);
+        --amll-lyric-horizontal-padding: var(--lyric-h-offset, 0px);
+
+        :deep(.player-lyric) {
+          mask: linear-gradient(
+            180deg,
+            hsla(0, 0%, 100%, 0) 0,
+            hsla(0, 0%, 100%, 0.6) 4%,
+            #fff 9%,
+            #fff 78%,
+            hsla(0, 0%, 100%, 0.6) 90%,
+            hsla(0, 0%, 100%, 0)
+          );
+        }
+
+        :deep(.lyric-scroll-container) {
+          padding-left: var(--lyric-h-offset, 0px);
+          padding-right: 20px;
+        }
+
+        :deep(.am-lyric) {
+          padding: 0;
+        }
+
+        :deep(.am-lyric .amll-lyric-player > div) {
+          padding-left: var(--lyric-h-offset, 0px);
+          padding-right: var(--lyric-h-offset, 0px);
+        }
+
+        :deep(.lyric-menu) {
+          display: none;
+        }
+      }
+    }
+
+    .pagination {
+      bottom: calc(24px + var(--mobile-safe-bottom));
+      gap: 10px;
+
+      .dot {
+        width: 8px;
+        height: 8px;
+
+        &.active {
+          width: 22px;
         }
       }
     }

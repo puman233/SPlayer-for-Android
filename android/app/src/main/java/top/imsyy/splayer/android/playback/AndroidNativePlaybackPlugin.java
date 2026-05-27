@@ -1,8 +1,10 @@
 package top.imsyy.splayer.android.playback;
 
-import android.content.SharedPreferences;
 import android.Manifest;
+import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.preference.PreferenceManager;
@@ -22,6 +24,7 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.json.JSONException;
 import org.json.JSONObject;
+import top.imsyy.splayer.android.MainActivity;
 import top.imsyy.splayer.android.cache.AudioCacheProvider;
 
 @CapacitorPlugin(
@@ -234,9 +237,60 @@ public class AndroidNativePlaybackPlugin extends Plugin {
         call,
         () -> {
           SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(getContext());
-          prefs.edit().putBoolean("androidShowStatusBar", show).apply();
-          if (getActivity() instanceof top.imsyy.splayer.android.MainActivity) {
-            ((top.imsyy.splayer.android.MainActivity) getActivity()).applyImmersiveMode();
+          prefs.edit().putBoolean(MainActivity.PREF_SHOW_STATUS_BAR, show).apply();
+          Activity activity = getActivity();
+          if (activity instanceof MainActivity) {
+            ((MainActivity) activity).applyImmersiveMode();
+          }
+          call.resolve();
+        });
+  }
+
+  @PluginMethod
+  public void setHideNavigationBar(PluginCall call) {
+    boolean hide = call.getBoolean("hide", false);
+    runOnMainThread(
+        call,
+        () -> {
+          SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+          prefs.edit().putBoolean(MainActivity.PREF_HIDE_NAVIGATION_BAR, hide).apply();
+          Activity activity = getActivity();
+          if (activity == null) {
+            // Activity 已销毁但 plugin 尚未 detach，避免 NPE；与 setImmersiveLandscape 风格一致
+            call.reject("Activity unavailable");
+            return;
+          }
+          if (activity instanceof MainActivity) {
+            ((MainActivity) activity).applyImmersiveMode();
+          }
+          call.resolve();
+        });
+  }
+
+  /**
+   * 横屏沉浸式：active=true 用 SENSOR_LANDSCAPE 跟随设备翻转，
+   * active=false 用 UNSPECIFIED 释放（前端会再调 lockPortrait）。
+   */
+  @PluginMethod
+  public void setImmersiveLandscape(PluginCall call) {
+    boolean active = call.getBoolean("active", false);
+    runOnMainThread(
+        call,
+        () -> {
+          SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+          prefs.edit().putBoolean(MainActivity.PREF_IMMERSIVE_LANDSCAPE, active).apply();
+          Activity activity = getActivity();
+          if (activity == null) {
+            // Activity 已销毁但 plugin 尚未 detach，避免 NPE
+            call.reject("Activity unavailable");
+            return;
+          }
+          activity.setRequestedOrientation(
+              active
+                  ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                  : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+          if (activity instanceof MainActivity) {
+            ((MainActivity) activity).applyImmersiveMode();
           }
           call.resolve();
         });

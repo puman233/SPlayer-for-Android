@@ -21,9 +21,9 @@
       'lyric',
       settingStore.playerType,
       settingStore.lyricsPosition,
-      settingStore.lyricsPosition,
       {
-        pure: statusStore.pureLyricMode,
+        pure: statusStore.effectivePureLyricMode,
+        duet: hasDuet,
         'align-right': settingStore.lyricAlignRight,
         'meta-show': statusStore.playerMetaShow,
       },
@@ -168,6 +168,8 @@ const isYrcMode = computed(() => settingStore.showWordLyrics && musicStore.isHas
 const currentLyricData = computed(() => {
   return isYrcMode.value ? musicStore.songLyric.yrcData : musicStore.songLyric.lrcData;
 });
+
+const hasDuet = computed(() => currentLyricData.value?.some((line) => line.isDuet) ?? false);
 
 /** 处理后的歌词项类型 */
 type ProcessedLyricItem =
@@ -824,7 +826,7 @@ onBeforeUnmount(() => {
     }
   }
   &.center,
-  &.pure {
+  &.pure:not(.duet) {
     span {
       text-align: center !important;
     }
@@ -842,9 +844,12 @@ onBeforeUnmount(() => {
       justify-content: center;
     }
   }
-  &.pure {
+  &.pure:not(.duet) {
     .lyric-scroll-container {
       padding: 0 80px;
+      @media (max-width: 990px) {
+        padding: 0 20px;
+      }
     }
     .lyric-content {
       .placeholder {

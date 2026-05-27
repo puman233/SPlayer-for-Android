@@ -6,17 +6,20 @@ import { isCapacitorAndroid, isElectron } from "@/utils/env";
 /** 页面缩放 */
 export const usePageZoom = () => {
   const settingStore = useSettingStore();
-  const { isPad, isPhonePortrait } = useDevice();
+  const { isPad, isPadDevice, isPhone, isPhonePortrait } = useDevice();
 
   const activeZoom = computed(() => {
     if (isElectron) return 100;
     if (isPad.value) return settingStore.padPageZoom;
-    if (isPhonePortrait.value) return settingStore.phonePortraitPageZoom;
+    if (isPadDevice.value && isPhonePortrait.value) return settingStore.padPortraitPageZoom;
+    // 手机端竖屏与横屏沉浸式共享同一缩放值，避免进入沉浸式后界面突变回 100%
+    if (isPhone.value) return settingStore.phonePortraitPageZoom;
     return 100;
   });
 
+  // 全面屏底部留白：所有 Android 形态（手机/平板、横/竖）都需避免被系统手势条遮挡
   const fullscreenSafeBottom = computed(() => {
-    if (!isCapacitorAndroid || !isPhonePortrait.value) return 0;
+    if (!isCapacitorAndroid) return 0;
     return settingStore.androidFullscreenSafeAreaOptimize ? 32 : 0;
   });
 
