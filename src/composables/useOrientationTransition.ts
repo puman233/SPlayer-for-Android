@@ -226,6 +226,8 @@ export const useOrientationTransition = () => {
       return true;
     } catch (e) {
       console.warn("[orientationTransition] exit unexpected error", e);
+      // 异常路径同步状态，防 back 残留
+      statusStore.isImmersiveFullscreen = false;
       cleanup();
       return false;
     }

@@ -36,6 +36,7 @@
 <script setup lang="ts">
 import { SongType } from "@/types/main";
 import { useSongMenu } from "@/composables/useSongMenu";
+import { useBackClosable } from "@/composables/useAndroidBack";
 import { getPlayerInfoObj } from "@/utils/format";
 import SImage from "../UI/s-image.vue";
 import { NMenu, type MenuOption, type DropdownOption } from "naive-ui";
@@ -45,6 +46,7 @@ const emit = defineEmits<{ removeSong: [index: number[]] }>();
 const { getMenuOptions } = useSongMenu();
 
 const showDrawer = ref(false);
+useBackClosable(showDrawer);
 const currentSong = ref<SongType | null>(null);
 const menuOptions = ref<DropdownOption[]>([]);
 

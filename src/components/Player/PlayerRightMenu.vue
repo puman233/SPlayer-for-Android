@@ -108,6 +108,7 @@ import { openAutoClose, openChangeRate, openEqualizer, openABLoop } from "@/util
 import { useAudioManager } from "@/core/player/AudioManager";
 import type { DropdownOption } from "naive-ui";
 import { useQualityControl } from "@/composables/useQualityControl";
+import { useBackClosable } from "@/composables/useAndroidBack";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
@@ -125,6 +126,7 @@ const {
 } = useQualityControl();
 
 const showQualityPopover = ref(false);
+useBackClosable(showQualityPopover);
 const qualityTagRef = ref<HTMLElement | null>(null);
 
 const handleQualityClick = async () => {

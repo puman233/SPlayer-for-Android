@@ -52,6 +52,8 @@ export const openUserAgreement = async () => {
     maskClosable: false,
     closeOnEsc: false,
     closable: false,
+    // 用户协议必须显式同意，禁止安卓返回键关闭
+    _backable: false,
     style: {
       maxWidth: "70vw",
     },
@@ -132,6 +134,8 @@ export const openUserLogin = async (
     maskClosable: false,
     closeOnEsc: false,
     closable: false,
+    // 强制登录场景下禁止安卓返回键关闭
+    _backable: !force,
     style: { width: "400px" },
     content: () => {
       return h(Login, {

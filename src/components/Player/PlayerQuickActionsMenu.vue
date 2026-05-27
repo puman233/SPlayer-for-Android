@@ -1,5 +1,6 @@
 <template>
   <n-popover
+    v-model:show="popoverShow"
     placement="bottom-end"
     trigger="click"
     :show-arrow="false"
@@ -260,6 +261,10 @@ import { useSettingStore, useStatusStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { isElectron, isCapacitorAndroid } from "@/utils/env";
 import { PLAYER_META_HOLD_KEY } from "@/composables/usePlayerMetaHold";
+import { useBackClosable } from "@/composables/useAndroidBack";
+
+const popoverShow = ref(false);
+useBackClosable(popoverShow);
 
 // 触发器外观：mobile 用 40px 圆形，control 与 PlayerControl 其他 menu-icon 一致
 const props = withDefaults(defineProps<{ variant?: "mobile" | "control" }>(), {

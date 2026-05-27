@@ -41,6 +41,7 @@ import {
 import { useSettingStore, useStatusStore } from "@/stores";
 import { setColorSchemes, MONOTONOUS_THEME } from "@/utils/color";
 import { useCustomCode } from "@/composables/useCustomCode";
+import { pushBackHandler } from "@/composables/useAndroidBack";
 // import { rgbToHex } from "@imsyy/color-utils";
 import themeColor from "@/assets/data/themeColor.json";
 
@@ -266,8 +267,38 @@ const setupNaiveTools = () => {
   window.$message = useMessage();
   // 对话框
   window.$dialog = useDialog();
-  // 模态框
-  window.$modal = useModal();
+  // 模态框包装：默认可被 back 关闭，_backable: false 隐式 opt-out（吞不关）
+  const modalApi = useModal();
+  const originalCreate = modalApi.create.bind(modalApi);
+  modalApi.create = ((options: Record<string, unknown>) => {
+    const { _backable, ...rest } = options;
+    const isBackable = _backable !== false;
+
+    let off: (() => void) | null = null;
+    const userAfterLeave = rest.onAfterLeave as ((...a: unknown[]) => void) | undefined;
+    const cleanupOff = () => {
+      off?.();
+      off = null;
+    };
+    const wrappedAfterLeave = (...args: unknown[]) => {
+      cleanupOff();
+      userAfterLeave?.(...args);
+    };
+    const modal = originalCreate({
+      ...rest,
+      onAfterLeave: wrappedAfterLeave,
+    } as Parameters<typeof originalCreate>[0]);
+    // 防御调用方后续重赋 modal.onAfterLeave
+    modal.onAfterLeave = wrappedAfterLeave;
+    off = pushBackHandler(() => {
+      // self-cleanup 防连按 race
+      cleanupOff();
+      if (isBackable) modal.destroy();
+      return true;
+    });
+    return modal;
+  }) as typeof modalApi.create;
+  window.$modal = modalApi;
 };
 
 // 挂载工具
