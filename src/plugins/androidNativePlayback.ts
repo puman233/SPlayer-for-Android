@@ -215,6 +215,7 @@ export interface AndroidNativePlaybackPlugin {
   updateNotificationPrefs(options: AndroidNativeNotificationPrefsPayload): Promise<void>;
   setAllowMixWithOthers(options: { allow: boolean }): Promise<void>;
   setShowStatusBar(options: { show: boolean }): Promise<void>;
+  setHideNavigationBar(options: { hide: boolean }): Promise<void>;
   /** 横屏沉浸式：同时隐藏状态栏与全面屏导航手势条 */
   setImmersiveLandscape(options: { active: boolean }): Promise<void>;
   syncApiContext(options: AndroidNativeApiContextPayload): Promise<void>;

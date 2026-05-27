@@ -31,6 +31,32 @@
         <n-switch v-model:value="settingStore.androidFullscreenSafeAreaOptimize" :round="false" />
       </n-flex>
     </n-card>
+    <n-card
+      v-if="showDeviceModeOverride"
+      :bordered="false"
+      embedded
+      size="small"
+      class="fullscreen-optimize"
+    >
+      <div class="device-mode">
+        <div class="fullscreen-optimize__text">
+          <n-text class="fullscreen-optimize__title">设备形态</n-text>
+          <n-text depth="3" class="fullscreen-optimize__desc">
+            自动识别异常时可手动强制切换布局
+          </n-text>
+        </div>
+        <n-radio-group
+          :value="settingStore.androidDeviceModeOverride"
+          name="device-mode-override"
+          size="small"
+          @update:value="handleDeviceModeChange"
+        >
+          <n-radio-button value="auto">自动</n-radio-button>
+          <n-radio-button value="phone">手机模式</n-radio-button>
+          <n-radio-button value="pad">平板模式</n-radio-button>
+        </n-radio-group>
+      </div>
+    </n-card>
   </div>
 </template>
 
@@ -40,7 +66,7 @@ import { useDevice } from "@/composables/useDevice";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 
 const settingStore = useSettingStore();
-const { isPad, isPhonePortrait } = useDevice();
+const { isPad, isPadDevice, isPhone, isPhonePortrait } = useDevice();
 const zoomPercentage = ref(100);
 // 首次从 store / IPC 同步当前值不应回写：避免一次无意义的 persist + apply
 const isReady = ref(false);
@@ -48,17 +74,46 @@ const isReady = ref(false);
 const modeLabel = computed(() => {
   if (isElectron) return "桌面缩放";
   if (isPad.value) return "平板模式缩放";
+  if (isPadDevice.value && isPhonePortrait.value) return "平板竖屏缩放";
   if (isPhonePortrait.value) return "手机竖屏缩放";
   return "页面缩放";
 });
 
-const showFullscreenOptimize = computed(() => isCapacitorAndroid && isPhonePortrait.value);
+// 全面屏优化对所有 Android 形态有效（手机/平板、横/竖）
+const showFullscreenOptimize = computed(() => isCapacitorAndroid);
+// 设备形态手动覆盖仅 Android 端有意义（桌面端走 Electron 分支）
+const showDeviceModeOverride = computed(() => isCapacitorAndroid);
+
+// 设备形态切换：强制模式可能与硬件不匹配，弹窗确认；恢复自动直接生效
+const handleDeviceModeChange = (mode: "auto" | "phone" | "pad") => {
+  if (mode === settingStore.androidDeviceModeOverride) return;
+  if (mode === "auto") {
+    settingStore.androidDeviceModeOverride = mode;
+    return;
+  }
+  window.$dialog.warning({
+    title: "切换设备形态",
+    content: "手动切换或将导致 UI 错乱，如正常请勿使用",
+    positiveText: "继续切换",
+    negativeText: "取消",
+    onPositiveClick: () => {
+      settingStore.androidDeviceModeOverride = mode;
+    },
+  });
+};
 
 const getZoom = () => {
   // Electron 走原生 zoom-factor IPC，不应回读移动端字段（防御：onMounted 已先短路到 IPC 分支）
   if (isElectron) return 100;
   if (isPad.value) return settingStore.padPageZoom;
-  if (isPhonePortrait.value) return settingStore.phonePortraitPageZoom;
+  if (isPadDevice.value && isPhonePortrait.value) return settingStore.padPortraitPageZoom;
+  // 手机端竖屏与横屏共享同一缩放字段，与 usePageZoom.activeZoom 保持一致
+  if (isPhone.value) return settingStore.phonePortraitPageZoom;
+  return 100;
+};
+
+const getDefaultZoom = () => {
+  if (isPadDevice.value && isPhonePortrait.value) return 120;
   return 100;
 };
 
@@ -69,11 +124,15 @@ const setZoom = (value: number) => {
     settingStore.padPageZoom = value;
     return;
   }
-  if (isPhonePortrait.value) {
+  if (isPadDevice.value && isPhonePortrait.value) {
+    settingStore.padPortraitPageZoom = value;
+    return;
+  }
+  // 手机端竖屏与横屏共享同一缩放字段，与 usePageZoom.activeZoom / getZoom 保持一致
+  if (isPhone.value) {
     settingStore.phonePortraitPageZoom = value;
     return;
   }
-  // 其他模式（如手机横屏）没有对应缩放路径，丢弃写入避免静默落到无效字段
 };
 
 watch(zoomPercentage, (newVal) => {
@@ -87,7 +146,7 @@ watch(zoomPercentage, (newVal) => {
 });
 
 const resetZoom = () => {
-  zoomPercentage.value = 100;
+  zoomPercentage.value = getDefaultZoom();
 };
 
 onMounted(async () => {
@@ -146,6 +205,17 @@ onMounted(async () => {
 
     &__desc {
       font-size: 12px;
+    }
+  }
+
+  .device-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+
+    .n-radio-group {
+      align-self: flex-end;
     }
   }
 }

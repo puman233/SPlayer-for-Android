@@ -2,10 +2,11 @@
 <template>
   <n-drawer
     v-model:show="statusStore.playListShow"
-    :class="{ 'full-player': statusStore.showFullPlayer }"
+    :class="{ 'full-player': statusStore.showFullPlayer, 'pad-portrait': isPadPortraitPlaylist }"
     :auto-focus="false"
     id="main-playlist"
-    style="width: 400px"
+    :style="{ width: drawerWidth }"
+    :to="playlistTeleportTarget"
   >
     <n-drawer-content :native-scrollbar="false" closable>
       <template #header>
@@ -19,14 +20,14 @@
         <VirtualScroll
           v-if="dataStore.playList.length"
           ref="playListRef"
-          :item-height="80"
+          :item-height="playlistItemHeight"
           :item-fixed="true"
           :items="playListData"
           :default-scroll-index="statusStore.playIndex"
           class="playlist-list"
-          :class="{ 'is-dragging-global': isDragging }"
-          style="max-height: calc(var(--page-zoom-100dvh, 100dvh) - 142px)"
-          :height="`calc(var(--page-zoom-100dvh, 100dvh) - 142px)`"
+          :class="{ 'is-dragging-global': isDragging, 'pad-portrait': isPadPortraitPlaylist }"
+          :style="{ maxHeight: playlistHeight }"
+          :height="playlistHeight"
         >
           <template #default="{ item: songData, index }">
             <div class="song-node">
@@ -118,7 +119,12 @@
         />
       </Transition>
       <template #footer>
-        <n-grid :cols="2" x-gap="16" class="playlist-menu">
+        <n-grid
+          :cols="2"
+          x-gap="16"
+          class="playlist-menu"
+          :class="{ 'pad-portrait': isPadPortraitPlaylist }"
+        >
           <n-gi>
             <n-button :focusable="false" size="large" strong secondary @click="cleanPlayList">
               <template #icon>
@@ -171,13 +177,24 @@ import { usePlayerController } from "@/core/player/PlayerController";
 import { useDataStore, useSettingStore, useStatusStore } from "@/stores";
 import { removeBrackets } from "@/utils/format";
 import { useDragSort } from "@/composables/List/useDragSort";
+import { useDevice } from "@/composables/useDevice";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const player = usePlayerController();
+const { isPadDevice, isPhonePortrait } = useDevice();
 
 const playListRef = ref<InstanceType<typeof VirtualScroll> | null>(null);
+const playlistTeleportTarget = computed(() => (statusStore.showFullPlayer ? ".full-player" : "#app"));
+const isPadPortraitPlaylist = computed(() => isPadDevice.value && isPhonePortrait.value);
+const drawerWidth = computed(() => (isPadPortraitPlaylist.value ? "min(88vw, 560px)" : "400px"));
+const playlistItemHeight = computed(() => (isPadPortraitPlaylist.value ? 96 : 80));
+const playlistHeight = computed(() =>
+  isPadPortraitPlaylist.value
+    ? "calc(var(--page-zoom-100dvh, 100dvh) - 170px)"
+    : "calc(var(--page-zoom-100dvh, 100dvh) - 142px)",
+);
 
 // 播放列表数据
 const playListData = computed(() => {
@@ -236,6 +253,57 @@ const {
 .playlist-list {
   height: 100%;
   padding: 16px;
+
+  &.pad-portrait {
+    padding: 20px;
+
+    .song-node {
+      padding: 10px 0;
+    }
+
+    .song-item {
+      min-height: 76px;
+      border-radius: 12px;
+      padding: 0 16px;
+
+      .drag-handle {
+        width: 44px;
+        margin-right: 8px;
+      }
+
+      .index {
+        width: 44px;
+        min-width: 44px;
+        margin-right: 12px;
+
+        .num {
+          font-size: 14px;
+        }
+      }
+
+      .data {
+        padding: 12px 0;
+
+        .name {
+          font-size: 15px;
+        }
+
+        .artists {
+          margin-top: 4px;
+
+          .ar {
+            font-size: 13px;
+          }
+        }
+      }
+
+      .remove {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+      }
+    }
+  }
 
   &.is-dragging-global {
     cursor: grabbing;
@@ -385,6 +453,16 @@ const {
     width: 100%;
     border-radius: 8px;
   }
+
+  &.pad-portrait {
+    height: 52px;
+
+    .n-button {
+      height: 52px;
+      border-radius: 12px;
+      font-size: 15px;
+    }
+  }
 }
 
 .drag-label {
@@ -440,6 +518,30 @@ const {
   .n-drawer-footer {
     height: 72px;
     padding: 16px;
+  }
+  &.pad-portrait {
+    --n-border-radius: 18px;
+
+    .n-drawer-header {
+      height: 88px;
+      padding: 24px 24px 12px;
+
+      .playlist-header {
+        .name {
+          font-size: 20px;
+        }
+
+        .count {
+          margin-top: 10px;
+          font-size: 13px;
+        }
+      }
+    }
+
+    .n-drawer-footer {
+      height: 82px;
+      padding: 14px 20px calc(14px + var(--safe-area-bottom));
+    }
   }
   &.full-player {
     --n-color: rgb(var(--main-cover-color));

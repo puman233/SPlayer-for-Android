@@ -104,16 +104,19 @@ export const useOrientationTransition = () => {
       return true;
     }
     if (reduce.value) {
-      // 跳过动效
+      // 跳过动效；同样需要 busy 守卫，避免极快连点并发触发两次 native 调用
+      busy = true;
       try {
         const { AndroidNativePlayback } = await import("@/plugins/androidNativePlayback");
         await AndroidNativePlayback.setImmersiveLandscape({ active: true });
+        statusStore.isImmersiveFullscreen = true;
+        return true;
       } catch (e) {
         console.warn("[orientationTransition] enter native failed (reduced-motion)", e);
         return false;
+      } finally {
+        busy = false;
       }
-      statusStore.isImmersiveFullscreen = true;
-      return true;
     }
 
     busy = true;
@@ -172,15 +175,21 @@ export const useOrientationTransition = () => {
       return true;
     }
     if (reduce.value) {
-      statusStore.isImmersiveFullscreen = false;
+      // 跳过动效；同样需要 busy 守卫，避免极快连点并发触发两次 native 调用
+      busy = true;
       try {
-        const { AndroidNativePlayback } = await import("@/plugins/androidNativePlayback");
-        await AndroidNativePlayback.setImmersiveLandscape({ active: false });
-      } catch (e) {
-        console.warn("[orientationTransition] exit native failed (reduced-motion)", e);
+        statusStore.isImmersiveFullscreen = false;
+        try {
+          const { AndroidNativePlayback } = await import("@/plugins/androidNativePlayback");
+          await AndroidNativePlayback.setImmersiveLandscape({ active: false });
+        } catch (e) {
+          console.warn("[orientationTransition] exit native failed (reduced-motion)", e);
+        }
+        await lockPortrait();
+        return true;
+      } finally {
+        busy = false;
       }
-      await lockPortrait();
-      return true;
     }
 
     busy = true;

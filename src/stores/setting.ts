@@ -286,6 +286,8 @@ export interface SettingState {
   pageZoom: number;
   /** 手机竖屏页面缩放 */
   phonePortraitPageZoom: number;
+  /** 平板竖屏页面缩放 */
+  padPortraitPageZoom: number;
   /** 平板模式页面缩放 */
   padPageZoom: number;
   /** 安卓全面屏优化 */
@@ -519,6 +521,10 @@ export interface SettingState {
   enableGlobalErrorDialog: boolean;
   /** Android 显示系统状态栏 */
   androidShowStatusBar: boolean;
+  /** Android 竖屏隐藏底部导航栏（手机 / 平板竖屏共用） */
+  androidHidePortraitNavBar: boolean;
+  /** Android 设备形态强制覆盖：auto 跟随自动识别；phone 强制走手机 UI；pad 强制走平板 UI */
+  androidDeviceModeOverride: "auto" | "phone" | "pad";
   /** macOS 专属设置 */
   macos: {
     /** 状态栏歌词 */
@@ -662,6 +668,7 @@ export const useSettingStore = defineStore("setting", {
     androidLocalMusicDirectories: [],
     pageZoom: 100,
     phonePortraitPageZoom: 100,
+    padPortraitPageZoom: 100,
     padPageZoom: 100,
     androidFullscreenSafeAreaOptimize: true,
     showDefaultLocalPath: true,
@@ -818,6 +825,8 @@ export const useSettingStore = defineStore("setting", {
     automixMaxAnalyzeTime: 60,
     enableGlobalErrorDialog: true,
     androidShowStatusBar: false,
+    androidHidePortraitNavBar: true,
+    androidDeviceModeOverride: "auto",
     macos: {
       statusBarLyric: {
         enabled: false,

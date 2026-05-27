@@ -20,7 +20,7 @@ import { useDevice } from "@/composables/useDevice";
 export const useAppearanceSettings = (): SettingConfig => {
   const settingStore = useSettingStore();
   const statusStore = useStatusStore();
-  const { isPad, isPhonePortrait } = useDevice();
+  const { isPad, isPadDevice, isPhonePortrait } = useDevice();
   // useDevice 的 isPad 仅按 shortestSide 判断，桌面 Electron 大窗口也会满足；
   // 缩放路径仅对 Capacitor / 真机移动端生效，因此入口判定必须先排除 Electron，
   // 否则桌面设置里会出现移动端缩放入口，且写入字段与 usePageZoom 的消费路径不一致
@@ -29,6 +29,7 @@ export const useAppearanceSettings = (): SettingConfig => {
     get: () => {
       if (isElectron) return 100;
       if (isPad.value) return settingStore.padPageZoom;
+      if (isPadDevice.value && isPhonePortrait.value) return settingStore.padPortraitPageZoom;
       if (isPhonePortrait.value) return settingStore.phonePortraitPageZoom;
       return 100;
     },
@@ -37,6 +38,10 @@ export const useAppearanceSettings = (): SettingConfig => {
       if (isElectron) return;
       if (isPad.value) {
         settingStore.padPageZoom = v;
+        return;
+      }
+      if (isPadDevice.value && isPhonePortrait.value) {
+        settingStore.padPortraitPageZoom = v;
         return;
       }
       if (isPhonePortrait.value) {
@@ -106,9 +111,11 @@ export const useAppearanceSettings = (): SettingConfig => {
             label: "页面缩放优化",
             type: "button",
             show: showMobileZoom,
-            description: computed(() =>
-              isPad.value ? "调整平板模式缩放比例" : "调整手机竖屏缩放比例",
-            ),
+            description: computed(() => {
+              if (isPad.value) return "调整平板模式缩放比例";
+              if (isPadDevice.value && isPhonePortrait.value) return "调整平板竖屏缩放比例";
+              return "调整手机竖屏缩放比例";
+            }),
             buttonLabel: "调整",
             action: openScalingModal,
           },
@@ -246,9 +253,9 @@ export const useAppearanceSettings = (): SettingConfig => {
               secondary: true,
               strong: true,
               action: () => {
-                activePageZoom.value = 100;
+                activePageZoom.value = isPadDevice.value && isPhonePortrait.value ? 120 : 100;
               },
-              show: computed(() => activePageZoom.value !== 100),
+              show: computed(() => activePageZoom.value !== (isPadDevice.value && isPhonePortrait.value ? 120 : 100)),
             },
           },
         ],

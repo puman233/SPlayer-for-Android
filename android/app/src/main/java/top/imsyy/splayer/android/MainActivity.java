@@ -22,6 +22,7 @@ public class MainActivity extends BridgeActivity {
   public static final String PREF_SHOW_STATUS_BAR = "androidShowStatusBar";
   /** 横屏沉浸式：同时隐藏状态栏与全面屏导航手势条 */
   public static final String PREF_IMMERSIVE_LANDSCAPE = "immersiveLandscape";
+  public static final String PREF_HIDE_NAVIGATION_BAR = "hideNavigationBar";
   /** 进程级 sweep 启动标记：Activity 重建（旋屏 / 配置变更）时不再重复 post Runnable。 */
   private static volatile boolean sweepBootstrapped = false;
 
@@ -87,13 +88,26 @@ public class MainActivity extends BridgeActivity {
     }
   }
 
+  private boolean shouldHideNavigationBar() {
+    try {
+      SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+      return prefs.getBoolean(PREF_HIDE_NAVIGATION_BAR, false);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   public void applyImmersiveMode() {
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
     View decorView = getWindow().getDecorView();
     WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), decorView);
     boolean immersiveLandscape = isImmersiveLandscape();
+    boolean hideNavigationBar = immersiveLandscape || shouldHideNavigationBar();
     boolean showStatusBar = shouldShowStatusBar() && !immersiveLandscape;
+    // 注意：不能根据「值未变」跳过 controller.hide(navigationBars)，因为 onResume /
+    // onWindowFocusChanged 后系统会主动恢复显示导航栏（transient sticky 依赖反复 hide），
+    // 跳过会导致竖屏底栏不再隐藏
     if (controller != null) {
       if (showStatusBar) {
         controller.setSystemBarsBehavior(
@@ -105,7 +119,7 @@ public class MainActivity extends BridgeActivity {
         controller.hide(WindowInsetsCompat.Type.statusBars());
       }
       // 沉浸式才隐藏导航栏，其他场景始终显示
-      if (immersiveLandscape) {
+      if (hideNavigationBar) {
         controller.hide(WindowInsetsCompat.Type.navigationBars());
       } else {
         controller.show(WindowInsetsCompat.Type.navigationBars());
@@ -119,7 +133,7 @@ public class MainActivity extends BridgeActivity {
         flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
       }
-      if (immersiveLandscape) {
+      if (hideNavigationBar) {
         flags |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
             | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;

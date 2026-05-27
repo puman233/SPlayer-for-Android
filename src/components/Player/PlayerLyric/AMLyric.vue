@@ -228,11 +228,14 @@ watch(lyricPlayerRef, (player) => {
       :deep(.am-lyric) div {
         transform-origin: center;
       }
-    }
 
-    :deep(.am-lyric) {
-      margin: 0;
-      padding: 0 80px;
+      :deep(.am-lyric) {
+        margin: 0;
+        padding: 0 80px;
+        @media (max-width: 990px) {
+          padding: 0 20px;
+        }
+      }
     }
   }
 

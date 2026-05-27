@@ -78,7 +78,7 @@ const showComment = computed(
   () =>
     statusStore.showPlayerComment &&
     !musicStore.playSong.path &&
-    !statusStore.effectivePureLyricMode,
+    (!statusStore.effectivePureLyricMode || statusStore.isImmersiveFullscreen),
 );
 
 // 字号独立绑定 lyricFontSizeLandscape；翻译/罗马音按 0.5 / 0.43 缩放
@@ -212,9 +212,11 @@ const albumText = computed(() => {
     }
 
     .cover {
-      // 上限 220px，小高度屏按 50vh 自适应
-      width: clamp(160px, 50vh, 220px);
-      height: clamp(160px, 50vh, 220px);
+      // 参照原封面逻辑，横屏限制上限
+      width: 70%;
+      max-width: 220px;
+      height: auto;
+      aspect-ratio: 1 / 1;
       flex-shrink: 0;
       border-radius: 16px;
       overflow: hidden;

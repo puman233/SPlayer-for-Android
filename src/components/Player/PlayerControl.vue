@@ -201,7 +201,7 @@ const fetchCommentCount = async () => {
 const showCommentButton = computed(
   () =>
     !musicStore.playSong.path &&
-    !statusStore.effectivePureLyricMode &&
+    (!statusStore.effectivePureLyricMode || statusStore.isImmersiveFullscreen) &&
     settingStore.fullscreenPlayerElements.comments,
 );
 

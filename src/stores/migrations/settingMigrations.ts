@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
 /**
  * 当前设置 Schema 版本号
  */
-export const CURRENT_SETTING_SCHEMA_VERSION = 21;
+export const CURRENT_SETTING_SCHEMA_VERSION = 24;
 
 /**
  * 迁移函数类型
@@ -261,6 +261,24 @@ export const settingMigrations: Record<number, MigrationFunction> = {
       lyricFontSizeLandscape: 24,
       landscapeCoverOffsetX: 52,
       landscapeLyricPaddingX: 58,
+    };
+  },
+  22: (state) => {
+    return {
+      padPortraitPageZoom:
+        state.phonePortraitPageZoom === undefined || state.phonePortraitPageZoom === 100
+          ? 100
+          : state.phonePortraitPageZoom,
+    };
+  },
+  23: () => {
+    return {
+      androidHidePortraitNavBar: true,
+    };
+  },
+  24: () => {
+    return {
+      androidDeviceModeOverride: "auto",
     };
   },
 };

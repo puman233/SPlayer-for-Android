@@ -246,6 +246,27 @@ public class AndroidNativePlaybackPlugin extends Plugin {
         });
   }
 
+  @PluginMethod
+  public void setHideNavigationBar(PluginCall call) {
+    boolean hide = call.getBoolean("hide", false);
+    runOnMainThread(
+        call,
+        () -> {
+          SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getContext());
+          prefs.edit().putBoolean(MainActivity.PREF_HIDE_NAVIGATION_BAR, hide).apply();
+          Activity activity = getActivity();
+          if (activity == null) {
+            // Activity 已销毁但 plugin 尚未 detach，避免 NPE；与 setImmersiveLandscape 风格一致
+            call.reject("Activity unavailable");
+            return;
+          }
+          if (activity instanceof MainActivity) {
+            ((MainActivity) activity).applyImmersiveMode();
+          }
+          call.resolve();
+        });
+  }
+
   /**
    * 横屏沉浸式：active=true 用 SENSOR_LANDSCAPE 跟随设备翻转，
    * active=false 用 UNSPECIFIED 释放（前端会再调 lockPortrait）。

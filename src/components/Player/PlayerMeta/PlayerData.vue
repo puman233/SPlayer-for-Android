@@ -5,13 +5,13 @@
   >
     <!-- 名称 -->
     <div class="name">
-      <span class="name-text text-hidden">
-        {{
-          settingStore.hideBracketedContent
-            ? removeBrackets(musicStore.playSong.name)
-            : musicStore.playSong.name || "未知曲目"
-        }}
-      </span>
+      <TextContainer
+        class="name-text"
+        :text="displayName"
+        :speed="0.7"
+        :delay="2000"
+        activate-on-click
+      />
       <!-- 额外信息 -->
       <n-flex
         v-if="statusStore.isUnlocked || musicStore.playSong.pc"
@@ -37,51 +37,55 @@
       </n-flex>
     </div>
     <!-- 别名 -->
-    <span
+    <TextContainer
       v-if="musicStore.playSong.alia && !settingStore.hideBracketedContent"
-      class="alia text-hidden"
-    >
-      {{ musicStore.playSong.alia }}
-    </span>
+      class="alia"
+      :text="musicStore.playSong.alia"
+      :speed="0.4"
+      :delay="2000"
+    />
     <n-flex :align="center ? 'center' : undefined" size="small" vertical>
-      <!-- 播放状态 -->
-      <n-flex
-        v-if="settingStore.showPlayMeta && !light"
-        class="play-meta"
-        size="small"
-        align="center"
-      >
-        <!-- 音质 -->
-        <span v-if="settingStore.showPlayerQuality" class="meta-item">
-          {{ !statusStore.songQuality ? "未知音质" : statusStore.songQuality }}
-        </span>
-        <!-- 歌词模式 -->
-        <n-popselect
-          v-if="lyricSourceOptions.length > 1"
-          trigger="click"
-          :value="settingStore.lyricPriority"
-          :options="lyricSourceOptions"
-          @update:value="(val) => lyricManager.switchLyricSource(val)"
+      <!-- 播放状态 + 操作按钮 -->
+      <div class="meta-actions-row">
+        <n-flex
+          v-if="settingStore.showPlayMeta && !light"
+          class="play-meta"
+          size="small"
+          align="center"
         >
-          <span class="meta-item clickable">{{ lyricMode }}</span>
-        </n-popselect>
-        <span v-else class="meta-item">{{ lyricMode }}</span>
-        <!-- 音源状态 -->
-        <n-popselect
-          v-if="audioSourceOptions.length > 1 && canSwitchSource"
-          trigger="click"
-          :value="statusStore.audioSource"
-          :options="audioSourceOptions"
-          @update:value="(val) => player.switchAudioSource(val)"
-        >
-          <span class="meta-item clickable">
+          <!-- 音质 -->
+          <span v-if="settingStore.showPlayerQuality" class="meta-item">
+            {{ !statusStore.songQuality ? "未知音质" : statusStore.songQuality }}
+          </span>
+          <!-- 歌词模式 -->
+          <n-popselect
+            v-if="lyricSourceOptions.length > 1"
+            trigger="click"
+            :value="settingStore.lyricPriority"
+            :options="lyricSourceOptions"
+            @update:value="(val) => lyricManager.switchLyricSource(val)"
+          >
+            <span class="meta-item clickable">{{ lyricMode }}</span>
+          </n-popselect>
+          <span v-else class="meta-item">{{ lyricMode }}</span>
+          <!-- 音源状态 -->
+          <n-popselect
+            v-if="audioSourceOptions.length > 1 && canSwitchSource"
+            trigger="click"
+            :value="statusStore.audioSource"
+            :options="audioSourceOptions"
+            @update:value="(val) => player.switchAudioSource(val)"
+          >
+            <span class="meta-item clickable">
+              {{ audioSourceText }}
+            </span>
+          </n-popselect>
+          <span v-else class="meta-item">
             {{ audioSourceText }}
           </span>
-        </n-popselect>
-        <span v-else class="meta-item">
-          {{ audioSourceText }}
-        </span>
-      </n-flex>
+        </n-flex>
+        <slot name="actions" />
+      </div>
       <!-- 歌手 -->
       <div v-if="musicStore.playSong.type !== 'radio'" class="artists">
         <SvgIcon :depth="3" name="Artist" size="20" />
@@ -164,6 +168,13 @@ const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const lyricManager = useLyricManager();
 const player = usePlayerController();
+
+// 显示名称
+const displayName = computed(() => {
+  const name = musicStore.playSong.name;
+  if (!name) return "未知曲目";
+  return settingStore.hideBracketedContent ? removeBrackets(name) : name;
+});
 
 // 当前歌词模式
 const lyricMode = computed(() => {
@@ -300,12 +311,18 @@ const jumpToRadio = debounce(
     position: relative;
     display: flex;
     align-items: center;
+    width: 100%;
+    min-width: 0;
     margin-left: 4px;
     .name-text {
+      flex: 1;
+      min-width: 0;
+      max-width: 100%;
       font-size: 26px;
       font-weight: bold;
     }
     .n-icon {
+      flex-shrink: 0;
       margin-left: 12px;
       transform: translateY(1px);
       cursor: pointer;
@@ -315,8 +332,6 @@ const jumpToRadio = debounce(
     margin: 6px 0 6px 4px;
     opacity: 0.6;
     font-size: 18px;
-    line-clamp: 1;
-    -webkit-line-clamp: 1;
   }
   .artists {
     display: flex;
@@ -372,6 +387,12 @@ const jumpToRadio = debounce(
       }
     }
   }
+  .meta-actions-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
   .play-meta {
     padding: 4px 4px;
     opacity: 0.6;
@@ -417,7 +438,19 @@ const jumpToRadio = debounce(
     align-items: center;
     padding: 0 40px;
     .name {
+      margin-left: 0;
       text-align: center;
+      :deep(.name-text:not(.overflowing) .scroll-wrapper) {
+        justify-content: center;
+      }
+    }
+    .alia {
+      margin-left: 0;
+      &:not(.overflowing) {
+        :deep(.scroll-wrapper) {
+          justify-content: center;
+        }
+      }
     }
   }
   &.light {

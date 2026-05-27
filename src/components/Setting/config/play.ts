@@ -463,6 +463,17 @@ export const usePlaySettings = (): SettingConfig => {
             }),
           },
           {
+            key: "androidHidePortraitNavBar",
+            label: "隐藏底部导航栏",
+            type: "switch",
+            show: isCapacitorAndroid,
+            description: "平板横竖屏 / 手机竖屏隐藏系统导航栏与手势条，上滑可临时呼出",
+            value: computed({
+              get: () => settingStore.androidHidePortraitNavBar,
+              set: (v) => (settingStore.androidHidePortraitNavBar = v),
+            }),
+          },
+          {
             key: "progressTooltipShow",
             label: "显示进度条悬浮信息",
             type: "switch",
