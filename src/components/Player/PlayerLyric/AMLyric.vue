@@ -191,7 +191,7 @@ watch(lyricPlayerRef, (player) => {
     padding-left: var(--amll-lyric-left-padding, 10px);
     padding-right: 80px;
     div {
-      div[class^="_interludeDots"] {
+      div[class*="interludeDots"] {
         display: var(--display-count-down-show);
       }
     }
@@ -227,6 +227,12 @@ watch(lyricPlayerRef, (player) => {
 
       :deep(.am-lyric) div {
         transform-origin: center;
+      }
+
+      :deep(.am-lyric div[class*="interludeDots"]) {
+        position: relative;
+        left: 50%;
+        translate: -50% 0;
       }
 
       :deep(.am-lyric) {
