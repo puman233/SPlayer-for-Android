@@ -463,6 +463,29 @@ public final class PlaybackManager {
     }
   }
 
+  /** 用户确认退出 App：清播放、停前台服务、停桌面歌词服务 */
+  public synchronized void shutdownAll() {
+    try {
+      cleanup();
+    } catch (Exception e) {
+      Log.w(TAG, "shutdownAll cleanup failed", e);
+    }
+    try {
+      Intent floating = new Intent(appContext, FloatingLyricService.class);
+      appContext.stopService(floating);
+      floatingLyricService = null;
+    } catch (Exception e) {
+      Log.w(TAG, "shutdownAll stop floating lyric failed", e);
+    }
+    try {
+      Intent playback = new Intent(appContext, PlaybackService.class);
+      appContext.stopService(playback);
+      serviceStarted = false;
+    } catch (Exception e) {
+      Log.w(TAG, "shutdownAll stop playback service failed", e);
+    }
+  }
+
   /** 硬清理：清播放列表 / 登入登出等场景，清空 MediaItem、通知栏、queuedNext 及快路径锁。 */
   public synchronized JSObject cleanup() {
     ensureInitialized();

@@ -19,6 +19,7 @@ import { NFlex, NText, type DropdownOption } from "naive-ui";
 import { getPlayerInfoObj } from "@/utils/format";
 import SImage from "../UI/s-image.vue";
 import { useSongMenu } from "@/composables/useSongMenu";
+import { useBackClosable } from "@/composables/useAndroidBack";
 
 const props = defineProps<{ hiddenCover?: boolean }>();
 const emit = defineEmits<{ removeSong: [index: number[]] }>();
@@ -29,6 +30,18 @@ const { getMenuOptions } = useSongMenu();
 const dropdownX = ref<number>(0);
 const dropdownY = ref<number>(0);
 const dropdownShow = ref<boolean>(false);
+// 子菜单展开时先折叠（派发 ArrowLeft 给 naive 内部 keyboard 处理），再按才关 dropdown
+useBackClosable(dropdownShow, {
+  onBack: () => {
+    if (document.querySelectorAll(".n-dropdown-menu").length > 1) {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      );
+      return true;
+    }
+    return false;
+  },
+});
 const dropdownOptions = ref<DropdownOption[]>([]);
 
 // 开启右键菜单

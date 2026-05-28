@@ -98,12 +98,14 @@ import type { CoverType } from "@/types/main";
 import { useDataStore, useSettingStore } from "@/stores";
 import { allCatlistPlaylist } from "@/api/playlist";
 import { formatCoverList } from "@/utils/format";
+import { useBackClosable } from "@/composables/useAndroidBack";
 
 const router = useRouter();
 const dataStore = useDataStore();
 const settingStore = useSettingStore();
 
 const catChangeShow = ref<boolean>(false);
+useBackClosable(catChangeShow);
 
 // 歌单分类
 const catName = ref<string>((router.currentRoute.value.query?.cat as string) || "全部歌单");

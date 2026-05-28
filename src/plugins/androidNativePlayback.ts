@@ -207,6 +207,8 @@ export interface AndroidNativePlaybackPlugin {
   stop(): Promise<AndroidNativePlaybackState>;
   /** 硬清理：清 MediaItem / 通知栏 / 播放队列窗口。仅用于清场场景，切歌仍用 stop()。 */
   cleanup(): Promise<AndroidNativePlaybackState>;
+  /** 退出 App：停所有前台服务后强杀进程 */
+  shutdownApp(): Promise<void>;
   seek(options: { positionMs: number }): Promise<AndroidNativePlaybackState>;
   setVolume(options: { volume: number }): Promise<void>;
   setRate(options: { rate: number }): Promise<void>;

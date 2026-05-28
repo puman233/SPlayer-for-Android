@@ -75,6 +75,31 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     resolveOnMainThread(call, () -> PlaybackManager.getInstance(getContext()).cleanup());
   }
 
+  /** 用户确认退出：停服务 + finishAndRemoveTask + System.exit */
+  @PluginMethod
+  public void shutdownApp(PluginCall call) {
+    Activity activity = getActivity();
+    runOnMainThread(
+        call,
+        () -> {
+          PlaybackManager.getInstance(getContext()).shutdownAll();
+          call.resolve();
+          // 等桥消息送达 JS 后再退，给 100ms 余量
+          new android.os.Handler(android.os.Looper.getMainLooper())
+              .postDelayed(
+                  () -> {
+                    if (activity != null) {
+                      try {
+                        activity.finishAndRemoveTask();
+                      } catch (Exception ignored) {
+                      }
+                    }
+                    System.exit(0);
+                  },
+                  100L);
+        });
+  }
+
   @PluginMethod
   public void seek(PluginCall call) {
     // Capacitor 从 JS 传 number 时底层是 Double，getLong 会取不到默认返回 0L 导致 seek-to-zero

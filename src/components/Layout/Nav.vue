@@ -138,6 +138,7 @@ import { useSettingStore, useStatusStore } from "@/stores";
 import { useDevice } from "@/composables/useDevice";
 import { renderIcon } from "@/utils/helper";
 import { openSetting, openThemeConfig, openScalingModal, openUpdateApp } from "@/utils/modal";
+import { useBackClosable } from "@/composables/useAndroidBack";
 import { isDev, isElectron } from "@/utils/env";
 
 const router = useRouter();
@@ -170,6 +171,7 @@ const useBorderless = ref(true);
 const isMax = ref(false);
 // 是否显示侧边栏
 const showAside = ref(false);
+useBackClosable(showAside);
 
 // 最小化
 const min = () => window.electron.ipcRenderer.send("win-min");

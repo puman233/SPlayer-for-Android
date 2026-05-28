@@ -18,6 +18,7 @@ import type { DropdownOption } from "naive-ui";
 import type { CoverType } from "@/types/main";
 import { renderIcon, copyData, getShareUrl } from "@/utils/helper";
 import { useMusicStore, useStatusStore } from "@/stores";
+import { useBackClosable } from "@/composables/useAndroidBack";
 
 const emit = defineEmits<{
   // 直接搜索
@@ -32,6 +33,7 @@ const statusStore = useStatusStore();
 const dropdownX = ref<number>(0);
 const dropdownY = ref<number>(0);
 const dropdownShow = ref<boolean>(false);
+useBackClosable(dropdownShow);
 const dropdownOptions = ref<DropdownOption[]>([]);
 // 开启右键菜单
 const openDropdown = async (

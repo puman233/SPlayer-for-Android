@@ -1,4 +1,19 @@
-import { DialogApi, LoadingBarApi, MessageApi, ModalApi, NotificationApi } from "naive-ui";
+import {
+  DialogApi,
+  LoadingBarApi,
+  MessageApi,
+  ModalApi,
+  ModalOptions,
+  ModalReactive,
+  NotificationApi,
+} from "naive-ui";
+
+// 扩展 ModalApi.create 支持 _backable：false 表示安卓返回键吞但不关闭
+type ExtendedModalOptions = ModalOptions & { _backable?: boolean };
+
+interface ExtendedModalApi extends Omit<ModalApi, "create"> {
+  create(options: ExtendedModalOptions): ModalReactive;
+}
 
 declare global {
   interface Window {
@@ -7,7 +22,7 @@ declare global {
     $dialog: DialogApi;
     $notification: NotificationApi;
     $loadingBar: LoadingBarApi;
-    $modal: ModalApi;
+    $modal: ExtendedModalApi;
     // electron
     api: {
       store: {
