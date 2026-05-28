@@ -1,32 +1,26 @@
 import type { CoverColors } from "@/types/main";
 import {
   themeFromSourceColor,
-  QuantizerCelebi,
   Hct,
-  Score,
   argbFromHex,
   type Theme,
 } from "@material/material-color-utilities";
 import { rgbToHex } from "@imsyy/color-utils";
 import { useSettingStore, useStatusStore } from "@/stores";
 import { argbToRgb } from "./helper";
-import { chunk } from "lodash-es";
 import { sendTaskbarThemeColor } from "@/core/player/PlayerIpc";
+import CoverColorWorker from "./coverColor.worker?worker";
+import {
+  COVER_SAMPLE_SIZE,
+  MONOTONOUS_THEME,
+  argbPixelsToCoverColors,
+  rgbaPixelsToArgbInts,
+  type CoverColorWorkerRequest,
+  type CoverColorWorkerResponse,
+  type ThemeVariantKey,
+} from "./coverColor.worker";
 
-// 单调主题（纯色模式）
-export const MONOTONOUS_THEME = {
-  main: { r: 239, g: 239, b: 239 },
-  light: {
-    primary: { r: 10, g: 10, b: 10 },
-    background: { r: 238, g: 238, b: 238 },
-    "surface-container": { r: 212, g: 212, b: 212 },
-  },
-  dark: {
-    primary: { r: 239, g: 239, b: 239 },
-    background: { r: 31, g: 31, b: 31 },
-    "surface-container": { r: 39, g: 39, b: 39 },
-  },
-};
+export { MONOTONOUS_THEME };
 
 /**
  * 主色以 RGB 格式返回
@@ -125,12 +119,7 @@ export const setColorSchemes = (
   return modifiedColorModeData;
 };
 
-// 取色采样尺寸：从 50x50（2500 px）下调到 32x32（1024 px），
-// quantize 工作量降至 ~40%，在保留主色识别准确度的同时显著缩短主线程阻塞。
-const COVER_SAMPLE_SIZE = 32;
-
-// 获取封面主题
-export const getCoverColorData = (dom: HTMLImageElement) => {
+const getCoverColorImageData = (dom: HTMLImageElement) => {
   if (!dom) return null;
   // canvas
   const canvas = document.createElement("canvas");
@@ -150,37 +139,72 @@ export const getCoverColorData = (dom: HTMLImageElement) => {
     COVER_SAMPLE_SIZE,
     COVER_SAMPLE_SIZE,
   );
-  const pixels = chunk(ctx.getImageData(0, 0, COVER_SAMPLE_SIZE, COVER_SAMPLE_SIZE).data, 4).map(
-    (pixel) => {
-      // 将颜色数据转换为整数表示
-      return (
-        (((pixel[3] << 24) >>> 0) |
-          ((pixel[0] << 16) >>> 0) |
-          ((pixel[1] << 8) >>> 0) |
-          pixel[2]) >>>
-        0
-      );
-    },
-  );
-  // 使用 QuantizerCelebi 进行颜色量化
-  const quantizedColors = QuantizerCelebi.quantize(pixels, 128);
-  const sortedQuantizedColors = Array.from(quantizedColors).sort((a, b) => b[1] - a[1]);
-  // 获取最频繁的颜色，并转换为 RGB 格式
-  const mostFrequentColors = sortedQuantizedColors.slice(0, 5).map((x) => argbToRgb(x[0]));
-  // 如果最频繁的颜色差异很小，使用灰色强调色
-  if (mostFrequentColors.every((x) => Math.max(...x) - Math.min(...x) < 5)) {
-    return MONOTONOUS_THEME;
-  }
-  // 使用 Score 库对颜色进行评分
-  const ranked = Score.score(new Map(sortedQuantizedColors.slice(0, 50)));
-  const topColor = ranked[0];
-  const theme = themeFromSourceColor(topColor);
+  const imageData = ctx.getImageData(0, 0, COVER_SAMPLE_SIZE, COVER_SAMPLE_SIZE);
   // 移除 canvas
   canvas.remove();
-  const settingStore = useSettingStore();
-  // 返回主题
-  return getThemeSchema(theme, settingStore.themeVariant);
+  return imageData;
 };
+
+const getCoverColorDataFromImageData = (imageData: ImageData, variant: ThemeVariantKey) => {
+  const pixels = rgbaPixelsToArgbInts(imageData.data);
+  return argbPixelsToCoverColors(pixels, variant);
+};
+
+// 获取封面主题
+export const getCoverColorData = (dom: HTMLImageElement) => {
+  const imageData = getCoverColorImageData(dom);
+  if (!imageData) return null;
+  const settingStore = useSettingStore();
+  return getCoverColorDataFromImageData(imageData, settingStore.themeVariant);
+};
+
+const COVER_COLOR_WORKER_TIMEOUT = 5000;
+
+const getCoverColorDataByWorker = (imageData: ImageData, variant: ThemeVariantKey) =>
+  new Promise<CoverColors>((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new CoverColorWorker();
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    const cleanupWorker = () => {
+      window.clearTimeout(timer);
+      worker.onmessage = null;
+      worker.onerror = null;
+      worker.terminate();
+    };
+    const timer = window.setTimeout(() => {
+      cleanupWorker();
+      reject(new Error("Cover color worker timeout"));
+    }, COVER_COLOR_WORKER_TIMEOUT);
+
+    worker.onmessage = (ev: MessageEvent<CoverColorWorkerResponse>) => {
+      cleanupWorker();
+      const { data, error } = ev.data;
+      if (error || !data) {
+        reject(new Error(error || "Cover color worker failed"));
+        return;
+      }
+      resolve(data);
+    };
+    worker.onerror = (event) => {
+      cleanupWorker();
+      reject(event.error instanceof Error ? event.error : new Error(event.message));
+    };
+
+    const buffer = imageData.data.slice().buffer as ArrayBuffer;
+    const request: CoverColorWorkerRequest = {
+      id: 0,
+      buffer,
+      width: imageData.width,
+      height: imageData.height,
+      variant,
+    };
+    worker.postMessage(request, [buffer]);
+  });
 
 /**
  * 把主线程重活调度到空闲帧执行，避免在切歌首帧阻塞 30-100ms
@@ -254,21 +278,33 @@ export const getCoverColor = async (coverUrl: string) => {
     image.onerror = null;
     image.src = "";
   };
-  // 图像加载完成：把 canvas 像素采样 + quantize 推到空闲帧，避免阻塞切歌首屏渲染
+  // 图像加载完成
   image.onload = () => {
-    runWhenIdle(() => {
+    runWhenIdle(async () => {
       if (requestId !== coverColorRequestId) {
         cleanupImage();
         return;
       }
-      // 获取图片数据
-      const coverColorData = getCoverColorData(image);
-      if (coverColorData) {
+      const imageData = getCoverColorImageData(image);
+      if (!imageData) {
+        cleanupImage();
+        return;
+      }
+      const settingStore = useSettingStore();
+      const variant = settingStore.themeVariant;
+      try {
+        const coverColorData = await getCoverColorDataByWorker(imageData, variant);
+        if (requestId !== coverColorRequestId) return;
         writeCoverColorCache(coverUrl, coverColorData);
         applyCoverColor(coverColorData);
+      } catch {
+        const coverColorData = getCoverColorDataFromImageData(imageData, variant);
+        if (requestId !== coverColorRequestId) return;
+        writeCoverColorCache(coverUrl, coverColorData);
+        applyCoverColor(coverColorData);
+      } finally {
+        cleanupImage();
       }
-      // 移除元素
-      cleanupImage();
     });
   };
   image.onerror = () => {

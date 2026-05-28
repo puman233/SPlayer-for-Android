@@ -35,7 +35,7 @@
         <div
           class="background-mask"
           :style="{
-            backgroundColor: `rgba(0, 0, 0, ${statusStore.backgroundConfig.maskOpacity / 100})`,
+            backgroundColor: `rgba(0, 0, 0, ${backgroundMaskOpacity})`,
           }"
         />
       </div>
@@ -58,6 +58,7 @@
               musicStore.isHasPlayer && statusStore.showPlayBar
                 ? 'calc(var(--page-zoom-100dvh, 100dvh) - 80px)'
                 : 'var(--page-zoom-100dvh, 100dvh)',
+            ...padSiderBg,
           }"
           :content-style="{
             overflow: 'hidden',
@@ -77,7 +78,7 @@
           <Sider />
         </n-layout-sider>
 
-        <n-layout id="main-layout">
+        <n-layout id="main-layout" :style="padLayoutBg">
           <Nav id="main-header" />
           <n-layout
             ref="contentRef"
@@ -109,7 +110,7 @@
         </n-layout>
       </n-layout>
 
-      <div v-else id="main-phone-layout">
+      <div v-else id="main-phone-layout" :style="phoneLayoutBg">
         <Nav id="main-header" />
         <main ref="contentRef" id="main-phone-content">
           <RouterView v-slot="{ Component }">
@@ -128,7 +129,12 @@
     </div>
 
     <Transition name="fade">
-      <nav v-if="isPhone && !statusStore.showFullPlayer" ref="navRef" class="mobile-bottom-nav">
+      <nav
+        v-if="isPhone && !statusStore.showFullPlayer"
+        ref="navRef"
+        class="mobile-bottom-nav"
+        :style="mobileNavBg"
+      >
         <div class="mobile-bottom-nav__indicator" :style="indicatorStyle" />
         <button
           v-for="(item, idx) in phoneNavItems"
@@ -237,13 +243,87 @@ watch(
 const contentRef = ref<HTMLElement | null>(null);
 const { height: contentHeight } = useElementSize(contentRef);
 
-// 手机端"回到顶部"按钮的底部偏移，避开底部导航与播放条
+const backgroundMaskOpacity = computed(() =>
+  Math.min(Math.max(statusStore.backgroundConfig.maskOpacity, 0), 80) / 100,
+);
+
+// 布局层透明度
+const imageLayoutVars = computed(() => {
+  const f = Math.min(Math.max(statusStore.backgroundConfig.maskOpacity, 0), 80) / 80;
+  return {
+    bgTop: 0.02 + f * 0.20,
+    bgBottom: 0.01 + f * 0.14,
+    surface: 0.02 + f * 0.22,
+    nav: 0.04 + f * 0.24,
+  };
+});
+
+// 页面磨砂效果
+const frostedBlur = computed(() => {
+  const blur = Math.min(Math.max(statusStore.backgroundConfig.frostedBlur, 0), 20);
+  return blur > 0 ? `blur(${blur}px)` : "none";
+});
+
+const frostedBlurVar = "--custom-background-frosted-blur";
+const applyFrostedBlurVar = () => {
+  if (statusStore.isCustomBackground) {
+    document.documentElement.style.setProperty(frostedBlurVar, frostedBlur.value);
+  } else {
+    document.documentElement.style.removeProperty(frostedBlurVar);
+  }
+};
+watch(() => [statusStore.isCustomBackground, frostedBlur.value], applyFrostedBlurVar, {
+  immediate: true,
+});
+onUnmounted(() => document.documentElement.style.removeProperty(frostedBlurVar));
+
+// 手机布局背景
+const phoneLayoutBg = computed(() => {
+  if (!statusStore.isCustomBackground) return {};
+  const { bgTop, bgBottom } = imageLayoutVars.value;
+  return {
+    background: `linear-gradient(180deg, rgba(var(--background), ${bgTop}), rgba(var(--background), ${bgBottom}))`,
+  };
+});
+
+// 底部导航背景
+const mobileNavBg = computed(() => {
+  if (!statusStore.isCustomBackground) return {};
+  const { nav } = imageLayoutVars.value;
+  return {
+    backgroundColor: `rgba(var(--surface-container), ${nav})`,
+    backdropFilter: frostedBlur.value,
+    WebkitBackdropFilter: frostedBlur.value,
+  };
+});
+
+// Pad 主布局背景
+const padLayoutBg = computed(() => {
+  if (!statusStore.isCustomBackground) return {};
+  const { bgTop, bgBottom } = imageLayoutVars.value;
+  return {
+    background: `linear-gradient(180deg, rgba(var(--background), ${bgTop}), rgba(var(--background), ${bgBottom}))`,
+  };
+});
+
+// Pad 侧栏背景
+const padSiderBg = computed(() => {
+  if (!statusStore.isCustomBackground) return {};
+  const { surface } = imageLayoutVars.value;
+  return {
+    backgroundColor: `rgba(var(--surface-container), ${surface})`,
+    backdropFilter: frostedBlur.value,
+    WebkitBackdropFilter: frostedBlur.value,
+  };
+});
+
+// 回到顶部偏移
 const phoneBackTopBottom = computed(() => {
-  const navHeight = 56; // mobile-bottom-nav 高度（含 padding 不含 safe-area）
-  const playerHeight = 64; // 浮岛播放条高度
-  const playerGap = 8; // 播放条与底栏间距
+  const navHeight = 56;
+  const playerHeight = 64;
+  const playerGap = 8;
   const hasPlayer = musicStore.isHasPlayer && statusStore.showPlayBar;
-  // 基础偏移：底栏之上 + 间距
+  // 底栏上方
   const base = navHeight + 16;
   return hasPlayer ? base + playerHeight + playerGap : base;
 });
@@ -419,6 +499,16 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 100%;
   background: linear-gradient(180deg, rgba(var(--background), 0.94), rgba(var(--background), 0.9));
+}
+
+:global(html.image) {
+  #main-header {
+    position: relative;
+    z-index: 2;
+    background-color: rgba(var(--surface-container), 0.08);
+    backdrop-filter: var(--custom-background-frosted-blur, none);
+    -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
+  }
 }
 
 #main-phone-content {
