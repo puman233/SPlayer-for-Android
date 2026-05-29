@@ -1,7 +1,7 @@
 # 🎵 SPlayer for Android
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.0--rc.3-blue?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-3.0.0--rc.4-blue?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Android%2010%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="platform">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js&logoColor=white" alt="vue">
@@ -89,6 +89,22 @@
 
 > 完整更新记录请查看 [**CHANGELOG.md**](./CHANGELOG.md)
 
+**v3.0.0-rc.4** 主要更新：
+
+- 🎴 新增 **移动端卡片式播放器** — 支持动画过渡与手势交互（上滑展开/下滑收起）
+- 🎛️ 新增 **播放器快捷操作菜单** — 一键切换音质、收藏、下载等常用操作
+- 📱 新增 **手机横屏沉浸式播放模式** — 全屏封面 + 歌词，无干扰聆听
+- 🖼️ 新增 **页面磨砂效果** — 部分界面背景高斯模糊，视觉层次更丰富
+- 🎵 新增 **本地歌曲封面提取** — 自动读取内嵌封面
+- 🎧 新增 **音频频谱可视化** — 移动端播放页底栏频谱柱状图
+- ⚡ 优化 **冷启动速度** 与渲染性能
+- ⬅️ 完善 **Android 全局返回键处理** — 弹窗/菜单统一返回拦截，退出清理后台服务
+- ↔️ 重构 **页面缩放逻辑** — 适配多设备缩放场景
+- 🎯 修复 AMLL 歌词对齐、进度条跳变、播放状态同步等问题
+- 📱 移动端 / 平板端布局全面优化
+- 🗂️ 重新整理 **Android 端设置分组** — Android 专用项独立为「Android 系统设置」
+- 💾 新增 **设置导入/导出** — 支持 JSON 配置文件备份与迁移
+
 **v3.0.0-rc.3** 主要更新：
 
 - ☁️ 新增 **WebDAV 音乐源** — 支持通过 WebDAV 连接并播放远程音乐
@@ -159,7 +175,7 @@ npx cap open android            # Android Studio 打开
 
 <br>
 
-进入 **设置 → 播放 → 允许与其他应用同时播放**。
+进入 **设置 → 播放 → Android 系统设置 → 允许与其他应用同时播放**。
 
 > ⚠️ 注意：开启后将切换为 ExoPlayer 引擎（handleAudioFocus=false），不再抢占音频焦点，可与其他应用同时播放。
 

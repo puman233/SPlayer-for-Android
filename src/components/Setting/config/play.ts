@@ -381,55 +381,6 @@ export const usePlaySettings = (): SettingConfig => {
             }),
           },
           {
-            key: "androidMediaControllerEnabled",
-            label: "通知栏音乐控制器",
-            type: "switch",
-            show: isCapacitorAndroid,
-            description: "使用 Android 原生后台播放控制，并在通知栏和系统媒体面板显示控制器。",
-            value: computed({
-              get: () => settingStore.androidMediaControllerEnabled,
-              set: (v) => {
-                void handleAndroidMediaControllerChange(v);
-              },
-            }),
-          },
-          {
-            key: "androidMediaControllerDesktopLyricEnabled",
-            label: "显示桌面歌词按钮",
-            type: "switch",
-            show: isCapacitorAndroid,
-            description: "在通知栏显示桌面歌词开关按钮",
-            value: computed({
-              get: () => settingStore.androidMediaControllerDesktopLyricEnabled,
-              set: (v) => {
-                settingStore.androidMediaControllerDesktopLyricEnabled = v;
-                syncAndroidPlaybackContext();
-              },
-            }),
-            disabled: computed(() => !settingStore.androidMediaControllerEnabled),
-          },
-          {
-            key: "androidAllowMixWithOthers",
-            label: "允许与其他应用同时播放",
-            type: "switch",
-            show: isCapacitorAndroid,
-            description:
-              "关闭时，开始播放会请求独占音频焦点并暂停其他正在播放的应用；开启时与其他应用混音共存（切换后需重启播放）。",
-            value: computed({
-              get: () => settingStore.androidAllowMixWithOthers,
-              set: (v) => {
-                settingStore.androidAllowMixWithOthers = v;
-                if (isCapacitorAndroid) {
-                  void AndroidNativePlayback.setAllowMixWithOthers({ allow: v });
-                  player.pause();
-                  destroyAudioManager();
-                  useAudioManager();
-                  player.rebindAudioEvents();
-                }
-              },
-            }),
-          },
-          {
             key: "preventSleep",
             label: "阻止系统息屏",
             type: "switch",
@@ -437,40 +388,6 @@ export const usePlaySettings = (): SettingConfig => {
             value: computed({
               get: () => settingStore.preventSleep,
               set: (v) => (settingStore.preventSleep = v),
-            }),
-          },
-          {
-            key: "androidShowStatusBar",
-            label: "显示系统状态栏",
-            type: "switch",
-            show: isCapacitorAndroid,
-            description: "显示 Android 系统状态栏，关闭后为沉浸式全屏",
-            value: computed({
-              get: () => settingStore.androidShowStatusBar,
-              set: (v) => {
-                settingStore.androidShowStatusBar = v;
-                import("@capacitor/status-bar").then(({ StatusBar }) => {
-                  if (v) {
-                    StatusBar.show();
-                  } else {
-                    StatusBar.hide();
-                  }
-                });
-                if (isCapacitorAndroid) {
-                  void AndroidNativePlayback.setShowStatusBar({ show: v });
-                }
-              },
-            }),
-          },
-          {
-            key: "androidHidePortraitNavBar",
-            label: "隐藏底部导航栏",
-            type: "switch",
-            show: isCapacitorAndroid,
-            description: "平板横竖屏 / 手机竖屏隐藏系统导航栏与手势条，上滑可临时呼出",
-            value: computed({
-              get: () => settingStore.androidHidePortraitNavBar,
-              set: (v) => (settingStore.androidHidePortraitNavBar = v),
             }),
           },
           {
@@ -578,6 +495,90 @@ export const usePlaySettings = (): SettingConfig => {
                 }),
               },
             ],
+          },
+        ],
+      },
+      {
+        title: "Android 系统设置",
+        show: isCapacitorAndroid,
+        items: [
+          {
+            key: "androidMediaControllerEnabled",
+            label: "通知栏音乐控制器",
+            type: "switch",
+            description: "使用 Android 原生后台播放控制，并在通知栏和系统媒体面板显示控制器。",
+            value: computed({
+              get: () => settingStore.androidMediaControllerEnabled,
+              set: (v) => {
+                void handleAndroidMediaControllerChange(v);
+              },
+            }),
+          },
+          {
+            key: "androidMediaControllerDesktopLyricEnabled",
+            label: "显示桌面歌词按钮",
+            type: "switch",
+            description: "在通知栏显示桌面歌词开关按钮",
+            value: computed({
+              get: () => settingStore.androidMediaControllerDesktopLyricEnabled,
+              set: (v) => {
+                settingStore.androidMediaControllerDesktopLyricEnabled = v;
+                syncAndroidPlaybackContext();
+              },
+            }),
+            disabled: computed(() => !settingStore.androidMediaControllerEnabled),
+          },
+          {
+            key: "androidAllowMixWithOthers",
+            label: "允许与其他应用同时播放",
+            type: "switch",
+            description:
+              "关闭时，开始播放会请求独占音频焦点并暂停其他正在播放的应用；开启时与其他应用混音共存（切换后需重启播放）。",
+            value: computed({
+              get: () => settingStore.androidAllowMixWithOthers,
+              set: (v) => {
+                settingStore.androidAllowMixWithOthers = v;
+                if (isCapacitorAndroid) {
+                  void AndroidNativePlayback.setAllowMixWithOthers({ allow: v });
+                  player.pause();
+                  destroyAudioManager();
+                  useAudioManager();
+                  player.rebindAudioEvents();
+                }
+              },
+            }),
+          },
+          {
+            key: "androidShowStatusBar",
+            label: "显示系统状态栏",
+            type: "switch",
+            description: "显示 Android 系统状态栏，关闭后为沉浸式全屏",
+            value: computed({
+              get: () => settingStore.androidShowStatusBar,
+              set: (v) => {
+                settingStore.androidShowStatusBar = v;
+                import("@capacitor/status-bar").then(({ StatusBar }) => {
+                  if (v) {
+                    StatusBar.show();
+                  } else {
+                    StatusBar.hide();
+                  }
+                });
+                if (isCapacitorAndroid) {
+                  void AndroidNativePlayback.setShowStatusBar({ show: v });
+                }
+              },
+            }),
+          },
+          {
+            key: "androidHidePortraitNavBar",
+            label: "隐藏底部导航栏",
+            type: "switch",
+            description: "平板横竖屏 / 手机竖屏隐藏系统导航栏与手势条，上滑可临时呼出",
+            value: computed({
+              get: () => settingStore.androidHidePortraitNavBar,
+              set: (v) => (settingStore.androidHidePortraitNavBar = v),
+            }),
           },
         ],
       },

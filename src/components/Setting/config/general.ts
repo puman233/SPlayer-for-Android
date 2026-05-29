@@ -1,10 +1,11 @@
 import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
-import { isElectron } from "@/utils/env";
+import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { openExcludeComment } from "@/utils/modal";
 import { sendRegisterProtocol } from "@/utils/protocol";
 import { SettingConfig } from "@/types/settings";
 import { NAlert } from "naive-ui";
+import { AndroidDownload } from "@/plugins/androidDownload";
 
 export const useGeneralSettings = (): SettingConfig => {
   const dataStore = useDataStore();
@@ -104,6 +105,71 @@ export const useGeneralSettings = (): SettingConfig => {
     } catch {
       window.$message.error("设置导出出错");
     }
+  };
+
+  const exportSettingsMobile = async () => {
+    try {
+      const result = await AndroidDownload.pickDownloadDirectory();
+      if (result.cancelled || !result.uri) return;
+
+      const data = {
+        "setting-store": JSON.parse(localStorage.getItem("setting-store") || "{}"),
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+      };
+      const json = JSON.stringify(data, null, 2);
+      const filename = `splayer-settings-${new Date().toISOString().slice(0, 10)}.json`;
+
+      const writeResult = await AndroidDownload.writeTextFile({
+        fileName: filename,
+        content: json,
+        directoryUri: result.uri,
+      });
+
+      if (writeResult.status === "success") {
+        window.$message.success(`设置已导出到 ${result.name || "所选目录"}/${filename}`);
+      } else {
+        window.$message.error("设置导出失败");
+      }
+    } catch {
+      window.$message.error("设置导出失败");
+    }
+  };
+
+  const importSettingsMobile = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result as string);
+          const storeData = data["setting-store"];
+          if (!storeData || typeof storeData !== "object") {
+            window.$message.error("无效的配置文件，未找到 setting-store 数据");
+            return;
+          }
+          window.$dialog.warning({
+            title: "导入设置",
+            content: "导入设置将覆盖当前所有配置（包括主题、音效设置等）并重启应用，是否继续？",
+            positiveText: "确定",
+            negativeText: "取消",
+            onPositiveClick: () => {
+              localStorage.setItem("setting-store", JSON.stringify(storeData));
+              window.$message.success("设置导入成功，即将重启");
+              setTimeout(() => window.location.reload(), 800);
+            },
+          });
+        } catch {
+          window.$message.error("配置文件解析失败，请检查文件格式");
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   };
 
   const importSettings = async () => {
@@ -394,7 +460,7 @@ export const useGeneralSettings = (): SettingConfig => {
       {
         title: "备份与恢复",
         tags: [{ text: "Beta", type: "warning" }],
-        show: isElectron,
+        show: isElectron || isCapacitorAndroid,
         items: [
           {
             key: "exportSettings",
@@ -402,7 +468,7 @@ export const useGeneralSettings = (): SettingConfig => {
             type: "button",
             description: "将当前所有设置导出为 JSON 文件",
             buttonLabel: "导出设置",
-            action: exportSettings,
+            action: isCapacitorAndroid ? exportSettingsMobile : exportSettings,
             componentProps: { type: "primary" },
           },
           {
@@ -411,7 +477,7 @@ export const useGeneralSettings = (): SettingConfig => {
             type: "button",
             description: "从 JSON 文件恢复设置（导入后将自动重启）",
             buttonLabel: "导入设置",
-            action: importSettings,
+            action: isCapacitorAndroid ? importSettingsMobile : importSettings,
             componentProps: { type: "primary" },
           },
         ],

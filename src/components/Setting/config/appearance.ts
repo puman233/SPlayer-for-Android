@@ -191,6 +191,7 @@ export const useAppearanceSettings = (): SettingConfig => {
             key: "contextMenu",
             label: "右键菜单",
             type: "button",
+            show: !isCapacitorAndroid,
             description: "自定义歌曲右键菜单的显示选项",
             buttonLabel: "配置",
             action: openContextMenuManager,

@@ -200,7 +200,7 @@ jobs:
                 continue
               fi
             fi
-            DST="release/SPA-${BUILD_TYPE}-${VERSION}-${abi}.apk"
+            DST="release/SFA-${BUILD_TYPE}-${VERSION}-${abi}.apk"
             cp "${SRC}" "${DST}"
             sha256sum "${DST}" > "${DST}.sha256"
             FOUND=$((FOUND + 1))
@@ -222,7 +222,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SPA-${{ steps.meta.outputs.build_type }}-${{ steps.meta.outputs.tag }}
+          name: SFA-${{ steps.meta.outputs.build_type }}-${{ steps.meta.outputs.tag }}
           path: |
             release/*.apk
             release/*.sha256
