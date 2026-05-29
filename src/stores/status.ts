@@ -239,7 +239,7 @@ export const useStatusStore = defineStore("status", {
       /** 遮罩透明度 (0-80) */
       maskOpacity: 20,
       /** 页面磨砂效果 (0-20) */
-      frostedBlur: 0,
+      frostedBlur: 4,
       /** 模糊度 (0-20) */
       blur: 0,
       /** 提取的主色 (hex) */
