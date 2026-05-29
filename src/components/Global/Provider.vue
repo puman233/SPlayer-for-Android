@@ -86,9 +86,9 @@ const getThemeMainColor = () => {
     if (color) return setColorSchemes(color, "dark");
   }
   // 封面模式
-  if (settingStore.themeFollowCover && statusStore.songCoverTheme) {
-    const coverColor = statusStore.songCoverTheme;
-    if (!coverColor) return {};
+  const coverColor = statusStore.songCoverTheme;
+  const hasCoverTheme = !!coverColor.dark?.primary && !!coverColor.light?.primary;
+  if (settingStore.themeFollowCover && hasCoverTheme) {
     return setColorSchemes(coverColor, themeType);
   } else if (settingStore.themeColorType === "solid") {
     // 纯色预设

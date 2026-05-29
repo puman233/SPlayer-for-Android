@@ -157,10 +157,24 @@
         </div>
         <n-slider
           v-model:value="statusStore.backgroundConfig.maskOpacity"
-          :min="30"
-          :max="95"
+          :min="0"
+          :max="80"
           :step="5"
           :format-tooltip="(v: number) => `${v}%`"
+          style="width: 120px"
+        />
+      </n-card>
+      <n-card class="set-item">
+        <div class="label">
+          <n-text class="name">页面磨砂效果</n-text>
+          <n-text class="tip" :depth="3">页面区域的毛玻璃模糊</n-text>
+        </div>
+        <n-slider
+          v-model:value="statusStore.backgroundConfig.frostedBlur"
+          :min="0"
+          :max="20"
+          :step="1"
+          :format-tooltip="(v: number) => `${v}px`"
           style="width: 120px"
         />
       </n-card>

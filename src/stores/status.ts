@@ -144,8 +144,10 @@ interface StatusState {
   backgroundConfig: {
     /** 背景放大倍数 (1-2) */
     scale: number;
-    /** 遮罩透明度 (30-95) */
+    /** 遮罩透明度 (0-80) */
     maskOpacity: number;
+    /** 页面磨砂效果 (0-20) */
+    frostedBlur: number;
     /** 模糊度 (0-20) */
     blur: number;
     /** 提取的主色 (hex) */
@@ -234,8 +236,10 @@ export const useStatusStore = defineStore("status", {
     backgroundConfig: {
       /** 背景放大倍数 (1-2) */
       scale: 1,
-      /** 遮罩透明度 (30-95) */
-      maskOpacity: 30,
+      /** 遮罩透明度 (0-80) */
+      maskOpacity: 20,
+      /** 页面磨砂效果 (0-20) */
+      frostedBlur: 4,
       /** 模糊度 (0-20) */
       blur: 0,
       /** 提取的主色 (hex) */
@@ -462,7 +466,9 @@ export const useStatusStore = defineStore("status", {
       "playVolumeMute",
       "repeatMode",
       "shuffleMode",
-      "songCoverTheme",
+      // songCoverTheme 不持久化：每次切歌时整体替换，
+      // 持久化会触发 status-store 同步序列化（5-30ms 主线程阻塞）。
+      // 重启后由切歌触发 worker 取色重算，且内存 LRU cache 命中后零开销。
       "listSortField",
       "listSortOrder",
       "showDesktopLyric",

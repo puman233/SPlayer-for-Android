@@ -35,21 +35,53 @@
     }
     .main-player {
       background-color: var(--surface-container-hex) !important;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: var(--custom-background-frosted-blur, none);
+      -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
     }
     // 内置组件
     .n-card,
     .n-tag {
       background-color: rgba(var(--background), 0.2) !important;
       border-color: rgba(var(--primary), 0.1) !important;
+      backdrop-filter: var(--custom-background-frosted-blur, none);
+      -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
+    }
+    .song-list .virtual-scroll-wrapper {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      &::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        transform: translateZ(0);
+        will-change: backdrop-filter;
+        backdrop-filter: var(--custom-background-frosted-blur, none);
+        -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
+      }
+      .custom-virtual-list {
+        position: relative;
+        z-index: 1;
+      }
+    }
+    .song-content,
+    .song-content .n-tag {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    .list-header {
+      backdrop-filter: var(--custom-background-frosted-blur, none);
+      -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
     }
     .n-modal,
     .n-popover-shared,
     .n-float-button {
       background-color: rgba(var(--background), 0.2) !important;
       border-color: rgba(var(--primary), 0.1) !important;
-      backdrop-filter: blur(20px);
+      backdrop-filter: var(--custom-background-frosted-blur, none);
+      -webkit-backdrop-filter: var(--custom-background-frosted-blur, none);
     }
     .n-list {
       --n-merged-color-hover: rgba(var(--background), 0.2) !important;
