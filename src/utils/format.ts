@@ -257,7 +257,7 @@ export const formatCategoryList = (data: any[]): CatType[] => {
  * @returns 格式化后的封面数据
  */
 const getCoverUrl = (item: any): CoverDataType => {
-  const cover =
+  const rawCover =
     item.cover ||
     item.picUrl ||
     item.coverUrl ||
@@ -266,6 +266,7 @@ const getCoverUrl = (item: any): CoverDataType => {
     item.img1v1Url ||
     (item.album || item.al)?.picUrl ||
     item.al?.xInfo?.picUrl;
+  const cover = typeof rawCover === "string" ? rawCover.replace(/^http:/, "https:") : rawCover;
   const coverSize = {
     s: getCoverSizeUrl(cover, 100),
     m: getCoverSizeUrl(cover, 300),

@@ -122,7 +122,7 @@ server.interceptors.request.use(
 
     if (!request.params.noCookie && (isLogin() || getCookie("MUSIC_U") !== null)) {
       const cookie = `MUSIC_U=${getCookie("MUSIC_U")};os=pc;`;
-      request.params.cookie = cookie;
+      request.headers.set("X-SPlayer-Cookie", cookie);
     }
 
     if (settingStore.useRealIP) {

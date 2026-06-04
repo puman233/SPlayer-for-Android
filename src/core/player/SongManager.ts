@@ -118,7 +118,7 @@ class SongManager {
       };
       img.onload = cleanup;
       img.onerror = cleanup;
-      img.src = url;
+      img.src = url.replace(/^http:/, "https:");
     });
     // Android 额外写入 covers/ 本地缓存：下一首切过去 s-image 立刻命中 blob URL、
     // 不依赖浏览器 HTTP 缓存（Capacitor WebView 的 disk cache 在重启后会丢）。

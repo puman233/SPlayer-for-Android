@@ -31,6 +31,31 @@ interface DownloadConfig {
   enableDownloadHttp2: boolean;
 }
 
+interface DownloadProgressPayload {
+  id?: number;
+  percent?: number;
+  transferredBytes?: number;
+  totalBytes?: number;
+}
+
+interface ElectronDownloadResult {
+  status: "success" | "skipped" | "cancelled" | "failed";
+  path?: string;
+  message?: string;
+}
+
+const normalizeDownloadPath = (value: string) => {
+  return value.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/+$/, "");
+};
+
+const getAndroidDownloadSubPath = (targetPath: string, basePath: string) => {
+  const normalizedTarget = normalizeDownloadPath(targetPath);
+  const normalizedBase = normalizeDownloadPath(basePath);
+  if (!normalizedBase || normalizedTarget === normalizedBase) return "";
+  if (!normalizedTarget.startsWith(`${normalizedBase}/`)) return "";
+  return normalizedTarget.slice(normalizedBase.length + 1).replace(/^\/+/, "");
+};
+
 interface DownloadStrategy {
   readonly id: number;
   readonly name: string;
@@ -439,7 +464,7 @@ class DownloadManager {
   private setupIpcListeners() {
     if (typeof window === "undefined" || !window.electron?.ipcRenderer) return;
     window.electron.ipcRenderer.on("download-progress", (_event, progress) => {
-      const { id, percent, transferredBytes, totalBytes } = progress;
+      const { id, percent, transferredBytes, totalBytes } = progress as DownloadProgressPayload;
       if (!id) return;
       const dataStore = useDataStore();
       const transferred = transferredBytes
@@ -587,7 +612,7 @@ class DownloadManager {
       if (isElectron) {
         if (!strategy.downloadUrl) throw new Error("Download URL missing");
 
-        const downloadResult = await window.electron.ipcRenderer.invoke(
+        const downloadResult = await window.electron.ipcRenderer.invoke<ElectronDownloadResult>(
           "download-file",
           strategy.downloadUrl,
           config,
@@ -618,10 +643,7 @@ class DownloadManager {
           url: strategy.downloadUrl,
           fileName,
           directoryUri,
-          subPath:
-            config.path !== settingStore.downloadPath
-              ? config.path.replace(settingStore.downloadPath, "").replace(/^\/+/, "")
-              : "",
+          subPath: getAndroidDownloadSubPath(config.path, settingStore.downloadPath),
         });
 
         if (downloadResult.status === "success" || downloadResult.status === "skipped") {

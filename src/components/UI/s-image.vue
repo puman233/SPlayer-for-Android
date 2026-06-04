@@ -85,6 +85,7 @@ const props = withDefaults(
 const srcRef = computed(() => {
   const url = props.src;
   if (!url) return undefined;
+  if (url.startsWith("http:")) return url.replace(/^http:/, "https:");
   // Capacitor WebView 禁止 <img src="file://"> / <img src="content://">，
   // 必须用 convertFileSrc 转成 https://localhost/_capacitor_file_/... 代理。
   if (isCapacitorAndroid && (url.startsWith("file://") || url.startsWith("content://"))) {
