@@ -33,16 +33,14 @@ let savedPageType: MobilePageType = "info";
       </div>
     </div>
 
-    <!-- 下拉手势捕获区：信息页覆盖顶栏 + 封面区域；歌词页仅顶栏，避免拦截歌词滚动 -->
-    <div
-      ref="dragHandleRef"
-      class="drag-handle"
-      :style="{ height: dragHandleHeight }"
-      aria-hidden="true"
-    />
+    <!-- 下拉手势捕获区：信息页覆盖顶栏 + 封面区域；歌词页限定在歌曲信息块 -->
+    <div ref="dragHandleRef" class="drag-handle" :style="dragHandleStyle" aria-hidden="true" />
 
     <div
-      :class="['mobile-content', { swiping: isHorizontalSwipe }]"
+      :class="[
+        'mobile-content',
+        { swiping: isHorizontalSwipe, 'no-transition': pageTransitionDisabled },
+      ]"
       :style="{ transform: contentTransform, '--page-count': totalPages }"
       @click.stop
     >
@@ -107,7 +105,7 @@ let savedPageType: MobilePageType = "info";
             </div>
           </div>
 
-          <div class="progress-section">
+          <div class="progress-section" data-no-page-swipe>
             <span class="time" @click="toggleTimeFormat">{{ timeDisplay[0] }}</span>
             <PlayerSlider class="player" :show-tooltip="false" />
             <span class="time" @click="toggleTimeFormat">{{ timeDisplay[1] }}</span>
@@ -303,6 +301,9 @@ const resolveSavedPageIndex = (type: MobilePageType): number => {
 
 // 默认落在「信息」页，并尽量恢复上次浏览的页面类型
 const pageIndex = ref(resolveSavedPageIndex(savedPageType));
+const pageTransitionDisabled = ref(false);
+const pageSwipeBlocked = ref(false);
+let pageTransitionTimer = 0;
 
 const lyricHeaderHorizontalPadding = computed(() => {
   const padding = Math.max(0, settingStore.lyricHorizontalOffset);
@@ -326,15 +327,30 @@ const currentPageType = computed<MobilePageType>(() => {
   return "info";
 });
 
-// 下拉关闭手势捕获区高度：信息页覆盖顶栏 + 封面区域；歌词页含顶栏 + 歌曲信息条；
-// 评论页仅顶栏（让出滚动空间给评论列表）
-const dragHandleHeight = computed(() => {
+// 下拉关闭手势捕获区：信息页覆盖顶栏 + 封面区域；歌词页限定在歌曲信息块
+const dragHandleStyle = computed(() => {
   if (currentPageType.value === "info") {
-    // 32vh 表示相对屏幕高度的比例热区，需走 --page-zoom-100vh 防止被 transform 二次缩放
-    return "calc(40px + var(--mobile-safe-top) + var(--page-zoom-100vh, 100vh) * 0.32)";
+    return {
+      top: "0",
+      left: "0",
+      right: "0",
+      height: "calc(40px + var(--mobile-safe-top) + var(--page-zoom-100vh, 100vh) * 0.32)",
+    };
   }
-  if (currentPageType.value === "lyric") return "calc(140px + var(--mobile-safe-top))";
-  return "calc(56px + var(--mobile-safe-top))";
+  if (currentPageType.value === "lyric") {
+    return {
+      top: "calc(52px + var(--mobile-safe-top))",
+      left: "16px",
+      right: "72px",
+      height: "74px",
+    };
+  }
+  return {
+    top: "0",
+    left: "0",
+    right: "0",
+    height: "calc(56px + var(--mobile-safe-top))",
+  };
 });
 
 // 顶部区域下拉关闭：整个全屏播放器（含背景蒙层）跟手下移，露出底部主页面
@@ -431,6 +447,7 @@ const DIRECTION_LOCK_TOLERANCE = 8;
 
 const { lengthX: topLengthX, lengthY: topLengthY } = useSwipe(dragHandleRef, {
   threshold: 0,
+  passive: true,
   onSwipeStart: () => {
     directionLock = null;
     dragStarted = false;
@@ -500,8 +517,18 @@ const { lengthX: topLengthX, lengthY: topLengthY } = useSwipe(dragHandleRef, {
 
 onBeforeUnmount(() => {
   if (rafId) cancelAnimationFrame(rafId);
+  if (pageTransitionTimer) window.clearTimeout(pageTransitionTimer);
   resetInlineStyles();
 });
+
+const disablePageTransitionOnce = () => {
+  pageTransitionDisabled.value = true;
+  if (pageTransitionTimer) window.clearTimeout(pageTransitionTimer);
+  pageTransitionTimer = window.setTimeout(() => {
+    pageTransitionTimer = 0;
+    pageTransitionDisabled.value = false;
+  }, 80);
+};
 
 const artistName = computed(() => {
   const artists = musicStore.playSong.artists;
@@ -513,6 +540,7 @@ const artistName = computed(() => {
 
 // 页面可用性变化时按页面语义迁移 pageIndex
 watch([hasComment, hasLyric], (_n, [prevHasComment, prevHasLyric]) => {
+  disablePageTransitionOnce();
   const prevCommentIdx = prevHasComment ? 0 : -1;
   const prevInfoIdx = prevHasComment ? 1 : 0;
   const prevLyricIdx = prevHasLyric ? prevInfoIdx + 1 : -1;
@@ -529,9 +557,22 @@ watch(currentPageType, (t) => {
   savedPageType = t;
 });
 
+const isNoPageSwipeTarget = (event: TouchEvent) => {
+  const target = event.target;
+  return target instanceof HTMLElement && Boolean(target.closest("[data-no-page-swipe]"));
+};
+
 const { direction, isSwiping, lengthX, lengthY } = useSwipe(mobileStart, {
   threshold: 5,
+  passive: true,
+  onSwipeStart: (event) => {
+    pageSwipeBlocked.value = isNoPageSwipeTarget(event);
+  },
   onSwipeEnd: () => {
+    if (pageSwipeBlocked.value) {
+      pageSwipeBlocked.value = false;
+      return;
+    }
     if (totalPages.value <= 1) return;
     // 仅在主方向为水平时触发翻页，避免上下滑动歌词/评论误触
     if (Math.abs(lengthX.value) <= Math.abs(lengthY.value)) return;
@@ -546,7 +587,8 @@ const { direction, isSwiping, lengthX, lengthY } = useSwipe(mobileStart, {
 
 // 当前滑动是否为水平方向（用于跟手位移）
 const isHorizontalSwipe = computed(
-  () => isSwiping.value && Math.abs(lengthX.value) > Math.abs(lengthY.value),
+  () =>
+    !pageSwipeBlocked.value && isSwiping.value && Math.abs(lengthX.value) > Math.abs(lengthY.value),
 );
 
 const contentTransform = computed(() => {
@@ -592,6 +634,7 @@ const contentTransform = computed(() => {
     top: 0;
     left: 0;
     right: 0;
+    height: 0;
     z-index: 5;
     pointer-events: auto;
     background: transparent;
@@ -664,7 +707,8 @@ const contentTransform = computed(() => {
     // 横滑交给 useSwipe
     touch-action: pan-y;
 
-    &.swiping {
+    &.swiping,
+    &.no-transition {
       transition: none;
     }
 

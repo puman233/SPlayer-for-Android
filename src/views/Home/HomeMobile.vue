@@ -158,6 +158,8 @@ import { prefetchListCovers } from "@/composables/useCoverCache";
 import SvgIcon from "@/components/Global/SvgIcon.vue";
 import SImage from "@/components/UI/s-image.vue";
 
+const normalizeImageUrl = (url?: string) => url?.replace(/^http:/, "https:") || "";
+
 const router = useRouter();
 const dataStore = useDataStore();
 const settingStore = useSettingStore();
@@ -260,13 +262,13 @@ const fetchFromNetwork = async (silent: boolean) => {
     // 并行加载所有数据
     const [playlistRes, albumRes, artistRes, videoRes] = await Promise.all([
       // 推荐歌单
-      personalized(isLogin() ? 21 : 20).catch(() => ({ result: [] })),
+      personalized("playlist", isLogin() ? 21 : 20).catch(() => ({ result: [] })),
       // 新碟上架
       newAlbumsAll().catch(() => ({ albums: [] })),
       // 歌手推荐
       topArtists(6).catch(() => ({ artists: [] })),
       // 推荐 MV
-      allMv().catch(() => ({ data: [] })),
+      allMv("全部", "全部", "上升最快").catch(() => ({ data: [] })),
     ]);
 
     // 处理歌单数据
@@ -275,7 +277,7 @@ const fetchFromNetwork = async (silent: boolean) => {
       .map((pl: any) => ({
         id: pl.id,
         name: pl.name,
-        cover: pl.picUrl,
+        cover: normalizeImageUrl(pl.picUrl),
         playCount: pl.playcount || 0,
       }));
 
@@ -283,7 +285,7 @@ const fetchFromNetwork = async (silent: boolean) => {
     albumRec.value = (albumRes.albums || []).map((album: any) => ({
       id: album.id,
       name: album.name,
-      cover: album.picUrl,
+      cover: normalizeImageUrl(album.picUrl),
       artist: album.artist?.name || "未知艺术家",
     }));
 
@@ -291,7 +293,7 @@ const fetchFromNetwork = async (silent: boolean) => {
     artistRec.value = (artistRes.artists || []).map((artist: any) => ({
       id: artist.id,
       name: artist.name,
-      cover: artist.picUrl,
+      cover: normalizeImageUrl(artist.img1v1Url || artist.picUrl),
     }));
 
     // 处理 MV 数据
@@ -476,6 +478,7 @@ onMounted(() => {
         font-size: 12px;
         line-height: 1.4;
         display: -webkit-box;
+        line-clamp: 2;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
@@ -522,6 +525,7 @@ onMounted(() => {
       font-size: 12px;
       line-height: 1.4;
       display: -webkit-box;
+      line-clamp: 1;
       -webkit-line-clamp: 1;
       -webkit-box-orient: vertical;
       overflow: hidden;
@@ -532,6 +536,7 @@ onMounted(() => {
       font-size: 11px;
       color: var(--n-text-color-3);
       display: -webkit-box;
+      line-clamp: 1;
       -webkit-line-clamp: 1;
       -webkit-box-orient: vertical;
       overflow: hidden;
@@ -565,6 +570,7 @@ onMounted(() => {
       font-size: 12px;
       text-align: center;
       display: -webkit-box;
+      line-clamp: 1;
       -webkit-line-clamp: 1;
       -webkit-box-orient: vertical;
       overflow: hidden;
@@ -640,6 +646,7 @@ onMounted(() => {
           font-size: 14px;
           line-height: 1.4;
           display: -webkit-box;
+          line-clamp: 2;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;

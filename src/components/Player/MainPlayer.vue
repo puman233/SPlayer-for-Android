@@ -309,6 +309,8 @@ let dragLastDy = 0;
 let dragOpenTravel = 0;
 let dragOpenResetTimer = 0;
 let dragOpenCloseTimer = 0;
+let dragOpenSession = 0;
+let isPlayerMounted = true;
 const OPEN_THRESHOLD = 100;
 
 const setDragOpenFlag = (v: boolean) => {
@@ -339,6 +341,31 @@ const cancelDragOpenTimers = (flushClose = false) => {
   if (flushClose) pendingCloseFinalize = null;
 };
 
+const resetDragOpenMotion = () => {
+  if (dragOpenRaf) {
+    cancelAnimationFrame(dragOpenRaf);
+    dragOpenRaf = 0;
+  }
+  if (dragOpenParent) {
+    dragOpenParent.style.transition = "";
+    dragOpenParent.style.transform = "";
+    dragOpenParent.style.borderRadius = "";
+    dragOpenParent.style.transformOrigin = "";
+    dragOpenParent.style.willChange = "";
+    dragOpenParent.style.pointerEvents = "";
+    dragOpenParent.style.backfaceVisibility = "";
+  }
+  if (dragOpenMain) {
+    dragOpenMain.style.transition = "";
+    dragOpenMain.style.transform = "";
+    dragOpenMain.style.opacity = "";
+    dragOpenMain.style.willChange = "";
+  }
+  dragOpenParent = null;
+  dragOpenMain = null;
+  dragOpenPending = 0;
+};
+
 const writeDragOpen = (dy: number) => {
   const progress = Math.max(0, Math.min(1, dy / dragOpenTravel));
   const translate = (1 - progress) * dragStartTop;
@@ -366,7 +393,9 @@ const scheduleDragOpenFlush = (dy: number) => {
 // 此时直接放弃会导致 FullPlayer 被 onMobileEnter 的 100vh 起始 transform 卡住，
 // 因此使用一次重试，最多 8 帧，仍找不到则放弃并复位 showFullPlayer。
 let initDragOpenRetry = 0;
+let finishDragOpenRetry = 0;
 const INIT_DRAG_OPEN_MAX_RETRY = 8;
+const FINISH_DRAG_OPEN_MAX_RETRY = 8;
 
 const applyDragOpenInline = (parent: HTMLElement, main: HTMLElement | null) => {
   dragOpenParent = parent;
@@ -391,9 +420,10 @@ const applyDragOpenInline = (parent: HTMLElement, main: HTMLElement | null) => {
 const initDragOpen = () => {
   // 取消上一轮手势遗留的清理 timer，避免清掉本次 inline 样式
   cancelDragOpenTimers();
+  const session = dragOpenSession;
   initDragOpenRetry = 0;
   const tryAttach = () => {
-    if (!dragOpenActive) return;
+    if (!dragOpenActive || session !== dragOpenSession) return;
     const parent = document.querySelector(".full-player") as HTMLElement | null;
     const main = document.getElementById("main");
     if (parent) {
@@ -412,6 +442,7 @@ const initDragOpen = () => {
     dragOpenLocked = null;
     setDragOpenFlag(false);
     statusStore.showFullPlayer = false;
+    resetDragOpenMotion();
   };
   tryAttach();
 };
@@ -440,10 +471,12 @@ const resetDragOpen = () => {
   dragOpenMain = null;
   dragOpenActive = false;
   dragOpenLocked = null;
+  finishDragOpenRetry = 0;
   setDragOpenFlag(false);
 };
 
 const finishDragOpen = (dy: number) => {
+  if (!isPlayerMounted) return;
   const shouldOpen = dy > OPEN_THRESHOLD;
   // 终止还在排队的 initDragOpen 重试，避免下一帧重试命中 .full-player 后用 applyDragOpenInline
   // 覆盖本函数刚写好的开/关动画样式（竞态：用户极快释放时挂载阶段重试链尚未结束）
@@ -452,26 +485,24 @@ const finishDragOpen = (dy: number) => {
     cancelAnimationFrame(dragOpenRaf);
     dragOpenRaf = 0;
   }
-  // 兜底：若挂载阶段重试未成功捕获到 .full-player，dragOpenParent 仍为 null，
-  // 此时 onMobileEnter 已把元素定位到 100vh 离屏。无论开/关结果都必须现在重查并清掉 inline 样式，
-  // 否则 FullPlayer 会被永久卡在屏幕外（showFullPlayer 为 true 但用户什么都看不到）。
+  // 兜底：若挂载阶段重试未成功捕获到 .full-player，先等挂载完成再执行开/关结算
   if (!dragOpenParent) {
     const parent = document.querySelector(".full-player") as HTMLElement | null;
     if (parent) {
       dragOpenParent = parent;
-      // 清掉 onMobileEnter 留下的离屏 transform 及其它内联样式
-      parent.style.transition = "";
-      parent.style.transform = "";
-      parent.style.borderRadius = "";
-      parent.style.transformOrigin = "";
-      parent.style.willChange = "";
-      parent.style.pointerEvents = "";
-      parent.style.backfaceVisibility = "";
+    } else if (finishDragOpenRetry++ < FINISH_DRAG_OPEN_MAX_RETRY) {
+      requestAnimationFrame(() => finishDragOpen(dy));
+      return;
+    } else {
+      statusStore.showFullPlayer = false;
+      resetDragOpen();
+      return;
     }
     if (!dragOpenMain) {
       dragOpenMain = document.getElementById("main");
     }
   }
+  finishDragOpenRetry = 0;
   if (shouldOpen) {
     if (dragOpenParent) {
       dragOpenParent.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)";
@@ -617,6 +648,7 @@ const onPointerMove = (e: PointerEvent) => {
 
 // 卸载时清理 timer / rAF / 残留内联样式，避免组件销毁后 setTimeout 触达陈旧 DOM 引用
 onBeforeUnmount(() => {
+  isPlayerMounted = false;
   cancelDragOpenTimers(true);
   if (dragOpenRaf) {
     cancelAnimationFrame(dragOpenRaf);
