@@ -469,7 +469,7 @@ onMounted(() => {
     padding: 20px;
     z-index: 1;
   }
-  .n-card__content {
+  .n-card-content {
     padding: 0;
     .setting-type {
       transition: opacity 0.2s ease-in-out;
@@ -503,7 +503,7 @@ onMounted(() => {
       &:last-child {
         margin-bottom: 0;
       }
-      .n-card__content {
+      .n-card-content {
         display: flex;
         flex-direction: row;
         align-items: center;
@@ -548,7 +548,7 @@ onMounted(() => {
       }
       .set-item {
         margin-bottom: 8px;
-        .n-card__content {
+        .n-card-content {
           padding: 12px 14px;
         }
         .label {
@@ -566,7 +566,7 @@ onMounted(() => {
     // 在更窄的屏幕（多数手机竖屏）上，改为上下堆叠，避免标签被压成每行一个字
     @media (max-width: 560px) {
       .set-item {
-        .n-card__content {
+        .n-card-content {
           flex-direction: column !important;
           align-items: stretch !important;
           gap: 10px;

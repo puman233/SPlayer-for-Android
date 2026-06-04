@@ -95,7 +95,7 @@ onMounted(getTopPlaylistData);
     height: 160px;
     border-radius: 12px;
     cursor: pointer;
-    :deep(.n-card__content) {
+    :deep(.n-card-content) {
       display: flex;
       height: 100%;
       padding: 16px;
@@ -117,7 +117,7 @@ onMounted(getTopPlaylistData);
       }
     }
     &.no-cover {
-      :deep(.n-card__content) {
+      :deep(.n-card-content) {
         padding: 12px;
       }
       .desc {

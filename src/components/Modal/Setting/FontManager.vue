@@ -257,7 +257,7 @@
 
 <script setup lang="ts">
 import { useSettingStore } from "@/stores";
-import { TASKBAR_IPC_CHANNELS } from "@/types/shared";
+import { TASKBAR_IPC_CHANNELS, type TaskbarConfig } from "@/types/shared";
 import { isElectron } from "@/utils/env";
 import type { SelectOption } from "naive-ui";
 import { lyricFontConfigs } from "@/utils/lyric/lyricFontConfig";
@@ -395,7 +395,9 @@ const fontArrayToFamily = (fontArray: string[]): string => {
 // 获取桌面歌词配置
 const getTaskbarLyricConfig = async () => {
   if (!isElectron) return;
-  const config = await window.electron.ipcRenderer.invoke(TASKBAR_IPC_CHANNELS.GET_OPTION);
+  const config = await window.electron.ipcRenderer.invoke(TASKBAR_IPC_CHANNELS.GET_OPTION) as
+    | TaskbarConfig
+    | null;
   if (config?.fontFamily) taskbarFontFamily.value = config.fontFamily;
 };
 
@@ -466,7 +468,7 @@ onUnmounted(() => {
     &:last-child {
       margin-bottom: 0;
     }
-    :deep(.n-card__content) {
+    :deep(.n-card-content) {
       display: flex;
       flex-direction: row;
       align-items: center;
@@ -502,7 +504,7 @@ onUnmounted(() => {
       }
     }
     &.input-mode {
-      :deep(.n-card__content) {
+      :deep(.n-card-content) {
         flex-direction: column;
         align-items: stretch;
         gap: 12px;
