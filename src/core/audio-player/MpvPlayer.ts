@@ -6,6 +6,11 @@ import type {
   PlayOptions,
 } from "./IPlaybackEngine";
 
+interface MpvActionResult {
+  success: boolean;
+  error?: string;
+}
+
 /**
  * MPV 播放器事件类型
  */
@@ -201,7 +206,12 @@ export class MpvPlayer extends EventTarget implements IPlaybackEngine {
       const { name, artist } = getPlayerInfoObj() || {};
       const playTitle = `${name || ""} - ${artist || ""}`;
 
-      const res = await window.electron.ipcRenderer.invoke("mpv-play", url, playTitle, autoPlay);
+      const res = await window.electron.ipcRenderer.invoke<MpvActionResult>(
+        "mpv-play",
+        url,
+        playTitle,
+        autoPlay,
+      );
       if (!res?.success) {
         this._errorCode = 4;
         throw new Error(res?.error || "MPV 播放失败");
@@ -262,7 +272,10 @@ export class MpvPlayer extends EventTarget implements IPlaybackEngine {
   }
 
   public async setSinkId(deviceId: string): Promise<void> {
-    const result = await window.electron.ipcRenderer.invoke("mpv-set-audio-device", deviceId);
+    const result = await window.electron.ipcRenderer.invoke<MpvActionResult>(
+      "mpv-set-audio-device",
+      deviceId,
+    );
     if (!result?.success) {
       console.warn("MPV 设置音频设备失败:", result?.error);
     }

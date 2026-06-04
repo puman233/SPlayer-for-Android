@@ -8,6 +8,11 @@ import { disableDiscordRpc, enableDiscordRpc, updateDiscordConfig } from "@/core
 import { getAuthToken, getAuthUrl, getSession } from "@/api/lastfm";
 import StreamingServerList from "../components/StreamingServerList.vue";
 
+interface SocketActionResult {
+  success: boolean;
+  message?: string;
+}
+
 export const useNetworkSettings = (): SettingConfig => {
   const settingStore = useSettingStore();
   const testProxyLoading = ref<boolean>(false);
@@ -166,7 +171,7 @@ export const useNetworkSettings = (): SettingConfig => {
         window.$message.warning("请先测试并保存端口配置后再启用 WebSocket");
         return;
       }
-      const result = await window.electron.ipcRenderer.invoke("socket-start");
+      const result = await window.electron.ipcRenderer.invoke<SocketActionResult>("socket-start");
       if (result?.success) {
         socketEnabled.value = true;
         await saveSocketConfig();
@@ -176,7 +181,7 @@ export const useNetworkSettings = (): SettingConfig => {
         socketEnabled.value = false;
       }
     } else {
-      const result = await window.electron.ipcRenderer.invoke("socket-stop");
+      const result = await window.electron.ipcRenderer.invoke<SocketActionResult>("socket-stop");
       if (result?.success) {
         socketEnabled.value = false;
         await saveSocketConfig();
@@ -195,7 +200,10 @@ export const useNetworkSettings = (): SettingConfig => {
       return;
     }
     try {
-      const result = await window.electron.ipcRenderer.invoke("socket-test-port", socketPort.value);
+      const result = await window.electron.ipcRenderer.invoke<SocketActionResult>(
+        "socket-test-port",
+        socketPort.value,
+      );
       if (result?.success) {
         await saveSocketConfig();
         socketPortSaved.value = socketPort.value;

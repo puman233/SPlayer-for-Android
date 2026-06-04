@@ -141,7 +141,7 @@ const onBlur = async () => {
   if (isFocus.value) {
     if (isGlobalFocus.value) {
       const failedShortcuts = await shortcutStore.registerAllShortcuts();
-      if (failedShortcuts) {
+      if (Array.isArray(failedShortcuts)) {
         // 更新所有快捷键的注册状态
         for (const key in shortcutStore.shortcutList) {
           // @ts-ignore

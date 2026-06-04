@@ -94,7 +94,7 @@ const login = async () => {
 onMounted(() => {
   if (isElectron) {
     window.electron.ipcRenderer.on("send-cookies", (_, value) => {
-      if (!value) return;
+      if (typeof value !== "string") return;
       cookie.value = value;
       login();
     });

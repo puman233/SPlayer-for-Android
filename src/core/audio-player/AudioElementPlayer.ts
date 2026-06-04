@@ -40,7 +40,7 @@ export class AudioElementPlayer extends BaseAudioPlayer {
     this.audioElement = new Audio();
     this.audioElement.crossOrigin = "anonymous";
     this.audioElement.preload = "auto";
-    this.audioElement.playsInline = true;
+    this.audioElement.setAttribute("playsinline", "true");
     this.bindInternalEvents();
 
     this.audioElement.addEventListener("seeked", () => {

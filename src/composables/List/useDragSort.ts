@@ -55,7 +55,7 @@ export const useDragSort = (options: DragSortOptions) => {
   };
 
   const activateDrag = (e: MouseEvent | TouchEvent, index: number, labelText: string) => {
-    if (e.cancelable) {
+    if (!("touches" in e) && e.cancelable) {
       e.preventDefault();
     }
 
