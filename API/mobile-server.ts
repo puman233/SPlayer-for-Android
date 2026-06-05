@@ -16,19 +16,29 @@ type ApiFunction = (params: Record<string, unknown>) => Promise<{ body?: unknown
 
 const EMBEDDED_API_VENDOR_ROOT = path.join(__dirname, "vendor", "netease-api");
 const EMBEDDED_API_MAIN_ENTRY = path.join(EMBEDDED_API_VENDOR_ROOT, "main.js");
-const require = createRequire(EMBEDDED_API_MAIN_ENTRY);
+const nodeRequire = createRequire(EMBEDDED_API_MAIN_ENTRY);
 let generateNeteaseApiConfig: (() => Promise<void>) | null = null;
 let neteaseApiConfigPromise: Promise<void> | null = null;
 
 const notifyEmbeddedApiReady = () => {
   try {
-    const cordova = require("cordova-bridge") as {
-      channel?: { post?: (event: string, payload: unknown) => void; send?: (payload: unknown) => void };
+    // cordova-bridge 是 nodejs-mobile 注入的模块，需要通过全局 require 加载
+    const globalRequire =
+      typeof globalThis.require === "function"
+        ? globalThis.require
+        : typeof process.mainModule?.require === "function"
+          ? process.mainModule.require // nodejs-mobile 回退（Node.js 已弃用此属性）
+          : null;
+    if (!globalRequire) {
+      console.warn("[embedded-api] 无法获取全局 require，跳过就绪通知");
+      return;
+    }
+    const cordova = globalRequire("cordova-bridge") as {
+      channel?: { send?: (payload: unknown) => void };
     };
-    cordova.channel?.post?.("message", EMBEDDED_API_READY_EVENT);
     cordova.channel?.send?.(EMBEDDED_API_READY_EVENT);
   } catch {
-    return;
+    // cordova-bridge 不可用时静默忽略，前端会通过轮询兜底
   }
 };
 
@@ -61,7 +71,7 @@ const getApiErrorStatus = (status?: number) => {
 
 const ensureNeteaseApiConfig = async () => {
   if (!neteaseApiConfigPromise) {
-    generateNeteaseApiConfig ||= require(path.join(
+    generateNeteaseApiConfig ||= nodeRequire(path.join(
       EMBEDDED_API_VENDOR_ROOT,
       "generateConfig.js",
     )) as () => Promise<void>;
@@ -165,7 +175,7 @@ let routerMap: Map<string, ApiFunction> | null = null;
 
 const loadNeteaseApi = (requestPath: string): ApiFunction | null => {
   if (!routerMap) {
-    routerMap = createRouterMap(require(EMBEDDED_API_MAIN_ENTRY) as Record<string, unknown>);
+    routerMap = createRouterMap(nodeRequire(EMBEDDED_API_MAIN_ENTRY) as Record<string, unknown>);
   }
   return routerMap.get(requestPath) || null;
 };
