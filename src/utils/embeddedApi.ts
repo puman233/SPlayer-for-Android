@@ -6,7 +6,7 @@ export const EMBEDDED_API_BASE_URL = `${EMBEDDED_API_ORIGIN}/api/netease`;
 
 const DEVICE_READY_TIMEOUT_MS = 15000;
 const EMBEDDED_API_READY_TIMEOUT_MS = 45000;
-const EMBEDDED_API_POLL_INTERVAL_MS = 400;
+const EMBEDDED_API_READY_EVENT = "embedded-api-ready";
 
 let nodeRuntimeStartPromise: Promise<void> | null = null;
 let embeddedApiReadyPromise: Promise<void> | null = null;
@@ -16,6 +16,28 @@ let healthCheckTimer: number | null = null;
 let restartInProgress: Promise<void> | null = null;
 
 const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+const waitForEmbeddedApiReadyEvent = async () => {
+  await new Promise<void>((resolve, reject) => {
+    const nodeRuntime = window.nodejs;
+    if (!nodeRuntime) {
+      reject(new Error("nodejs-mobile runtime bridge is unavailable"));
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      reject(new Error("Embedded API server did not become ready in time"));
+    }, EMBEDDED_API_READY_TIMEOUT_MS);
+
+    nodeRuntime.channel.setListener((message) => {
+      console.info("[embedded-api]", message);
+      if (message === EMBEDDED_API_READY_EVENT) {
+        window.clearTimeout(timer);
+        resolve();
+      }
+    });
+  });
+};
 
 const reportEmbeddedApiError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -81,10 +103,6 @@ export const startEmbeddedApiRuntime = async () => {
         return;
       }
 
-      nodeRuntime.channel.setListener((message) => {
-        console.info("[embedded-api]", message);
-      });
-
       nodeRuntime.start(
         "main.js",
         (error) => {
@@ -139,17 +157,12 @@ export const waitForEmbeddedApiReady = async () => {
   if (embeddedApiReadyPromise) return embeddedApiReadyPromise;
 
   embeddedApiReadyPromise = (async () => {
+    await waitForNodeRuntimeBridge();
+    const readyEventPromise = nodeRuntimeStarted
+      ? Promise.resolve()
+      : waitForEmbeddedApiReadyEvent();
     await startEmbeddedApiRuntime();
-
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < EMBEDDED_API_READY_TIMEOUT_MS) {
-      if (await isEmbeddedApiHealthy()) {
-        return;
-      }
-      await delay(EMBEDDED_API_POLL_INTERVAL_MS);
-    }
-
-    throw new Error("Embedded API server did not become ready in time");
+    await readyEventPromise;
   })();
 
   try {
