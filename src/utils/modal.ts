@@ -78,6 +78,7 @@ export const openPlaylistPageManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "歌单界面配置",
     content: () => {
@@ -94,6 +95,7 @@ export const openFullscreenPlayerManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "全屏播放器配置",
     content: () => {
@@ -110,6 +112,7 @@ export const openContextMenuManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "右键菜单配置",
     content: () => {
@@ -168,6 +171,7 @@ export const openJumpArtist = async (data: SongType["artists"], id?: number) => 
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "600px" },
     title: "跳转到歌手",
     content: () => {
@@ -465,6 +469,7 @@ export const openSongUnlockManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "音源管理",
     content: () => {
@@ -481,6 +486,7 @@ export const openSidebarHideManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "侧边栏显示管理",
     content: () => {
@@ -496,6 +502,7 @@ export const openCoverManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "封面显示配置",
     content: () => {
@@ -512,6 +519,7 @@ export const openHomePageSectionManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: "首页栏目配置",
     content: () => {
@@ -579,6 +587,7 @@ export const openFontManager = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "700px" },
     title: "字体设置",
     content: () => {
@@ -594,6 +603,7 @@ export const openCustomCode = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "700px" },
     title: "自定义代码注入",
     content: () => {
@@ -619,6 +629,7 @@ export const openStreamingServerConfig = async (
     autoFocus: false,
     maskClosable: false,
     closeOnEsc: false,
+    class: "solid-modal",
     style: { width: "500px" },
     title: server ? "编辑流媒体服务" : "添加流媒体服务",
     content: () => {
@@ -645,6 +656,7 @@ export const openThemeConfig = async () => {
     autoFocus: false,
     showMask: false,
     draggable: true,
+    class: "theme-config-modal",
     style: { width: "500px" },
     title: "主题配置",
     size: "small",
@@ -700,6 +712,7 @@ export const openExcludeLyric = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "600px" },
     title: "歌词排除",
     content: () => {
@@ -717,6 +730,7 @@ export const openExcludeComment = async () => {
     preset: "card",
     transformOrigin: "center",
     autoFocus: false,
+    class: "solid-modal",
     style: { width: "600px" },
     title: "评论排除",
     content: () => {
