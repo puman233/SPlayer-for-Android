@@ -592,7 +592,7 @@ class PlayerController {
     const settingStore = useSettingStore();
     const songManager = useSongManager();
     // 记录播放历史 (非电台)
-    if (song.type !== "radio") dataStore.setHistory(song);
+    if (song.type !== "radio") this.runIdleWithTimeout(() => void dataStore.setHistory(song), 1000);
     // 更新歌曲数据
     if (!song.path || song.type === "streaming") {
       mediaSessionManager.updateMetadata();
