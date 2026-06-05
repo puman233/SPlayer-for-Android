@@ -462,6 +462,23 @@ onMounted(() => {
   width: calc(100% - 40px);
   max-width: 1024px !important;
   overflow: hidden;
+  background-color: var(--background-hex) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  .n-card,
+  .n-card > .n-card__content,
+  .set-left,
+  .set-right {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .set-left {
+    background-color: var(--surface-container-hex) !important;
+  }
+  .set-right,
+  .set-item {
+    background-color: var(--background-hex) !important;
+  }
   .n-card-header {
     position: absolute;
     top: 0;
