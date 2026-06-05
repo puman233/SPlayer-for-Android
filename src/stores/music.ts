@@ -33,6 +33,32 @@ const defaultMusicData: SongType = {
   type: "song",
 };
 
+let pendingPersistValue: string | null = null;
+let pendingPersistTimer: number | null = null;
+
+const flushPersistValue = () => {
+  if (pendingPersistValue === null) return;
+  localStorage.setItem("music-store", pendingPersistValue);
+  pendingPersistValue = null;
+  pendingPersistTimer = null;
+};
+
+const musicStoreStorage = {
+  getItem: (key: string) => localStorage.getItem(key),
+  setItem: (_key: string, value: string) => {
+    pendingPersistValue = value;
+    if (pendingPersistTimer !== null) return;
+    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
+      .requestIdleCallback;
+    if (typeof ric === "function") {
+      ric(flushPersistValue, { timeout: 1000 });
+    }
+    pendingPersistTimer = window.setTimeout(flushPersistValue, 1000);
+  },
+};
+
+window.addEventListener("pagehide", flushPersistValue);
+
 export const useMusicStore = defineStore("music", {
   state: (): MusicState => ({
     // 当前播放歌曲
@@ -144,7 +170,7 @@ export const useMusicStore = defineStore("music", {
   // 进度事件与 UI 交互全被锁住。歌词随播放重新拉取/缓存，无需持久化。
   persist: {
     key: "music-store",
-    storage: localStorage,
+    storage: musicStoreStorage,
     pick: ["playSong", "playPlaylistId", "personalFM", "dailySongsData"],
   },
 });
