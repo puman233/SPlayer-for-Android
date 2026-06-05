@@ -130,7 +130,7 @@ watch(
     border-radius: 8px;
     border: 2px solid rgba(var(--primary), 0.12);
     cursor: pointer;
-    :deep(.n-card__content) {
+    :deep(.n-card-content) {
       display: flex;
       flex-direction: column;
       padding: 12px 16px;
@@ -184,7 +184,7 @@ watch(
     }
     .artist-item {
       margin-bottom: 0;
-      :deep(.n-card__content) {
+      :deep(.n-card-content) {
         padding: 10px 12px;
       }
       &:last-child {

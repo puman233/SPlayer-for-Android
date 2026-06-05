@@ -1,4 +1,4 @@
-﻿import type { VNodeChild } from "vue";
+import type { VNodeChild } from "vue";
 import { useSettingStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { isCapacitorAndroid, isElectron, checkIsolationSupport } from "@/utils/env";
@@ -12,6 +12,30 @@ import { uniqBy } from "lodash-es";
 
 import { computed, ref, h, watch } from "vue";
 import { destroyAudioManager, useAudioManager } from "@/core/player/AudioManager";
+
+interface MpvInstalledResult {
+  installed: boolean;
+}
+
+interface MpvAudioDevice {
+  id: string;
+  description: string;
+}
+
+interface MpvAudioDevicesResult {
+  success: boolean;
+  devices?: MpvAudioDevice[];
+}
+
+interface MpvCurrentAudioDeviceResult {
+  success: boolean;
+  deviceId: string;
+}
+
+interface MpvActionResult {
+  success: boolean;
+  error?: string;
+}
 
 export const usePlaySettings = (): SettingConfig => {
   const settingStore = useSettingStore();
@@ -139,7 +163,9 @@ export const usePlaySettings = (): SettingConfig => {
         return;
       }
       try {
-        const result = await window.electron.ipcRenderer.invoke("mpv-check-installed");
+        const result = await window.electron.ipcRenderer.invoke<MpvInstalledResult>(
+          "mpv-check-installed",
+        );
         if (!result.installed) {
           window.$message.error("未检测到 MPV，请先安装 MPV 播放器", { duration: 3000 });
           return;
@@ -180,7 +206,9 @@ export const usePlaySettings = (): SettingConfig => {
     // MPV 引擎：从主进程查询 mpv 设备列表
     if (settingStore.playbackEngine === "mpv") {
       try {
-        const result = await window.electron.ipcRenderer.invoke("mpv-get-audio-devices");
+        const result = await window.electron.ipcRenderer.invoke<MpvAudioDevicesResult>(
+          "mpv-get-audio-devices",
+        );
         if (result.success && result.devices) {
           outputDevices.value = result.devices.map(
             (device: { id: string; description: string }) => ({
@@ -197,7 +225,7 @@ export const usePlaySettings = (): SettingConfig => {
             deviceIds.includes(settingStore.playDevice);
 
           if (!savedValid) {
-            const current = await window.electron.ipcRenderer.invoke(
+            const current = await window.electron.ipcRenderer.invoke<MpvCurrentAudioDeviceResult>(
               "mpv-get-current-audio-device",
             );
             if (current.success) {
@@ -249,7 +277,10 @@ export const usePlaySettings = (): SettingConfig => {
 
     if (settingStore.playbackEngine === "mpv") {
       try {
-        const result = await window.electron.ipcRenderer.invoke("mpv-set-audio-device", deviceId);
+        const result = await window.electron.ipcRenderer.invoke<MpvActionResult>(
+          "mpv-set-audio-device",
+          deviceId,
+        );
         if (result.success) {
           settingStore.playDevice = deviceId;
           window.$message.success(`已切换输出设备为 ${label}`);
@@ -458,7 +489,7 @@ export const usePlaySettings = (): SettingConfig => {
               get: () => settingStore.enableAutomix,
               set: (v) => {
                 if (v && isCapacitorAndroid) {
-                  window.$message.warning("Android 鍘熺敓鎾斁鏆備笉鏀寔鑷姩娣烽煶");
+                  window.$message.warning("Android 原生播放暂不支持自动混音");
                   return;
                 }
                 if (v) {

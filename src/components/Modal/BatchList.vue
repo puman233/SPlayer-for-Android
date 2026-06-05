@@ -146,40 +146,44 @@ const startRange = ref<number | null>(null);
 const endRange = ref<number | null>(null);
 
 // 表头数据
-const columnsData = computed<DataTableColumns<DataType>>(() => [
-  {
-    type: "selection",
-    disabled(row: DataType) {
-      return !row.id;
+const columnsData = computed<DataTableColumns<DataType>>(() => {
+  const columns: DataTableColumns<DataType> = [
+    {
+      type: "selection",
+      disabled(row: DataType) {
+        return !row.id;
+      },
     },
-  },
-  {
-    title: "#",
-    key: "key",
-    width: 80,
-  },
-  {
-    title: "标题",
-    key: "name",
-    ellipsis: {
-      tooltip: true,
+    {
+      title: "#",
+      key: "key",
+      width: 80,
     },
-  },
-  {
-    title: "歌手",
-    key: "artists",
-    ellipsis: {
-      tooltip: true,
+    {
+      title: "标题",
+      key: "name",
+      ellipsis: {
+        tooltip: true,
+      },
     },
-  },
-  {
-    title: "专辑",
-    key: "album",
-    ellipsis: {
-      tooltip: true,
+    {
+      title: "歌手",
+      key: "artists",
+      ellipsis: {
+        tooltip: true,
+      },
     },
-  },
-]);
+    {
+      title: "专辑",
+      key: "album",
+      ellipsis: {
+        tooltip: true,
+      },
+    },
+  ];
+
+  return columns;
+});
 
 // 表格数据
 const tableData = computed<DataType[]>(() =>

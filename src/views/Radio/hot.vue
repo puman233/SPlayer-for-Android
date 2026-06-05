@@ -138,7 +138,7 @@ onMounted(() => {
       height: 48px;
       border-radius: 8px;
       cursor: pointer;
-      :deep(.n-card__content) {
+      :deep(.n-card-content) {
         display: flex;
         align-items: center;
         justify-content: center;

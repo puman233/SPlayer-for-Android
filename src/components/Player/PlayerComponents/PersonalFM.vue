@@ -136,7 +136,7 @@ onMounted(() => songManager.initPersonalFM());
   border-radius: 16px;
   overflow: hidden;
   cursor: pointer;
-  :deep(.n-card__content) {
+  :deep(.n-card-content) {
     display: flex;
     align-items: center;
     padding: 20px;

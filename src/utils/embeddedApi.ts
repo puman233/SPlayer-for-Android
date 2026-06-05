@@ -12,7 +12,7 @@ let nodeRuntimeStartPromise: Promise<void> | null = null;
 let embeddedApiReadyPromise: Promise<void> | null = null;
 let nodeRuntimeStarted = false;
 let embeddedApiErrorShown = false;
-let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+let healthCheckTimer: number | null = null;
 let restartInProgress: Promise<void> | null = null;
 
 const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));

@@ -28,8 +28,8 @@
         <div
           v-if="tapRestoreEnabled && (!statusStore.playerMetaShow || tapRestoreShield)"
           class="tap-restore-overlay"
-          @pointerdown.stop.prevent="onTapRestoreStart"
-          @click.stop.prevent="onTapRestoreClick"
+          @pointerdown="onTapRestoreStart"
+          @click="onTapRestoreClick"
         />
         <!-- 移动端 -->
         <FullPlayerMobile v-if="isCompactMobilePlayer" />
@@ -401,16 +401,23 @@ const holdTapRestoreShield = (duration = 420) => {
   }, duration);
 };
 
+const stopCancelableEvent = (event: Event) => {
+  event.stopPropagation();
+  if (event.cancelable) event.preventDefault();
+};
+
 // 拦截层 touch：恢复 UI 后短暂保留 overlay 吞掉合成 click
 // 不变量：playerMetaHoldCount > 0 或 inControlArea 时不会隐藏 meta，overlay 不出现
-const onTapRestoreStart = () => {
+const onTapRestoreStart = (event: PointerEvent) => {
+  stopCancelableEvent(event);
   holdTapRestoreShield();
   restorePlayerMeta();
 };
 
-// pointerdown 已 .prevent，多数 WebView 不会再派发 click；此处仅兜底恢复 UI，
+// pointerdown 已尽量取消，多数 WebView 不会再派发 click；此处仅兜底恢复 UI，
 // 不再立即 release shield，让 holdTapRestoreShield 的计时器自然走完
-const onTapRestoreClick = () => {
+const onTapRestoreClick = (event: MouseEvent) => {
+  stopCancelableEvent(event);
   restorePlayerMeta();
 };
 

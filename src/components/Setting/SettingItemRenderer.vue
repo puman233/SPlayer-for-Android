@@ -375,7 +375,7 @@ const activeActions = computed(() => {
     pointer-events: none;
   }
 }
-:deep(.n-card__content) {
+:deep(.n-card-content) {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -409,7 +409,7 @@ const activeActions = computed(() => {
 
 // 窄屏幕下让控件行切换为上下堆叠
 @media (max-width: 560px) {
-  :deep(.n-card__content) {
+  :deep(.n-card-content) {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;

@@ -272,7 +272,7 @@ export const getCoverColor = async (coverUrl: string) => {
   // 创建图像元素
   const image = new Image();
   image.crossOrigin = "Anonymous";
-  image.src = coverUrl;
+  image.src = coverUrl.replace(/^http:/, "https:");
   const cleanupImage = () => {
     image.onload = null;
     image.onerror = null;

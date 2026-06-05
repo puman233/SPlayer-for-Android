@@ -1,8 +1,14 @@
 import { usePlayerController } from "@/core/player/PlayerController";
 import * as playerIpc from "@/core/player/PlayerIpc";
 import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/stores";
-import type { SettingType } from "@/types/main";
-import { TASKBAR_IPC_CHANNELS, type TaskbarConfig } from "@/types/shared";
+import type { SettingType, UpdateInfoType } from "@/types/main";
+import {
+  DEFAULT_TASKBAR_CONFIG,
+  TASKBAR_IPC_CHANNELS,
+  type RepeatModeType,
+  type ShuffleModeType,
+  type TaskbarConfig,
+} from "@/types/shared";
 import { handleProtocolUrl } from "@/utils/protocol";
 import { cloneDeep } from "lodash-es";
 import { toRaw } from "vue";
@@ -43,8 +49,12 @@ const initIpc = () => {
     window.electron.ipcRenderer.on("seekForward", () => player.seekBy(5000));
     window.electron.ipcRenderer.on("seekBackward", () => player.seekBy(-5000));
     // 播放模式切换
-    window.electron.ipcRenderer.on("changeRepeat", (_, mode) => player.toggleRepeat(mode));
-    window.electron.ipcRenderer.on("toggleShuffle", (_, mode) => player.toggleShuffle(mode));
+    window.electron.ipcRenderer.on("changeRepeat", (_, mode) =>
+      player.toggleRepeat(mode as RepeatModeType),
+    );
+    window.electron.ipcRenderer.on("toggleShuffle", (_, mode) =>
+      player.toggleShuffle(mode as ShuffleModeType),
+    );
     // 喜欢歌曲
     window.electron.ipcRenderer.on("toggle-like-song", async () => {
       const dataStore = useDataStore();
@@ -93,7 +103,8 @@ const initIpc = () => {
       const cover = musicStore.getSongCover("s") || "";
 
       const configPayload: TaskbarConfig =
-        (await window.electron.ipcRenderer.invoke(TASKBAR_IPC_CHANNELS.GET_OPTION)) ?? {};
+        (await window.electron.ipcRenderer.invoke<TaskbarConfig>(TASKBAR_IPC_CHANNELS.GET_OPTION)) ??
+        DEFAULT_TASKBAR_CONFIG;
 
       const hasYrc = (musicStore.songLyric.yrcData?.length ?? 0) > 0;
       const lyricsPayload = {
@@ -166,19 +177,21 @@ const initIpc = () => {
     });
     // 有更新
     window.electron.ipcRenderer.on("update-available", (_, info) => {
+      const updateInfo = info as UpdateInfoType;
       closeUpdateStatus();
       statusStore.updateAvailable = true;
-      statusStore.updateInfo = info;
+      statusStore.updateInfo = updateInfo;
       statusStore.updateDownloaded = false;
       statusStore.updateDownloading = false;
       statusStore.updateDownloadProgress = 0;
       // 弹窗提示
-      openUpdateApp(info);
+      openUpdateApp(updateInfo);
     });
     // 更新下载进度
     window.electron.ipcRenderer.on("download-progress", (_, progress) => {
+      const updateProgress = progress as { percent?: number };
       statusStore.updateDownloading = true;
-      statusStore.updateDownloadProgress = Number((progress?.percent || 0).toFixed(1));
+      statusStore.updateDownloadProgress = Number((updateProgress.percent || 0).toFixed(1));
     });
     // 更新下载完成
     window.electron.ipcRenderer.on("update-downloaded", () => {
@@ -195,6 +208,7 @@ const initIpc = () => {
     });
     // 协议数据
     window.electron.ipcRenderer.on("protocol-url", (_, url) => {
+      if (typeof url !== "string") return;
       console.log("📡 Received protocol url:", url);
       handleProtocolUrl(url);
     });

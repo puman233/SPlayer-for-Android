@@ -306,7 +306,11 @@ const changeLocalPath =
         return;
       }
       // 添加目录（支持多选）
-      const selectedDirs = await window.electron.ipcRenderer.invoke("choose-path", title, true);
+      const selectedDirs = await window.electron.ipcRenderer.invoke<string | string[]>(
+        "choose-path",
+        title,
+        true,
+      );
       if (!selectedDirs || selectedDirs.length === 0) return;
       // 转换为数组（兼容单选返回字符串的情况）
       const dirsToAdd = Array.isArray(selectedDirs) ? selectedDirs : [selectedDirs];
