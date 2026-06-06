@@ -7,12 +7,40 @@ const DEFAULT_PORT = Number(process.env["SP_API_PORT"] || process.env["VITE_SERV
 const DEFAULT_HOST = process.env["SP_API_HOST"] || "127.0.0.1";
 const DEFAULT_AMLL_DB_SERVER =
   process.env["SP_AMLL_DB_SERVER"] || "https://amlldb.bikonoo.com/ncm-lyrics/%s.ttml";
+const ALLOWED_ORIGINS = ["https://localhost", "capacitor://localhost"];
+const ALLOWED_HEADERS =
+  "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-SPlayer-Cookie";
+const EMBEDDED_API_READY_EVENT = "embedded-api-ready";
 
 type ApiFunction = (params: Record<string, unknown>) => Promise<{ body?: unknown } | unknown>;
 
 const EMBEDDED_API_VENDOR_ROOT = path.join(__dirname, "vendor", "netease-api");
 const EMBEDDED_API_MAIN_ENTRY = path.join(EMBEDDED_API_VENDOR_ROOT, "main.js");
-const require = createRequire(EMBEDDED_API_MAIN_ENTRY);
+const nodeRequire = createRequire(EMBEDDED_API_MAIN_ENTRY);
+let generateNeteaseApiConfig: (() => Promise<void>) | null = null;
+let neteaseApiConfigPromise: Promise<void> | null = null;
+
+const notifyEmbeddedApiReady = () => {
+  try {
+    // cordova-bridge 是 nodejs-mobile 注入的模块，需要通过全局 require 加载
+    const globalRequire =
+      typeof globalThis.require === "function"
+        ? globalThis.require
+        : typeof process.mainModule?.require === "function"
+          ? process.mainModule.require // nodejs-mobile 回退（Node.js 已弃用此属性）
+          : null;
+    if (!globalRequire) {
+      console.warn("[embedded-api] 无法获取全局 require，跳过就绪通知");
+      return;
+    }
+    const cordova = globalRequire("cordova-bridge") as {
+      channel?: { send?: (payload: unknown) => void };
+    };
+    cordova.channel?.send?.(EMBEDDED_API_READY_EVENT);
+  } catch {
+    // cordova-bridge 不可用时静默忽略，前端会通过轮询兜底
+  }
+};
 
 const toPathCase = (value: string) => {
   return value
@@ -23,15 +51,49 @@ const toPathCase = (value: string) => {
 };
 
 const setCorsHeaders = (request: IncomingMessage, response: ServerResponse) => {
-  // For Capacitor Android WebView, allow https://localhost with credentials
-  const origin = request.headers.origin || "https://localhost";
-  response.setHeader("Access-Control-Allow-Origin", origin);
-  response.setHeader("Access-Control-Allow-Credentials", "true");
-  response.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With, Accept, Origin",
-  );
+  const origin = request.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Access-Control-Allow-Credentials", "true");
+    response.setHeader("Vary", "Origin");
+  }
+  response.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS);
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+};
+
+const getHeaderValue = (value: string | string[] | undefined) => {
+  return Array.isArray(value) ? value[0] : value;
+};
+
+const getApiErrorStatus = (status?: number) => {
+  return typeof status === "number" && status >= 400 && status < 600 ? status : 500;
+};
+
+const ensureNeteaseApiConfig = async () => {
+  if (!neteaseApiConfigPromise) {
+    generateNeteaseApiConfig ||= nodeRequire(path.join(
+      EMBEDDED_API_VENDOR_ROOT,
+      "generateConfig.js",
+    )) as () => Promise<void>;
+    neteaseApiConfigPromise = Promise.resolve(generateNeteaseApiConfig()).catch((error: unknown) => {
+      neteaseApiConfigPromise = null;
+      throw error;
+    });
+  }
+
+  await neteaseApiConfigPromise;
+};
+
+const createRouterMap = (neteaseApi: Record<string, unknown>) => {
+  const routerMap = new Map<string, ApiFunction>();
+  Object.keys(neteaseApi).forEach((key) => {
+    const value = neteaseApi[key];
+    if (typeof value !== "function") return;
+    [key, toPathCase(key)].forEach((routePath) => {
+      if (!routerMap.has(routePath)) routerMap.set(routePath, value as ApiFunction);
+    });
+  });
+  return routerMap;
 };
 
 const sendJson = (
@@ -93,29 +155,29 @@ const parseBody = (rawBody: string, contentType: string | undefined) => {
 const mergeCookieInput = (
   query: Record<string, unknown>,
   body: Record<string, unknown>,
+  origin: string | undefined,
   cookieHeader: string | undefined,
+  splayerCookieHeader: string | undefined,
 ) => {
-  const cookie =
-    typeof body.cookie === "string"
-      ? body.cookie
-      : typeof query.cookie === "string"
-        ? query.cookie
-        : cookieHeader;
+  const { cookie: _queryCookie, ...safeQuery } = query;
+  const { cookie: _bodyCookie, ...safeBody } = body;
+  const customCookie = origin && ALLOWED_ORIGINS.includes(origin) ? splayerCookieHeader : undefined;
+  const cookie = customCookie || cookieHeader;
 
   return {
-    ...query,
-    ...body,
+    ...safeQuery,
+    ...safeBody,
     ...(cookie ? { cookie } : {}),
   };
 };
 
+let routerMap: Map<string, ApiFunction> | null = null;
+
 const loadNeteaseApi = (requestPath: string): ApiFunction | null => {
-  const neteaseApi = require(EMBEDDED_API_MAIN_ENTRY) as Record<string, unknown>;
-  const routerName = Object.keys(neteaseApi).find((key) => {
-    const value = neteaseApi[key];
-    return typeof value === "function" && (toPathCase(key) === requestPath || key === requestPath);
-  });
-  return routerName ? (neteaseApi[routerName] as ApiFunction) : null;
+  if (!routerMap) {
+    routerMap = createRouterMap(nodeRequire(EMBEDDED_API_MAIN_ENTRY) as Record<string, unknown>);
+  }
+  return routerMap.get(requestPath) || null;
 };
 
 const fetchText = (url: string) =>
@@ -148,7 +210,7 @@ const handleNeteaseRoute = async (
   response: ServerResponse,
 ) => {
   if (pathname === "/api/netease") {
-    sendJson(response, 200, {
+    sendJson(request, response, 200, {
       name: "@neteasecloudmusicapienhanced/api",
       description: "NeteaseCloudMusicApi Enhanced",
       url: "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced",
@@ -159,7 +221,7 @@ const handleNeteaseRoute = async (
   if (pathname === "/api/netease/lyric/ttml") {
     const id = String(query.id || "");
     if (!id) {
-      sendJson(response, 400, { error: "id is required" });
+      sendJson(request, response, 400, { error: "id is required" });
       return;
     }
 
@@ -185,7 +247,16 @@ const handleNeteaseRoute = async (
   }
 
   try {
-    const result = await neteaseApi(mergeCookieInput(query, body, request.headers.cookie));
+    await ensureNeteaseApiConfig();
+    const result = await neteaseApi(
+      mergeCookieInput(
+        query,
+        body,
+        request.headers.origin,
+        request.headers.cookie,
+        getHeaderValue(request.headers["x-splayer-cookie"]),
+      ),
+    );
     const payload =
       typeof result === "object" && result && "body" in result
         ? (result as { body?: unknown }).body
@@ -196,14 +267,10 @@ const handleNeteaseRoute = async (
 
     if (typeof error === "object" && error) {
       const apiError = error as { status?: number; body?: unknown; message?: string };
-      if (apiError.status && [301, 400].includes(apiError.status)) {
-        sendJson(request, response, apiError.status, apiError.body);
-        return;
-      }
       sendJson(
         request,
         response,
-        500,
+        getApiErrorStatus(apiError.status),
         apiError.body || { error: apiError.message || "Internal Server Error" },
       );
       return;
@@ -265,6 +332,7 @@ export const startEmbeddedApiServer = async () => {
   });
 
   console.log(`[embedded-api] listening on http://${DEFAULT_HOST}:${DEFAULT_PORT}/api`);
+  notifyEmbeddedApiReady();
   return server;
 };
 

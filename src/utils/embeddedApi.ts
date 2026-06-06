@@ -6,7 +6,7 @@ export const EMBEDDED_API_BASE_URL = `${EMBEDDED_API_ORIGIN}/api/netease`;
 
 const DEVICE_READY_TIMEOUT_MS = 15000;
 const EMBEDDED_API_READY_TIMEOUT_MS = 45000;
-const EMBEDDED_API_POLL_INTERVAL_MS = 400;
+const EMBEDDED_API_READY_EVENT = "embedded-api-ready";
 
 let nodeRuntimeStartPromise: Promise<void> | null = null;
 let embeddedApiReadyPromise: Promise<void> | null = null;
@@ -16,6 +16,40 @@ let healthCheckTimer: number | null = null;
 let restartInProgress: Promise<void> | null = null;
 
 const delay = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+const waitForEmbeddedApiReadyEvent = () => {
+  return new Promise<void>((resolve) => {
+    const nodeRuntime = window.nodejs;
+    if (!nodeRuntime) {
+      // bridge 不可用时保持 pending，交由轮询决定结果
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      // 超时后清除 listener 避免吞掉后续通道消息，但不 resolve，交由轮询兜底
+      nodeRuntime.channel.setListener(() => {});
+      console.warn("[embedded-api] 就绪事件超时，依赖轮询兜底");
+    }, EMBEDDED_API_READY_TIMEOUT_MS);
+
+    nodeRuntime.channel.setListener((message) => {
+      console.info("[embedded-api]", message);
+      if (message === EMBEDDED_API_READY_EVENT) {
+        window.clearTimeout(timer);
+        resolve();
+      }
+    });
+  });
+};
+
+const waitForEmbeddedApiPolling = async (shouldStop: () => boolean) => {
+  const maxAttempts = Math.ceil(EMBEDDED_API_READY_TIMEOUT_MS / 500);
+  for (let i = 0; i < maxAttempts; i++) {
+    if (shouldStop()) return;
+    if (await isEmbeddedApiHealthy()) return;
+    await delay(500);
+  }
+  throw new Error("Embedded API server did not become ready in time (polling)");
+};
 
 const reportEmbeddedApiError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -81,10 +115,6 @@ export const startEmbeddedApiRuntime = async () => {
         return;
       }
 
-      nodeRuntime.channel.setListener((message) => {
-        console.info("[embedded-api]", message);
-      });
-
       nodeRuntime.start(
         "main.js",
         (error) => {
@@ -139,17 +169,19 @@ export const waitForEmbeddedApiReady = async () => {
   if (embeddedApiReadyPromise) return embeddedApiReadyPromise;
 
   embeddedApiReadyPromise = (async () => {
+    await waitForNodeRuntimeBridge();
+    let ready = false;
+    const readyEventPromise = nodeRuntimeStarted
+      ? Promise.resolve()
+      : waitForEmbeddedApiReadyEvent();
     await startEmbeddedApiRuntime();
-
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < EMBEDDED_API_READY_TIMEOUT_MS) {
-      if (await isEmbeddedApiHealthy()) {
-        return;
-      }
-      await delay(EMBEDDED_API_POLL_INTERVAL_MS);
-    }
-
-    throw new Error("Embedded API server did not become ready in time");
+    // 事件和轮询并行，任一先成功即视为就绪，败者通过标志位提前终止
+    await Promise.race([
+      readyEventPromise.then(() => {
+        ready = true;
+      }),
+      waitForEmbeddedApiPolling(() => ready),
+    ]);
   })();
 
   try {

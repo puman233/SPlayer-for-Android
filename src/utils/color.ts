@@ -213,9 +213,9 @@ const runWhenIdle = (cb: () => void): void => {
   const ric = (window as unknown as { requestIdleCallback?: typeof requestIdleCallback })
     .requestIdleCallback;
   if (typeof ric === "function") {
-    ric(() => cb(), { timeout: 200 });
+    ric(() => cb(), { timeout: 500 });
   } else {
-    setTimeout(cb, 0);
+    setTimeout(cb, 120);
   }
 };
 
@@ -265,7 +265,9 @@ export const getCoverColor = async (coverUrl: string) => {
   // 缓存命中：立即应用，跳过图片加载与 quantize 重计算。
   const cached = readCoverColorCache(coverUrl);
   if (cached) {
-    applyCoverColor(cached);
+    runWhenIdle(() => {
+      if (requestId === coverColorRequestId) applyCoverColor(cached);
+    });
     return;
   }
 
