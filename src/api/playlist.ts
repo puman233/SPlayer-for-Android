@@ -4,13 +4,13 @@ import request from "@/utils/request";
  * 获取歌单详情
  * @param {number} id - 歌单 id
  */
-export const playlistDetail = (id: number) => {
+export const playlistDetail = (id: number, noCookie: boolean = true) => {
   return request({
     url: "/playlist/detail",
     params: {
       id,
       s: 0, // 去除返回收藏者
-      noCookie: true, // 去除返回 privileges
+      ...(noCookie ? { noCookie: true } : {}), // 去除返回 privileges
       timestamp: Date.now(),
     },
   });

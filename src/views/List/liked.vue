@@ -16,18 +16,8 @@
       @play-all="playAllSongs"
     />
     <Transition name="fade" mode="out-in">
-      <div v-if="(!searchValue || searchData?.length) && isPhone" class="mobile-liked-song-list">
-        <SongCard
-          v-for="(song, index) in displayData"
-          :key="song.id"
-          :song="song"
-          :index="index"
-          hidden-size
-          @click.stop="playMobileSong(song)"
-        />
-      </div>
       <SongList
-        v-else-if="!searchValue || searchData?.length"
+        v-if="!searchValue || searchData?.length"
         :data="displayData"
         :loading="loading"
         :height="songListHeight"
@@ -67,14 +57,9 @@ import { useListDetail } from "@/composables/List/useListDetail";
 import { useListSearch } from "@/composables/List/useListSearch";
 import { useListScroll } from "@/composables/List/useListScroll";
 import { useListActions } from "@/composables/List/useListActions";
-import { useDevice } from "@/composables/useDevice";
-import { usePlayerController } from "@/core/player/PlayerController";
-import SongCard from "@/components/Card/SongCard.vue";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
-const { isPhone } = useDevice();
-const player = usePlayerController();
 
 // 是否激活
 const isActivated = ref<boolean>(false);
@@ -202,7 +187,7 @@ const loadPlaylistData = async (id: number, forceRefresh: boolean = false) => {
     resetScroll();
   }
   try {
-    const detail = await playlistDetail(id);
+    const detail = await playlistDetail(id, false);
     if (currentRequestId.value !== id) return;
     // 更新歌单详情
     setDetailData(formatCoverList(detail.playlist)[0]);
@@ -323,7 +308,7 @@ const syncSongList = async (serverIds: number[], requestId: number) => {
   if (currentRequestId.value !== requestId) return;
   setListData(newList);
   // 更新详情
-  const detail = await playlistDetail(playlistId.value);
+  const detail = await playlistDetail(playlistId.value, false);
   if (currentRequestId.value === requestId) {
     setDetailData(formatCoverList(detail.playlist)[0]);
   }
@@ -356,11 +341,6 @@ const playAllSongs = useDebounceFn(() => {
   if (!detailData.value || !displayData.value?.length) return;
   playAllSongsAction(displayData.value, playlistId.value);
 }, 300);
-
-const playMobileSong = (song: SongType) => {
-  if (!displayData.value?.length) return;
-  player.updatePlayList(displayData.value, song, playlistId.value);
-};
 
 // 删除指定索引歌曲
 const removeSong = (ids: number[]) => {
@@ -438,13 +418,3 @@ onMounted(async () => {
   }
 });
 </script>
-
-<style lang="scss" scoped>
-.mobile-liked-song-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-top: 236px;
-  padding-bottom: 12px;
-}
-</style>
