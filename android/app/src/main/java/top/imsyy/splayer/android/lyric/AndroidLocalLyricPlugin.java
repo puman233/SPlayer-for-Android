@@ -32,8 +32,6 @@ import org.json.JSONObject;
 
 @CapacitorPlugin(name = "AndroidLocalLyric")
 public class AndroidLocalLyricPlugin extends Plugin {
-  private static final Pattern AMLL_META_PATTERN =
-      Pattern.compile("<\\s*amll:meta\\b[^>]*>", Pattern.CASE_INSENSITIVE);
   private static final Pattern FILENAME_ID_PATTERN = Pattern.compile("(\\d+)");
   private static final String[] LYRIC_EXTENSIONS = {".ttml", ".yrc", ".lrc"};
   private static final String[] SIDECAR_EXTENSIONS = {".ttml", ".yrc", ".lrc"};
@@ -420,10 +418,14 @@ public class AndroidLocalLyricPlugin extends Plugin {
       long lastModified = Math.max(child.lastModified(), 0L);
 
       try {
-        LyricMetadata metadata = new LyricMetadata();
+        AndroidLyricMetadataParser.LyricMetadata metadata =
+            new AndroidLyricMetadataParser.LyricMetadata();
         if ("ttml".equals(format)) {
           String content = readText(child.getUri());
-          metadata = extractTtmlMetadata(content);
+          metadata = AndroidLyricMetadataParser.extractTtmlMetadata(content);
+        } else if ("lrc".equals(format)) {
+          String content = readText(child.getUri());
+          metadata = AndroidLyricMetadataParser.extractLrcMetadata(content);
         }
 
         AndroidLyricIndexEntry entry =
@@ -520,37 +522,6 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
   }
 
-  private LyricMetadata extractTtmlMetadata(String ttml) {
-    LyricMetadata metadata = new LyricMetadata();
-    Matcher metaMatcher = AMLL_META_PATTERN.matcher(ttml);
-    while (metaMatcher.find()) {
-      String tag = metaMatcher.group();
-      String key = readAttribute(tag, "key");
-      String value = readAttribute(tag, "value");
-      if (key == null || value == null) continue;
-      metadata.put(key.trim(), decodeXmlAttribute(value).trim());
-    }
-    return metadata;
-  }
-
-  @Nullable
-  private String readAttribute(String tag, String name) {
-    Pattern attrPattern =
-        Pattern.compile("\\b" + Pattern.quote(name) + "\\s*=\\s*(['\"])(.*?)\\1");
-    Matcher matcher = attrPattern.matcher(tag);
-    if (!matcher.find()) return null;
-    return matcher.group(2);
-  }
-
-  private String decodeXmlAttribute(String value) {
-    return value
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&");
-  }
-
   private String safeName(@Nullable DocumentFile file, Uri uri) {
     String name = file == null ? null : file.getName();
     if (name != null && !name.isEmpty()) return name;
@@ -568,49 +539,13 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
   }
 
-  private static class LyricMetadata {
-    @Nullable String album;
-    @Nullable String musicName;
-    @Nullable String artists;
-    @Nullable String ncmMusicId;
-
-    void put(String key, String value) {
-      if (value.isEmpty()) return;
-      switch (key) {
-        case "album":
-          album = value;
-          break;
-        case "musicName":
-          musicName = value;
-          break;
-        case "artists":
-          artists = value;
-          break;
-        case "ncmMusicId":
-          ncmMusicId = value;
-          break;
-        default:
-          break;
-      }
-    }
-
-    JSObject toJSObject() {
-      JSObject object = new JSObject();
-      if (album != null && !album.isEmpty()) object.put("album", album);
-      if (musicName != null && !musicName.isEmpty()) object.put("musicName", musicName);
-      if (artists != null && !artists.isEmpty()) object.put("artists", artists);
-      if (ncmMusicId != null && !ncmMusicId.isEmpty()) object.put("ncmMusicId", ncmMusicId);
-      return object;
-    }
-  }
-
   private static class AndroidLyricIndexEntry {
     final String uri;
     final String name;
     final long lastModified;
     final String directoryUri;
     final String format;
-    final LyricMetadata metadata;
+    final AndroidLyricMetadataParser.LyricMetadata metadata;
 
     AndroidLyricIndexEntry(
         String uri,
@@ -618,7 +553,7 @@ public class AndroidLocalLyricPlugin extends Plugin {
         long lastModified,
         String directoryUri,
         String format,
-        LyricMetadata metadata) {
+        AndroidLyricMetadataParser.LyricMetadata metadata) {
       this.uri = uri;
       this.name = name;
       this.lastModified = lastModified;

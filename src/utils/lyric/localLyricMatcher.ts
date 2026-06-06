@@ -1,4 +1,4 @@
-export type LocalLyricMatchMode = "loose" | "standard" | "strict";
+export type LocalLyricMatchMode = "loose" | "standard";
 export type LocalLyricFormat = "ttml" | "yrc" | "lrc";
 export type LocalLyricMetadataValue = string | string[];
 
@@ -94,6 +94,13 @@ const getFieldPairs = (metadata: LocalLyricMetadata, target: LocalLyricMatchTarg
   },
 ];
 
+const getMatchedFields = (
+  pairs: Array<{ source: string[]; target: string[] }>,
+  match: (source: string[], target: string[]) => boolean,
+) =>
+  pairs.filter((pair) => pair.source.length > 0 && pair.target.length > 0 && match(pair.source, pair.target))
+    .length;
+
 export const matchLocalLyricMetadata = (
   metadata: LocalLyricMetadata | undefined,
   target: LocalLyricMatchTarget,
@@ -102,33 +109,41 @@ export const matchLocalLyricMetadata = (
   if (!metadata) return { matched: false, matchedFields: 0 };
 
   const pairs = getFieldPairs(metadata, target);
-  const declaredPairs = pairs.filter((pair) => pair.source.length > 0);
-  const exactMatches = pairs.filter(
+  const [titlePair, ...supportPairs] = pairs;
+  const titleExact = hasExactOverlap(titlePair.source, titlePair.target);
+  const titleContains = hasContainsOverlap(titlePair.source, titlePair.target);
+  const exactMatches = getMatchedFields(pairs, hasExactOverlap);
+  const containsMatches = getMatchedFields(pairs, hasContainsOverlap);
+
+  if (!titlePair.source.length || !titlePair.target.length) {
+    return { matched: false, matchedFields: 0 };
+  }
+
+  if (mode === "loose") {
+    const comparableSupportPairs = supportPairs.filter(
+      (pair) => pair.source.length > 0 && pair.target.length > 0,
+    );
+    const hasSupportMatch = comparableSupportPairs.some((pair) =>
+      hasContainsOverlap(pair.source, pair.target),
+    );
+    const hasLooseMatch =
+      titleContains && (comparableSupportPairs.length === 0 || hasSupportMatch);
+    return {
+      matched: hasLooseMatch,
+      matchedFields: hasLooseMatch ? Math.max(containsMatches, 1) : 0,
+    };
+  }
+
+  const hasSupportExactMatch = supportPairs.some(
     (pair) =>
       pair.source.length > 0 &&
       pair.target.length > 0 &&
       hasExactOverlap(pair.source, pair.target),
-  ).length;
-
-  if (mode === "loose") {
-    const hasLooseMatch = pairs.some(
-      (pair) =>
-        pair.source.length > 0 &&
-        pair.target.length > 0 &&
-        hasContainsOverlap(pair.source, pair.target),
-    );
-    return {
-      matched: hasLooseMatch,
-      matchedFields: hasLooseMatch ? Math.max(exactMatches, 1) : 0,
-    };
-  }
-
-  if (mode === "strict") {
-    const allDeclared = declaredPairs.length === 3;
-    return { matched: allDeclared && exactMatches === 3, matchedFields: exactMatches };
-  }
-
-  return { matched: exactMatches >= 2, matchedFields: exactMatches };
+  );
+  return {
+    matched: titleExact && hasSupportExactMatch,
+    matchedFields: titleExact && hasSupportExactMatch ? exactMatches : 0,
+  };
 };
 
 export const findBestLocalLyricMatch = (
@@ -145,6 +160,9 @@ export const findBestLocalLyricMatch = (
     .filter((item) => item.match.matched);
 
   matched.sort((a, b) => {
+    const fieldDiff = b.match.matchedFields - a.match.matchedFields;
+    if (fieldDiff) return fieldDiff;
+
     const formatDiff = FORMAT_WEIGHT[b.candidate.format] - FORMAT_WEIGHT[a.candidate.format];
     if (formatDiff) return formatDiff;
 

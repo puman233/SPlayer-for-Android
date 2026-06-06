@@ -6,7 +6,7 @@
         <n-text class="tip" :depth="3" v-if="item?.description" v-html="item.description" />
         <n-text class="tip" :depth="3" v-else-if="isCapacitorAndroid">
           选择歌词目录，支持 .ttml、.yrc 和 .lrc 格式 <br />
-          TTML 元数据可用于本地歌曲匹配 <br />
+          TTML/LRC 元数据可用于本地歌曲匹配 <br />
           添加后会自动扫描
         </n-text>
         <n-text class="tip" :depth="3" v-else>

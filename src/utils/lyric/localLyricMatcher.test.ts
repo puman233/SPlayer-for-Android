@@ -41,9 +41,9 @@ describe("localLyricMatcher", () => {
     assert.equal(result.matchedFields, 3);
   });
 
-  it("宽松模式任一项包含即可匹配", () => {
+  it("宽松模式允许标题包含匹配", () => {
     const result = matchLocalLyricMetadata(
-      { musicName: "星间旅行 live", album: "其他专辑", artists: "其他歌手" },
+      { musicName: "星间旅行 live" },
       target,
       "loose",
     );
@@ -72,20 +72,49 @@ describe("localLyricMatcher", () => {
     );
   });
 
-  it("严格模式要求声明的三项元数据全部完全匹配", () => {
+  it("标准模式必须匹配标题并由专辑或歌手佐证", () => {
     assert.equal(
-      matchLocalLyricMetadata(
-        { musicName: "星间旅行", album: "夜空列车", artists: "Alice/Bob" },
-        target,
-        "strict",
-      ).matched,
-      true,
+      matchLocalLyricMetadata({ album: "夜空列车", artists: "Alice/Bob" }, target, "standard")
+        .matched,
+      false,
     );
 
     assert.equal(
-      matchLocalLyricMetadata({ musicName: "星间旅行", album: "夜空列车" }, target, "strict")
-        .matched,
+      matchLocalLyricMetadata(
+        { musicName: "星间旅行", album: "其他专辑", artists: "其他歌手" },
+        target,
+        "standard",
+      ).matched,
       false,
+    );
+
+    assert.equal(
+      matchLocalLyricMetadata(
+        { musicName: "星间旅行", album: "夜空列车", artists: "其他歌手" },
+        target,
+        "standard",
+      ).matched,
+      true,
+    );
+  });
+
+  it("宽松模式需要标题命中且可用专辑或歌手不能冲突", () => {
+    assert.equal(
+      matchLocalLyricMetadata(
+        { musicName: "星间旅行 live", album: "其他专辑", artists: "其他歌手" },
+        target,
+        "loose",
+      ).matched,
+      false,
+    );
+
+    assert.equal(
+      matchLocalLyricMetadata(
+        { musicName: "星间旅行 live", album: "其他专辑", artists: "Alice feat. Bob" },
+        target,
+        "loose",
+      ).matched,
+      true,
     );
   });
 
@@ -130,6 +159,31 @@ describe("localLyricMatcher", () => {
     ];
 
     assert.equal(findBestLocalLyricMatch(candidates, target, "standard")?.uri, "ttml-new");
+  });
+
+  it("优先选择匹配字段更完整的候选，再比较格式和时间", () => {
+    const candidates: LocalLyricCandidate[] = [
+      {
+        uri: "ttml-two-fields",
+        name: "song.ttml",
+        format: "ttml",
+        directoryUri: "dir-a",
+        directoryIndex: 0,
+        lastModified: 500,
+        metadata: { musicName: "星间旅行", album: "夜空列车", artists: "其他歌手" },
+      },
+      {
+        uri: "lrc-three-fields",
+        name: "song.lrc",
+        format: "lrc",
+        directoryUri: "dir-a",
+        directoryIndex: 0,
+        lastModified: 100,
+        metadata: { musicName: "星间旅行", album: "夜空列车", artists: "Alice/Bob" },
+      },
+    ];
+
+    assert.equal(findBestLocalLyricMatch(candidates, target, "standard")?.uri, "lrc-three-fields");
   });
 
   it("按 AMLL 评分、匹配字段、网易云 ID 和原顺序选择最佳歌词", () => {
@@ -182,7 +236,7 @@ describe("localLyricMatcher", () => {
     assert.equal(findBestAmlLyricMatch(candidates, target, "standard")?.file, "best.ttml");
   });
 
-  it("AMLL 候选遵循严格和宽松匹配档位", () => {
+  it("AMLL 候选遵循标准和宽松匹配档位", () => {
     const candidates: AmlLyricCandidate[] = [
       {
         file: "loose.ttml",
@@ -190,13 +244,13 @@ describe("localLyricMatcher", () => {
         titles: ["星间旅行 live"],
         album: "其他专辑",
         albums: ["其他专辑"],
-        artist: "其他歌手",
-        artists: ["其他歌手"],
+        artist: "Alice feat. Bob",
+        artists: ["Alice feat. Bob"],
         score: 1,
       },
     ];
 
     assert.equal(findBestAmlLyricMatch(candidates, target, "loose")?.file, "loose.ttml");
-    assert.equal(findBestAmlLyricMatch(candidates, target, "strict"), null);
+    assert.equal(findBestAmlLyricMatch(candidates, target, "standard"), null);
   });
 });
