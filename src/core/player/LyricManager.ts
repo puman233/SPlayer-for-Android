@@ -9,6 +9,11 @@ import type { LyricPriority, SongLyric } from "@/types/lyric";
 import type { SongType } from "@/types/main";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { applyBracketReplacement } from "@/utils/lyric/lyricFormat";
+import {
+  findBestLocalLyricMatch,
+  type LocalLyricCandidate,
+  type LocalLyricFormat,
+} from "@/utils/lyric/localLyricMatcher";
 import { applyProfanityUncensor } from "@/utils/lyric/lyricProfanity";
 import {
   alignLyricLines,
@@ -60,6 +65,11 @@ interface LocalLyricOverrideResult {
   lrc?: unknown;
   ttml?: unknown;
 }
+
+const emptyLyricResult = (): LyricFetchResult => ({
+  data: { lrcData: [], yrcData: [] },
+  meta: { usingTTMLLyric: false, usingQRCLyric: false },
+});
 
 /**
  * 歌词管理器
@@ -474,6 +484,71 @@ class LyricManager {
     }
   }
 
+  private hasLyricResult(result: LyricFetchResult): boolean {
+    return !isEmpty(result.data.lrcData) || !isEmpty(result.data.yrcData);
+  }
+
+  private parseLocalLyricContent(content: string, format: LocalLyricFormat): LyricFetchResult {
+    const defaultResult = emptyLyricResult();
+    if (!content) return defaultResult;
+
+    if (format === "ttml") {
+      const cleaned = cleanTTMLTranslations(content);
+      const lines = parseTTML(cleaned).lines || [];
+      if (!lines.length) return defaultResult;
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: true, usingQRCLyric: false },
+      };
+    }
+
+    if (format === "yrc") {
+      let lines: LyricLine[] = [];
+      if (content.trim().startsWith("<") || content.includes("<QrcInfos>")) {
+        lines = parseQRCLyric(content);
+      } else {
+        lines = parseYrc(content) || [];
+      }
+      if (!lines.length) return defaultResult;
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: false, usingQRCLyric: false },
+      };
+    }
+
+    const { format: lrcFormat, lines } = parseSmartLrc(content);
+    if (!lines.length) return defaultResult;
+    if (isWordLevelFormat(lrcFormat)) {
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: false, usingQRCLyric: false },
+      };
+    }
+    return {
+      data: { lrcData: alignLyricLines(lines), yrcData: [] },
+      meta: { usingTTMLLyric: false, usingQRCLyric: false },
+    };
+  }
+
+  private getLocalLyricFormat(format: string | undefined, fallback: LocalLyricFormat): LocalLyricFormat {
+    if (format === "ttml" || format === "yrc" || format === "lrc") return format;
+    return fallback;
+  }
+
+  private async fetchAndroidSidecarLyric(song: SongType): Promise<LyricFetchResult> {
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid || !song.path) return defaultResult;
+
+    try {
+      const result = await AndroidLocalLyric.findSidecarLyric({ audioPath: song.path });
+      if (!result?.content) return defaultResult;
+      const format = this.getLocalLyricFormat(result.format, "lrc");
+      return this.parseLocalLyricContent(result.content, format);
+    } catch {
+      return defaultResult;
+    }
+  }
+
   /**
    * 处理在线歌词
    * @param song 歌曲对象
@@ -643,10 +718,7 @@ class LyricManager {
    * @returns 歌词数据和元数据
    */
   private async fetchLocalLyric(song: SongType): Promise<LyricFetchResult> {
-    const defaultResult: LyricFetchResult = {
-      data: { lrcData: [], yrcData: [] },
-      meta: { usingTTMLLyric: false, usingQRCLyric: false },
-    };
+    const defaultResult = emptyLyricResult();
     if (!song.path) return defaultResult;
 
     try {
@@ -654,61 +726,8 @@ class LyricManager {
 
       // Android 端：使用 Capacitor 插件查找同目录歌词文件
       if (isCapacitorAndroid) {
-        try {
-          const result = await AndroidLocalLyric.findSidecarLyric({ audioPath: song.path });
-          if (result?.content) {
-            const format = result.format || "lrc";
-            if (format === "ttml") {
-              const cleaned = cleanTTMLTranslations(result.content);
-              const ttmlLines = parseTTML(cleaned).lines || [];
-              if (ttmlLines.length) {
-                return {
-                  data: { lrcData: [], yrcData: ttmlLines },
-                  meta: { usingTTMLLyric: true, usingQRCLyric: false },
-                };
-              }
-            }
-            if (format === "yrc") {
-              let yrcLines: LyricLine[] = [];
-              if (result.content.trim().startsWith("<") || result.content.includes("<QrcInfos>")) {
-                yrcLines = parseQRCLyric(result.content);
-              } else {
-                yrcLines = parseYrc(result.content) || [];
-              }
-              if (yrcLines.length) {
-                return {
-                  data: { lrcData: [], yrcData: yrcLines },
-                  meta: { usingTTMLLyric: false, usingQRCLyric: false },
-                };
-              }
-            }
-            // LRC 及其他格式
-            const { format: lrcFormat, lines } = parseSmartLrc(result.content);
-            if (lines.length) {
-              if (isWordLevelFormat(lrcFormat)) {
-                return {
-                  data: { lrcData: [], yrcData: lines },
-                  meta: { usingTTMLLyric: false, usingQRCLyric: false },
-                };
-              }
-              let aligned: SongLyric = { lrcData: alignLyricLines(lines), yrcData: [] };
-              let usingQRCLyric = false;
-              if (settingStore.localLyricQQMusicMatch && song) {
-                const qqLyric = await this.fetchQQMusicLyric(song);
-                if (qqLyric && qqLyric.yrcData.length > 0) {
-                  aligned = { lrcData: aligned.lrcData, yrcData: qqLyric.yrcData };
-                  usingQRCLyric = true;
-                }
-              }
-              return {
-                data: aligned,
-                meta: { usingTTMLLyric: false, usingQRCLyric },
-              };
-            }
-          }
-        } catch {
-          // sidecar 查找失败，继续后续流程
-        }
+        const sidecarResult = await this.fetchAndroidSidecarLyric(song);
+        if (this.hasLyricResult(sidecarResult)) return sidecarResult;
 
         // 无本地歌词，尝试在线匹配
         const matchedOnline = await this.fetchMatchedOnlineLyricForLocal(song);
@@ -873,6 +892,74 @@ class LyricManager {
     }
   }
 
+  private getAndroidLocalLyricCandidates(): LocalLyricCandidate[] {
+    const settingStore = useSettingStore();
+    const entries = Array.isArray(settingStore.androidLyricEntries)
+      ? settingStore.androidLyricEntries
+      : [];
+    const directoryOrder = new Map(
+      settingStore.androidLyricDirectories.map((directory, index) => [directory.uri, index]),
+    );
+
+    return entries
+      .map((entry, index) => {
+        const format = this.getLocalLyricFormat(entry.format, "lrc");
+        return {
+          uri: entry.uri,
+          name: entry.name,
+          lastModified: entry.lastModified || 0,
+          directoryUri: entry.directoryUri,
+          format,
+          metadata: entry.metadata,
+          directoryIndex: directoryOrder.get(entry.directoryUri) ?? index,
+        };
+      })
+      .filter((entry) => Boolean(entry.uri && entry.name && entry.directoryUri));
+  }
+
+  private async fetchAndroidMetadataMatchedLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid || !settingStore.androidLyricDirectories.length) return defaultResult;
+
+    const match = findBestLocalLyricMatch(
+      this.getAndroidLocalLyricCandidates(),
+      {
+        musicName: song.name,
+        album: this.getAlbumText(song),
+        artists: this.getArtistsText(song),
+      },
+      settingStore.localLyricMatchMode,
+    );
+    if (!match?.uri) return defaultResult;
+
+    try {
+      const { content } = await AndroidLocalLyric.readLyricFile({ uri: match.uri });
+      return this.parseLocalLyricContent(content, match.format);
+    } catch (error) {
+      console.error("读取 Android 元数据匹配歌词失败:", error);
+      return defaultResult;
+    }
+  }
+
+  private async fetchAndroidDirectoryLyric(
+    song: SongType,
+    preferMetadata = Boolean(song.path),
+  ): Promise<LyricFetchResult> {
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid) return defaultResult;
+
+    if (!preferMetadata) {
+      const indexedResult = await this.fetchAndroidIndexedLyric(song.id);
+      if (this.hasLyricResult(indexedResult)) return indexedResult;
+    }
+
+    const metadataResult = await this.fetchAndroidMetadataMatchedLyric(song);
+    if (this.hasLyricResult(metadataResult)) return metadataResult;
+
+    return preferMetadata ? this.fetchAndroidIndexedLyric(song.id) : defaultResult;
+  }
+
   /**
    * 检测 Android 索引歌词覆盖
    * @param id 歌曲 ID
@@ -880,10 +967,7 @@ class LyricManager {
    */
   private async fetchAndroidIndexedLyric(id: number): Promise<LyricFetchResult> {
     const settingStore = useSettingStore();
-    const defaultResult: LyricFetchResult = {
-      data: { lrcData: [], yrcData: [] },
-      meta: { usingTTMLLyric: false, usingQRCLyric: false },
-    };
+    const defaultResult = emptyLyricResult();
 
     if (!isCapacitorAndroid) return defaultResult;
     const entry = settingStore.androidLyricIndexMap[String(id)];
@@ -893,35 +977,40 @@ class LyricManager {
       const { content } = await AndroidLocalLyric.readLyricFile({ uri: entry.uri });
       if (!content) return defaultResult;
 
-      const format = entry.format || "ttml";
-
-      if (format === "ttml") {
-        const cleaned = cleanTTMLTranslations(content);
-        const lines = parseTTML(cleaned).lines || [];
-        if (!lines.length) return defaultResult;
-        return {
-          data: { lrcData: [], yrcData: lines },
-          meta: { usingTTMLLyric: true, usingQRCLyric: false },
-        };
-      }
-
-      // LRC 格式
-      const { format: lrcFormat, lines } = parseSmartLrc(content);
-      if (!lines.length) return defaultResult;
-      if (isWordLevelFormat(lrcFormat)) {
-        return {
-          data: { lrcData: [], yrcData: lines },
-          meta: { usingTTMLLyric: false, usingQRCLyric: false },
-        };
-      }
-      return {
-        data: { lrcData: alignLyricLines(lines), yrcData: [] },
-        meta: { usingTTMLLyric: false, usingQRCLyric: false },
-      };
+      const format = this.getLocalLyricFormat(entry.format, "ttml");
+      return this.parseLocalLyricContent(content, format);
     } catch (error) {
       console.error("读取 Android 本地歌词失败:", error);
       return defaultResult;
     }
+  }
+
+  private async fetchAndroidPrioritizedLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const defaultResult = emptyLyricResult();
+    const isLocalSong = Boolean(song.path);
+
+    if (isLocalSong) {
+      const sidecarResult = await this.fetchAndroidSidecarLyric(song);
+      if (this.hasLyricResult(sidecarResult)) return sidecarResult;
+    }
+
+    const fetchLocalDirectory = () => this.fetchAndroidDirectoryLyric(song, isLocalSong);
+    const fetchOnline = async () => {
+      if (isLocalSong) return (await this.fetchMatchedOnlineLyricForLocal(song)) || defaultResult;
+      return this.fetchOnlineLyric(song);
+    };
+
+    if (settingStore.lyricPriority === "local") {
+      const localResult = await fetchLocalDirectory();
+      if (this.hasLyricResult(localResult)) return localResult;
+      return fetchOnline();
+    }
+
+    const onlineResult = await fetchOnline();
+    if (this.hasLyricResult(onlineResult)) return onlineResult;
+
+    return fetchLocalDirectory();
   }
 
   /**
@@ -1230,6 +1319,8 @@ class LyricManager {
       const isLocal = Boolean(song.path);
       if (isStreaming) {
         fetchResult = await this.fetchStreamingLyric(song);
+      } else if (isCapacitorAndroid) {
+        fetchResult = await this.fetchAndroidPrioritizedLyric(song);
       } else {
         // 检查本地覆盖
         const overrideResult = await this.fetchLocalOverrideLyric(song.id);
@@ -1237,20 +1328,12 @@ class LyricManager {
           // 对齐
           overrideResult.data.lrcData = alignLyricLines(overrideResult.data.lrcData);
           fetchResult = overrideResult;
+        } else if (song.path) {
+          // 本地文件
+          fetchResult = await this.fetchLocalLyric(song);
         } else {
-          const androidOverrideResult = await this.fetchAndroidIndexedLyric(song.id);
-          if (
-            !isEmpty(androidOverrideResult.data.lrcData) ||
-            !isEmpty(androidOverrideResult.data.yrcData)
-          ) {
-            fetchResult = androidOverrideResult;
-          } else if (song.path) {
-            // 本地文件
-            fetchResult = await this.fetchLocalLyric(song);
-          } else {
-            // 在线获取
-            fetchResult = await this.fetchOnlineLyric(song);
-          }
+          // 在线获取
+          fetchResult = await this.fetchOnlineLyric(song);
         }
       }
       // 后处理：元数据排除

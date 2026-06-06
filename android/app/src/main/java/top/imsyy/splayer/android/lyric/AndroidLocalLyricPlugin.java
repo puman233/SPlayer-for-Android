@@ -2,7 +2,9 @@ package top.imsyy.splayer.android.lyric;
 
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
@@ -19,6 +21,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
@@ -31,7 +35,7 @@ public class AndroidLocalLyricPlugin extends Plugin {
   private static final Pattern AMLL_META_PATTERN =
       Pattern.compile("<\\s*amll:meta\\b[^>]*>", Pattern.CASE_INSENSITIVE);
   private static final Pattern FILENAME_ID_PATTERN = Pattern.compile("(\\d+)");
-  private static final String[] LYRIC_EXTENSIONS = {".ttml", ".lrc"};
+  private static final String[] LYRIC_EXTENSIONS = {".ttml", ".yrc", ".lrc"};
   private static final String[] SIDECAR_EXTENSIONS = {".ttml", ".yrc", ".lrc"};
   private static final int READ_FLAGS =
       Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -159,27 +163,19 @@ public class AndroidLocalLyricPlugin extends Plugin {
     executor.execute(
         () -> {
           try {
-            String baseName = audioPath;
-            int lastSlash = baseName.lastIndexOf('/');
-            String parentPath = lastSlash > 0 ? baseName.substring(0, lastSlash) : "";
-            baseName = baseName.substring(lastSlash + 1);
-            int dotIdx = baseName.lastIndexOf('.');
-            if (dotIdx > 0) baseName = baseName.substring(0, dotIdx);
-
-            File parentDir = new File(parentPath);
-            if (parentDir.exists() && parentDir.canRead()) {
-              for (String ext : SIDECAR_EXTENSIONS) {
-                File lyricFile = new File(parentDir, baseName + ext);
-                if (lyricFile.exists() && lyricFile.canRead()) {
-                  String content = readFileText(lyricFile);
-                  String format = ext.substring(1);
-                  JSObject response = new JSObject();
-                  response.put("content", content);
-                  response.put("format", format);
-                  call.resolve(response);
-                  return;
-                }
+            Uri audioUri = Uri.parse(audioPath);
+            if ("content".equalsIgnoreCase(audioUri.getScheme())) {
+              JSObject contentResult = findContentSidecarLyric(audioUri);
+              if (contentResult != null) {
+                call.resolve(contentResult);
+                return;
               }
+            }
+
+            JSObject fileResult = findFileSidecarLyric(audioPath);
+            if (fileResult != null) {
+              call.resolve(fileResult);
+              return;
             }
 
             JSObject empty = new JSObject();
@@ -191,6 +187,209 @@ public class AndroidLocalLyricPlugin extends Plugin {
             call.resolve(empty);
           }
         });
+  }
+
+  @Nullable
+  private JSObject findContentSidecarLyric(Uri audioUri) {
+    String baseName = getAudioBaseName(audioUri);
+    if (baseName.isEmpty()) return null;
+
+    JSObject direct = findSidecarFromTree(audioUri, audioUri, baseName);
+    if (direct != null) return direct;
+
+    try {
+      for (UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
+        if (!permission.isReadPermission()) continue;
+        JSObject result = findSidecarFromTree(audioUri, permission.getUri(), baseName);
+        if (result != null) return result;
+      }
+    } catch (Exception ignored) {
+      return null;
+    }
+
+    return null;
+  }
+
+  @Nullable
+  private JSObject findSidecarFromTree(Uri audioUri, Uri treeUri, String baseName) {
+    try {
+      if (audioUri.getAuthority() == null || !audioUri.getAuthority().equals(treeUri.getAuthority())) {
+        return null;
+      }
+
+      String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
+      String audioDocumentId = DocumentsContract.getDocumentId(audioUri);
+      String relativePath = getRelativeDocumentPath(treeDocumentId, audioDocumentId);
+      if (relativePath == null || relativePath.isEmpty()) return null;
+
+      String parentRelativePath = getParentRelativePath(relativePath);
+      DocumentFile parent = resolveTreeDocument(treeUri, parentRelativePath);
+      if (parent != null && parent.isDirectory() && parent.canRead()) {
+        JSObject result = findSidecarInDocumentDirectory(parent, baseName);
+        if (result != null) return result;
+      }
+
+      return findSidecarByDocumentId(treeUri, treeDocumentId, parentRelativePath, baseName);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  @Nullable
+  private JSObject findSidecarInDocumentDirectory(DocumentFile parent, String baseName) {
+    for (String ext : SIDECAR_EXTENSIONS) {
+      DocumentFile lyricFile = findChild(parent, baseName + ext);
+      if (lyricFile == null || !lyricFile.isFile() || !lyricFile.canRead()) continue;
+      try {
+        return buildSidecarResponse(readText(lyricFile.getUri()), ext);
+      } catch (Exception ignored) {
+        // 继续尝试低优先级格式
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  private JSObject findSidecarByDocumentId(
+      Uri treeUri, String treeDocumentId, String parentRelativePath, String baseName) {
+    for (String ext : SIDECAR_EXTENSIONS) {
+      String siblingRelativePath =
+          parentRelativePath.isEmpty() ? baseName + ext : parentRelativePath + "/" + baseName + ext;
+      String siblingDocumentId = buildDocumentId(treeDocumentId, siblingRelativePath);
+      try {
+        Uri siblingUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, siblingDocumentId);
+        DocumentFile lyricFile = DocumentFile.fromSingleUri(getContext(), siblingUri);
+        if (lyricFile == null || !lyricFile.exists() || !lyricFile.canRead()) continue;
+        return buildSidecarResponse(readText(siblingUri), ext);
+      } catch (Exception ignored) {
+        // 继续尝试其他格式
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  private JSObject findFileSidecarLyric(String audioPath) {
+    File audioFile = resolveAudioFile(audioPath);
+    if (audioFile == null) return null;
+
+    File parentDir = audioFile.getParentFile();
+    if (parentDir == null || !parentDir.exists() || !parentDir.canRead()) return null;
+
+    String baseName = stripExtension(audioFile.getName());
+    for (String ext : SIDECAR_EXTENSIONS) {
+      File lyricFile = new File(parentDir, baseName + ext);
+      if (!lyricFile.exists() || !lyricFile.canRead()) continue;
+      try {
+        return buildSidecarResponse(readFileText(lyricFile), ext);
+      } catch (Exception ignored) {
+        // 继续尝试低优先级格式
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  private File resolveAudioFile(String audioPath) {
+    try {
+      Uri uri = Uri.parse(audioPath);
+      String scheme = uri.getScheme();
+      if ("file".equalsIgnoreCase(scheme)) {
+        String path = uri.getPath();
+        return path == null || path.isEmpty() ? null : new File(path);
+      }
+      if (scheme != null && !scheme.isEmpty()) return null;
+    } catch (Exception ignored) {
+      // 使用原始路径兜底
+    }
+    return new File(audioPath);
+  }
+
+  private JSObject buildSidecarResponse(String content, String ext) {
+    JSObject response = new JSObject();
+    response.put("content", content);
+    response.put("format", ext.substring(1));
+    return response;
+  }
+
+  private String getAudioBaseName(Uri audioUri) {
+    try {
+      DocumentFile audioFile = DocumentFile.fromSingleUri(getContext(), audioUri);
+      String name = audioFile == null ? null : audioFile.getName();
+      if (name != null && !name.isEmpty()) return stripExtension(name);
+    } catch (Exception ignored) {
+      // 继续使用 URI 路径兜底
+    }
+
+    try {
+      String documentId = DocumentsContract.getDocumentId(audioUri);
+      int slashIdx = documentId.lastIndexOf('/');
+      String name = slashIdx >= 0 ? documentId.substring(slashIdx + 1) : documentId;
+      if (!name.isEmpty()) return stripExtension(name);
+    } catch (Exception ignored) {
+      // 继续使用 URI 路径兜底
+    }
+
+    String path = audioUri.getPath();
+    if (path == null || path.isEmpty()) return "";
+    int slashIdx = path.lastIndexOf('/');
+    String name = slashIdx >= 0 ? path.substring(slashIdx + 1) : path;
+    return stripExtension(name);
+  }
+
+  @Nullable
+  private DocumentFile resolveTreeDocument(Uri treeUri, String relativePath) {
+    DocumentFile current = DocumentFile.fromTreeUri(getContext(), treeUri);
+    if (current == null) return null;
+    if (relativePath.isEmpty()) return current;
+
+    String[] parts = relativePath.split("/");
+    for (String part : parts) {
+      if (part.isEmpty()) continue;
+      current = findChild(current, part);
+      if (current == null || !current.isDirectory()) return null;
+    }
+    return current;
+  }
+
+  @Nullable
+  private DocumentFile findChild(DocumentFile parent, String name) {
+    try {
+      for (DocumentFile child : parent.listFiles()) {
+        if (name.equals(child.getName())) return child;
+      }
+    } catch (Exception ignored) {
+      return null;
+    }
+    return null;
+  }
+
+  @Nullable
+  private String getRelativeDocumentPath(String treeDocumentId, String documentId) {
+    if (documentId.equals(treeDocumentId)) return "";
+    String prefix = treeDocumentId + "/";
+    if (documentId.startsWith(prefix)) return documentId.substring(prefix.length());
+    if (treeDocumentId.endsWith(":") && documentId.startsWith(treeDocumentId)) {
+      String relative = documentId.substring(treeDocumentId.length());
+      return relative.startsWith("/") ? relative.substring(1) : relative;
+    }
+    return null;
+  }
+
+  private String getParentRelativePath(String relativePath) {
+    int slashIdx = relativePath.lastIndexOf('/');
+    return slashIdx > 0 ? relativePath.substring(0, slashIdx) : "";
+  }
+
+  private String buildDocumentId(String treeDocumentId, String relativePath) {
+    String cleaned = relativePath.startsWith("/") ? relativePath.substring(1) : relativePath;
+    if (cleaned.isEmpty()) return treeDocumentId;
+    return treeDocumentId.endsWith(":") ? treeDocumentId + cleaned : treeDocumentId + "/" + cleaned;
+  }
+
+  private String stripExtension(String name) {
+    int dotIdx = name.lastIndexOf('.');
+    return dotIdx > 0 ? name.substring(0, dotIdx) : name;
   }
 
   private void scanDirectory(
@@ -218,36 +417,30 @@ public class AndroidLocalLyricPlugin extends Plugin {
       accumulator.totalFiles++;
       String fileUri = child.getUri().toString();
       String format = getFormatFromName(name);
+      long lastModified = Math.max(child.lastModified(), 0L);
 
       try {
+        LyricMetadata metadata = new LyricMetadata();
         if ("ttml".equals(format)) {
           String content = readText(child.getUri());
-          String ncmMusicId = extractNcmMusicId(content);
-          if (ncmMusicId != null && !ncmMusicId.isEmpty()) {
-            accumulator.matchedFiles++;
-            accumulator.putIndex(
-                ncmMusicId,
-                new AndroidLyricIndexEntry(
-                    fileUri, name, Math.max(child.lastModified(), 0L), directoryInfo.uri, format));
-          }
-          // 文件名匹配（TTML 也可通过文件名 ID 匹配）
-          String filenameId = extractFilenameId(name);
-          if (filenameId != null && !filenameId.isEmpty()) {
-            accumulator.matchedFiles++;
-            accumulator.putIndex(
-                filenameId,
-                new AndroidLyricIndexEntry(
-                    fileUri, name, Math.max(child.lastModified(), 0L), directoryInfo.uri, format));
-          }
-        } else {
-          // LRC 仅通过文件名 ID 匹配
-          String filenameId = extractFilenameId(name);
-          if (filenameId != null && !filenameId.isEmpty()) {
-            accumulator.matchedFiles++;
-            accumulator.putIndex(
-                filenameId,
-                new AndroidLyricIndexEntry(
-                    fileUri, name, Math.max(child.lastModified(), 0L), directoryInfo.uri, format));
+          metadata = extractTtmlMetadata(content);
+        }
+
+        AndroidLyricIndexEntry entry =
+            new AndroidLyricIndexEntry(fileUri, name, lastModified, directoryInfo.uri, format, metadata);
+        accumulator.addEntry(entry);
+
+        Set<String> ids = new LinkedHashSet<>();
+        if ("ttml".equals(format) && metadata.ncmMusicId != null && !metadata.ncmMusicId.isEmpty()) {
+          ids.add(metadata.ncmMusicId);
+        }
+        String filenameId = extractFilenameId(name);
+        if (filenameId != null && !filenameId.isEmpty()) ids.add(filenameId);
+
+        if (!ids.isEmpty()) {
+          accumulator.matchedFiles++;
+          for (String id : ids) {
+            accumulator.putIndex(id, entry);
           }
         }
       } catch (SecurityException error) {
@@ -271,6 +464,7 @@ public class AndroidLocalLyricPlugin extends Plugin {
   private String getFormatFromName(String name) {
     String lower = name.toLowerCase();
     if (lower.endsWith(".ttml")) return "ttml";
+    if (lower.endsWith(".yrc")) return "yrc";
     if (lower.endsWith(".lrc")) return "lrc";
     return "lrc";
   }
@@ -284,12 +478,12 @@ public class AndroidLocalLyricPlugin extends Plugin {
     // 匹配 "123456" 或 "SongName.123456" 格式
     String[] parts = baseName.split("\\.");
     String lastPart = parts[parts.length - 1];
-    if (lastPart.matches("\\d+") && lastPart.length() >= 2) {
+    if (FILENAME_ID_PATTERN.matcher(lastPart).matches() && lastPart.length() >= 2) {
       return lastPart;
     }
 
     // 如果整个文件名就是数字
-    if (baseName.matches("\\d+") && baseName.length() >= 2) {
+    if (FILENAME_ID_PATTERN.matcher(baseName).matches() && baseName.length() >= 2) {
       return baseName;
     }
 
@@ -326,17 +520,17 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
   }
 
-  @Nullable
-  private String extractNcmMusicId(String ttml) {
+  private LyricMetadata extractTtmlMetadata(String ttml) {
+    LyricMetadata metadata = new LyricMetadata();
     Matcher metaMatcher = AMLL_META_PATTERN.matcher(ttml);
     while (metaMatcher.find()) {
       String tag = metaMatcher.group();
       String key = readAttribute(tag, "key");
-      if (!"ncmMusicId".equals(key)) continue;
       String value = readAttribute(tag, "value");
-      return value == null ? null : value.trim();
+      if (key == null || value == null) continue;
+      metadata.put(key.trim(), decodeXmlAttribute(value).trim());
     }
-    return null;
+    return metadata;
   }
 
   @Nullable
@@ -346,6 +540,15 @@ public class AndroidLocalLyricPlugin extends Plugin {
     Matcher matcher = attrPattern.matcher(tag);
     if (!matcher.find()) return null;
     return matcher.group(2);
+  }
+
+  private String decodeXmlAttribute(String value) {
+    return value
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
   }
 
   private String safeName(@Nullable DocumentFile file, Uri uri) {
@@ -365,19 +568,63 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
   }
 
+  private static class LyricMetadata {
+    @Nullable String album;
+    @Nullable String musicName;
+    @Nullable String artists;
+    @Nullable String ncmMusicId;
+
+    void put(String key, String value) {
+      if (value.isEmpty()) return;
+      switch (key) {
+        case "album":
+          album = value;
+          break;
+        case "musicName":
+          musicName = value;
+          break;
+        case "artists":
+          artists = value;
+          break;
+        case "ncmMusicId":
+          ncmMusicId = value;
+          break;
+        default:
+          break;
+      }
+    }
+
+    JSObject toJSObject() {
+      JSObject object = new JSObject();
+      if (album != null && !album.isEmpty()) object.put("album", album);
+      if (musicName != null && !musicName.isEmpty()) object.put("musicName", musicName);
+      if (artists != null && !artists.isEmpty()) object.put("artists", artists);
+      if (ncmMusicId != null && !ncmMusicId.isEmpty()) object.put("ncmMusicId", ncmMusicId);
+      return object;
+    }
+  }
+
   private static class AndroidLyricIndexEntry {
     final String uri;
     final String name;
     final long lastModified;
     final String directoryUri;
     final String format;
+    final LyricMetadata metadata;
 
-    AndroidLyricIndexEntry(String uri, String name, long lastModified, String directoryUri, String format) {
+    AndroidLyricIndexEntry(
+        String uri,
+        String name,
+        long lastModified,
+        String directoryUri,
+        String format,
+        LyricMetadata metadata) {
       this.uri = uri;
       this.name = name;
       this.lastModified = lastModified;
       this.directoryUri = directoryUri;
       this.format = format;
+      this.metadata = metadata;
     }
 
     JSObject toJSObject() {
@@ -387,6 +634,7 @@ public class AndroidLocalLyricPlugin extends Plugin {
       object.put("lastModified", lastModified);
       object.put("directoryUri", directoryUri);
       object.put("format", format);
+      object.put("metadata", metadata.toJSObject());
       return object;
     }
   }
@@ -397,14 +645,18 @@ public class AndroidLocalLyricPlugin extends Plugin {
     int duplicateIds = 0;
     int failedFiles = 0;
     final JSObject indexMap = new JSObject();
+    final JSArray entries = new JSArray();
     final JSArray failures = new JSArray();
+
+    void addEntry(AndroidLyricIndexEntry entry) {
+      entries.put(entry.toJSObject());
+    }
 
     void putIndex(String id, AndroidLyricIndexEntry entry) {
       JSONObject existing = indexMap.optJSONObject(id);
       if (existing != null) {
         duplicateIds++;
         long oldLastModified = existing.optLong("lastModified", 0L);
-        // TTML 优先于 LRC，时间戳相同时 TTML 胜出
         String oldFormat = existing.optString("format", "lrc");
         if (!shouldReplace(oldLastModified, entry.lastModified, oldFormat, entry.format)) return;
       }
@@ -423,6 +675,7 @@ public class AndroidLocalLyricPlugin extends Plugin {
     JSObject toJSObject() {
       JSObject response = new JSObject();
       response.put("indexMap", indexMap);
+      response.put("entries", entries);
       response.put("totalFiles", totalFiles);
       response.put("matchedFiles", matchedFiles);
       response.put("duplicateIds", duplicateIds);
@@ -432,11 +685,9 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
 
     private boolean shouldReplace(long oldLastModified, long newLastModified, String oldFormat, String newFormat) {
-      // TTML 优先
-      boolean oldIsTtml = "ttml".equals(oldFormat);
-      boolean newIsTtml = "ttml".equals(newFormat);
-      if (newIsTtml && !oldIsTtml) return true;
-      if (!newIsTtml && oldIsTtml) return false;
+      int oldPriority = formatPriority(oldFormat);
+      int newPriority = formatPriority(newFormat);
+      if (newPriority != oldPriority) return newPriority > oldPriority;
       // 同格式按时间戳比较
       if (oldLastModified > 0 && newLastModified > 0) {
         return newLastModified > oldLastModified;
@@ -444,6 +695,12 @@ public class AndroidLocalLyricPlugin extends Plugin {
       if (oldLastModified <= 0 && newLastModified > 0) return true;
       if (oldLastModified > 0) return false;
       return true;
+    }
+
+    private int formatPriority(String format) {
+      if ("ttml".equals(format)) return 3;
+      if ("yrc".equals(format)) return 2;
+      return 1;
     }
   }
 }

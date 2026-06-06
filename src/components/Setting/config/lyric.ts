@@ -489,6 +489,9 @@ export const useLyricSettings = (): SettingConfig => {
             description: "设置歌词获取的优先顺序",
             options: computed(() => {
               const options = [{ label: "自动", value: "auto" }];
+              if (isCapacitorAndroid) {
+                options.push({ label: "本地歌词优先", value: "local" });
+              }
               if (settingStore.enableQQMusicLyric) {
                 options.push({ label: "QM 优先", value: "qm" });
               }
@@ -501,6 +504,24 @@ export const useLyricSettings = (): SettingConfig => {
               get: () => settingStore.lyricPriority,
               set: (v) => lyricManager.switchLyricSource(v),
             }),
+          },
+          {
+            key: "localLyricMatchMode",
+            label: "本地歌词匹配档位",
+            type: "select",
+            show: isCapacitorAndroid,
+            description:
+              "宽松=任一项包含；标准=至少两项完全匹配；严格=声明元数据全部完全匹配",
+            options: [
+              { label: "宽松", value: "loose" },
+              { label: "标准", value: "standard" },
+              { label: "严格", value: "strict" },
+            ],
+            value: computed({
+              get: () => settingStore.localLyricMatchMode,
+              set: (v) => (settingStore.localLyricMatchMode = v || "standard"),
+            }),
+            defaultValue: "standard",
           },
           {
             key: "preferTraditionalChinese",

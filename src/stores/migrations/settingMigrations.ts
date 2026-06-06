@@ -6,7 +6,7 @@ import type { SettingState } from "../setting";
 /**
  * 当前设置 Schema 版本号
  */
-export const CURRENT_SETTING_SCHEMA_VERSION = 24;
+export const CURRENT_SETTING_SCHEMA_VERSION = 25;
 
 /**
  * 迁移函数类型
@@ -279,6 +279,12 @@ export const settingMigrations: Record<number, MigrationFunction> = {
   24: () => {
     return {
       androidDeviceModeOverride: "auto",
+    };
+  },
+  25: () => {
+    return {
+      localLyricMatchMode: "standard",
+      androidLyricEntries: [],
     };
   },
 };
