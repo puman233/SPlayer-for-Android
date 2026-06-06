@@ -12,7 +12,7 @@
 }
 
 :root {
-  --safe-area-top: max(env(safe-area-inset-top), 0px);
+  --safe-area-top: max(env(safe-area-inset-top), var(--android-fullscreen-safe-top, 0px));
   --safe-area-right: max(env(safe-area-inset-right), 0px);
   --safe-area-bottom: max(env(safe-area-inset-bottom), 0px);
   --safe-area-left: max(env(safe-area-inset-left), 0px);
@@ -166,6 +166,7 @@ audio {
   // transform 由 usePageZoom 在 ratio !== 1 时按需设置，避免 scale(1) 引入额外
   // stacking context / fixed containing block 切换；100% 缩放路径保持原生行为
   // 在缩放容器内补偿安卓全面屏底部，弹出层 teleport 到 body 不会被影响
+  --safe-area-top: max(env(safe-area-inset-top), var(--android-fullscreen-safe-top, 0px));
   --safe-area-bottom: max(env(safe-area-inset-bottom), var(--android-fullscreen-safe-bottom, 0px));
 }
 

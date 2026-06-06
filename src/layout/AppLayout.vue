@@ -392,7 +392,7 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 #app-layout {
-  --safe-area-top: max(env(safe-area-inset-top), 0px);
+  --safe-area-top: max(env(safe-area-inset-top), var(--android-fullscreen-safe-top, 0px));
   --safe-area-bottom: max(env(safe-area-inset-bottom), var(--android-fullscreen-safe-bottom, 0px));
   --app-header-height: calc(72px + var(--safe-area-top));
   --phone-nav-height: 56px;

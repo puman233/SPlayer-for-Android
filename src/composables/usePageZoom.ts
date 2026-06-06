@@ -23,6 +23,12 @@ export const usePageZoom = () => {
     return settingStore.androidFullscreenSafeAreaOptimize ? 32 : 0;
   });
 
+  const fullscreenSafeTop = computed(() => {
+    if (!isCapacitorAndroid) return 0;
+    if (settingStore.androidShowStatusBar) return 0;
+    return 24;
+  });
+
   // 节流：合并同一帧内的多次调用，避免连发 resize
   let resizePending = false;
   const notifyResize = () => {
@@ -37,7 +43,7 @@ export const usePageZoom = () => {
     setTimeout(fire, 150);
   };
 
-  const apply = (zoom: number, safeBottom: number) => {
+  const apply = (zoom: number, safeTop: number, safeBottom: number) => {
     const safe = Math.max(50, Math.min(200, Number(zoom) || 100));
     const ratio = safe / 100;
 
@@ -59,6 +65,7 @@ export const usePageZoom = () => {
     appEl.style.setProperty("--page-zoom-100vh", `${100 / ratio}vh`);
     appEl.style.setProperty("--page-zoom-100dvh", `${100 / ratio}dvh`);
     appEl.style.setProperty("--page-zoom-60vw", `${60 / ratio}vw`);
+    appEl.style.setProperty("--android-fullscreen-safe-top", `${safeTop / ratio}px`);
     appEl.style.setProperty("--android-fullscreen-safe-bottom", `${safeBottom / ratio}px`);
 
     // 仅在 ratio !== 1 时设置 transform：scale(1) 也会触发 stacking context 与
@@ -73,6 +80,8 @@ export const usePageZoom = () => {
     notifyResize();
   };
 
-  onMounted(() => apply(activeZoom.value, fullscreenSafeBottom.value));
-  watch([activeZoom, fullscreenSafeBottom], ([zoom, safeBottom]) => apply(zoom, safeBottom));
+  onMounted(() => apply(activeZoom.value, fullscreenSafeTop.value, fullscreenSafeBottom.value));
+  watch([activeZoom, fullscreenSafeTop, fullscreenSafeBottom], ([zoom, safeTop, safeBottom]) =>
+    apply(zoom, safeTop, safeBottom),
+  );
 };
