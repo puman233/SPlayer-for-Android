@@ -7,6 +7,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -45,6 +47,7 @@ public class MainActivity extends BridgeActivity {
       }
     }
     applyImmersiveMode();
+    applyWebViewTextZoom();
     // 音频预载 TTL：推迟到首帧后再初始化（构造期会同步读 SharedPreferences，冷启动加密磁盘可能耗百毫秒）。
     // 这里 post 2s，startPeriodicSweep 内部再 postDelayed 5s，首次 sweep 实际 ≈7s 后开始；
     // 之后每 30min 周期清理；TTL=50min；期间用户重复播放该 url 会通过 PlaybackManager.load 续期。
@@ -140,5 +143,12 @@ public class MainActivity extends BridgeActivity {
       }
       decorView.setSystemUiVisibility(flags);
     }
+  }
+
+  private void applyWebViewTextZoom() {
+    WebView webView = getBridge().getWebView();
+    if (webView == null) return;
+    WebSettings settings = webView.getSettings();
+    settings.setTextZoom(100);
   }
 }
