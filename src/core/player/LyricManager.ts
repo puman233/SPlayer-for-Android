@@ -1,3 +1,8 @@
+import {
+  fetchAmlRawLyric,
+  searchAmlLyricsWithStatus,
+  type AmlLyricSearchResult,
+} from "@/api/amll";
 import { qqMusicMatch } from "@/api/qqmusic";
 import { searchResult, SearchTypes } from "@/api/search";
 import { songLyric, songLyricTTML } from "@/api/song";
@@ -10,9 +15,13 @@ import type { SongType } from "@/types/main";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { applyBracketReplacement } from "@/utils/lyric/lyricFormat";
 import {
+  findBestAmlLyricMatch,
   findBestLocalLyricMatch,
+  normalizeLocalLyricValues,
   type LocalLyricCandidate,
   type LocalLyricFormat,
+  type LocalLyricMatchMode,
+  type LocalLyricMatchTarget,
 } from "@/utils/lyric/localLyricMatcher";
 import { applyProfanityUncensor } from "@/utils/lyric/lyricProfanity";
 import {
@@ -64,6 +73,11 @@ interface ElectronLyricResult {
 interface LocalLyricOverrideResult {
   lrc?: unknown;
   ttml?: unknown;
+}
+
+interface LocalAmlMatchSignature {
+  mode: LocalLyricMatchMode;
+  fingerprint: string;
 }
 
 const emptyLyricResult = (): LyricFetchResult => ({
@@ -265,6 +279,7 @@ class LyricManager {
 
   /** 进程内 in-flight 去重：同一首歌的并发查询合并。 */
   private localMatchInFlight = new Map<string, Promise<number | null>>();
+  private localAmlMatchInFlight = new Map<string, Promise<string | null>>();
 
   private async readLocalMatchCache(cacheKey: string): Promise<number | null | undefined> {
     const settingStore = useSettingStore();
@@ -462,6 +477,134 @@ class LyricManager {
     return task;
   }
 
+  private getLocalLyricMatchTarget(song: SongType): LocalLyricMatchTarget {
+    return {
+      musicName: song.name,
+      album: this.getAlbumText(song),
+      artists: this.getArtistsText(song),
+    };
+  }
+
+  private static hashText(value: string): string {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  private getLocalAmlMatchSignature(song: SongType): LocalAmlMatchSignature {
+    const settingStore = useSettingStore();
+    const target = this.getLocalLyricMatchTarget(song);
+    const metadata = {
+      musicName: normalizeLocalLyricValues(target.musicName),
+      album: normalizeLocalLyricValues(target.album),
+      artists: normalizeLocalLyricValues(target.artists),
+    };
+    return {
+      mode: settingStore.localLyricMatchMode,
+      fingerprint: LyricManager.hashText(JSON.stringify(metadata)),
+    };
+  }
+
+  private getAmlRawCacheFileName(cacheKey: string, file: string): string {
+    const safeFile = encodeURIComponent(file).replace(/[^a-zA-Z0-9._-]/g, "_");
+    return `${cacheKey}.amll.${safeFile}.ttml`;
+  }
+
+  private async searchAmlCandidatesForLocal(
+    song: SongType,
+  ): Promise<{ completed: boolean; candidates: AmlLyricSearchResult[] }> {
+    const name = String(song.name || "").trim();
+    if (!name) return { completed: true, candidates: [] };
+
+    const artistsText = this.getArtistsText(song).trim();
+    const searchList = [
+      { query: name, type: "title" as const },
+      ...(artistsText ? [{ query: `${name} ${artistsText}`, type: "all" as const }] : []),
+    ];
+
+    const results: AmlLyricSearchResult[] = [];
+    const seenFiles = new Set<string>();
+    let completed = true;
+    for (const search of searchList) {
+      const response = await searchAmlLyricsWithStatus(search.query, search.type);
+      if (!response.ok) {
+        completed = false;
+        continue;
+      }
+      for (const item of response.results) {
+        if (seenFiles.has(item.file)) continue;
+        seenFiles.add(item.file);
+        results.push(item);
+      }
+    }
+    return { completed, candidates: results };
+  }
+
+  private async findAmlLyricFileForLocal(song: SongType): Promise<string | null> {
+    const cacheKey = `local_${song.id}`;
+    const signature = this.getLocalAmlMatchSignature(song);
+    const cached = await this.readLocalAmlMatchCache(cacheKey, signature);
+    if (cached !== undefined) return cached;
+
+    const inFlightKey = `${cacheKey}:${signature.mode}:${signature.fingerprint}`;
+    const inFlight = this.localAmlMatchInFlight.get(inFlightKey);
+    if (inFlight) return inFlight;
+
+    const task = (async (): Promise<string | null> => {
+      try {
+        const { completed, candidates } = await this.searchAmlCandidatesForLocal(song);
+        const match = findBestAmlLyricMatch(
+          candidates,
+          this.getLocalLyricMatchTarget(song),
+          signature.mode,
+        );
+        const file = match?.file || null;
+        if (file || completed) {
+          await this.writeLocalAmlMatchCache(cacheKey, file, signature);
+        }
+        return file;
+      } catch (error) {
+        console.warn("AMLL 歌词搜索失败:", error);
+        return null;
+      } finally {
+        this.localAmlMatchInFlight.delete(inFlightKey);
+      }
+    })();
+
+    this.localAmlMatchInFlight.set(inFlightKey, task);
+    return task;
+  }
+
+  private async fetchAmlMatchedLyricForLocal(song: SongType): Promise<LyricFetchResult | null> {
+    if (!isCapacitorAndroid || !song.path) return null;
+
+    const file = await this.findAmlLyricFileForLocal(song);
+    if (!file) return null;
+
+    const cacheKey = `local_${song.id}`;
+    const rawCacheFile = this.getAmlRawCacheFileName(cacheKey, file);
+    let ttmlContent = await this.readLyricCacheText(rawCacheFile);
+
+    if (!ttmlContent) {
+      ttmlContent = await fetchAmlRawLyric(file);
+      if (ttmlContent) {
+        await this.writeLyricCacheText(rawCacheFile, ttmlContent);
+      }
+    }
+
+    if (!ttmlContent) return null;
+    try {
+      const parsed = this.parseLocalLyricContent(ttmlContent, "ttml");
+      return this.hasLyricResult(parsed) ? parsed : null;
+    } catch (error) {
+      console.warn("解析 AMLL TTML 歌词失败:", error);
+      return null;
+    }
+  }
+
   private async fetchMatchedOnlineLyricForLocal(song: SongType): Promise<LyricFetchResult | null> {
     const onlineId = await this.findOnlineSongIdForLocal(song);
     if (!onlineId) return null;
@@ -481,6 +624,75 @@ class LyricManager {
     settingStore.lyricPriority = source;
     if (musicStore.playSong) {
       this.handleLyric(musicStore.playSong);
+    }
+  }
+
+  private async readLyricCacheText(fileName: string): Promise<string | null> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return null;
+    try {
+      const result = await cacheManager.get("lyrics", fileName);
+      if (!result.success || !result.data) return null;
+      return new TextDecoder().decode(result.data);
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeLyricCacheText(fileName: string, data: string): Promise<void> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
+    try {
+      await cacheManager.set("lyrics", fileName, data);
+    } catch {
+      // 忽略写入失败
+    }
+  }
+
+  private async readLocalAmlMatchCache(
+    cacheKey: string,
+    signature: LocalAmlMatchSignature,
+  ): Promise<string | null | undefined> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return undefined;
+    try {
+      const result = await cacheManager.get("lyrics", `${cacheKey}.amll.match.json`);
+      if (!result.success || !result.data) return undefined;
+      const parsed = JSON.parse(new TextDecoder().decode(result.data));
+      if (parsed?.mode !== signature.mode || parsed?.fingerprint !== signature.fingerprint) {
+        return undefined;
+      }
+      const ts = Number(parsed?.ts || 0);
+      const file = parsed?.file;
+      if (file === undefined) return undefined;
+      const ttl =
+        file === null ? LyricManager.LOCAL_MATCH_TTL_NEG_MS : LyricManager.LOCAL_MATCH_TTL_OK_MS;
+      if (Date.now() - ts > ttl) return undefined;
+      return typeof file === "string" && file.trim() ? file : null;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async writeLocalAmlMatchCache(
+    cacheKey: string,
+    file: string | null,
+    signature: LocalAmlMatchSignature,
+  ): Promise<void> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
+    try {
+      await cacheManager.set(
+        "lyrics",
+        `${cacheKey}.amll.match.json`,
+        JSON.stringify({ ...signature, file, ts: Date.now() }),
+      );
+    } catch {
+      // 忽略写入失败
     }
   }
 
@@ -924,11 +1136,7 @@ class LyricManager {
 
     const match = findBestLocalLyricMatch(
       this.getAndroidLocalLyricCandidates(),
-      {
-        musicName: song.name,
-        album: this.getAlbumText(song),
-        artists: this.getArtistsText(song),
-      },
+      this.getLocalLyricMatchTarget(song),
       settingStore.localLyricMatchMode,
     );
     if (!match?.uri) return defaultResult;
@@ -989,6 +1197,7 @@ class LyricManager {
     const settingStore = useSettingStore();
     const defaultResult = emptyLyricResult();
     const isLocalSong = Boolean(song.path);
+    const priority = settingStore.lyricPriority;
 
     if (isLocalSong) {
       const sidecarResult = await this.fetchAndroidSidecarLyric(song);
@@ -996,12 +1205,22 @@ class LyricManager {
     }
 
     const fetchLocalDirectory = () => this.fetchAndroidDirectoryLyric(song, isLocalSong);
+    const shouldUseAmlSearch = () =>
+      isLocalSong &&
+      (priority === "ttml" ||
+        ((priority === "auto" || priority === "local") && settingStore.enableOnlineTTMLLyric));
     const fetchOnline = async () => {
-      if (isLocalSong) return (await this.fetchMatchedOnlineLyricForLocal(song)) || defaultResult;
+      if (isLocalSong) {
+        if (shouldUseAmlSearch()) {
+          const amlResult = await this.fetchAmlMatchedLyricForLocal(song);
+          if (amlResult) return amlResult;
+        }
+        return (await this.fetchMatchedOnlineLyricForLocal(song)) || defaultResult;
+      }
       return this.fetchOnlineLyric(song);
     };
 
-    if (settingStore.lyricPriority === "local") {
+    if (priority === "local") {
       const localResult = await fetchLocalDirectory();
       if (this.hasLyricResult(localResult)) return localResult;
       return fetchOnline();

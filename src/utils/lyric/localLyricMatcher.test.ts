@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  findBestAmlLyricMatch,
   findBestLocalLyricMatch,
   matchLocalLyricMetadata,
   normalizeLocalLyricValues,
+  type AmlLyricCandidate,
   type LocalLyricCandidate,
 } from "./localLyricMatcher.ts";
 
@@ -22,6 +24,21 @@ describe("localLyricMatcher", () => {
       "dave",
       "eve",
     ]);
+  });
+
+  it("支持数组元数据字段", () => {
+    const result = matchLocalLyricMetadata(
+      {
+        musicName: ["星间旅行", "Stellar Trip"],
+        album: ["夜空列车"],
+        artists: ["Alice", "Bob"],
+      },
+      target,
+      "standard",
+    );
+
+    assert.equal(result.matched, true);
+    assert.equal(result.matchedFields, 3);
   });
 
   it("宽松模式任一项包含即可匹配", () => {
@@ -113,5 +130,73 @@ describe("localLyricMatcher", () => {
     ];
 
     assert.equal(findBestLocalLyricMatch(candidates, target, "standard")?.uri, "ttml-new");
+  });
+
+  it("按 AMLL 评分、匹配字段、网易云 ID 和原顺序选择最佳歌词", () => {
+    const candidates: AmlLyricCandidate[] = [
+      {
+        file: "no-ncm.ttml",
+        title: "星间旅行",
+        titles: ["星间旅行"],
+        album: "夜空列车",
+        albums: ["夜空列车"],
+        artist: "Alice",
+        artists: ["Alice"],
+        score: 99,
+      },
+      {
+        file: "less-match.ttml",
+        title: "星间旅行",
+        titles: ["星间旅行"],
+        album: "夜空列车",
+        albums: ["夜空列车"],
+        artist: "其他歌手",
+        artists: ["其他歌手"],
+        ncmIds: [100],
+        score: 99,
+      },
+      {
+        file: "best.ttml",
+        title: "星间旅行",
+        titles: ["星间旅行"],
+        album: "夜空列车",
+        albums: ["夜空列车"],
+        artist: "Alice",
+        artists: ["Alice"],
+        ncmIds: [101],
+        score: 99,
+      },
+      {
+        file: "later.ttml",
+        title: "星间旅行",
+        titles: ["星间旅行"],
+        album: "夜空列车",
+        albums: ["夜空列车"],
+        artist: "Alice",
+        artists: ["Alice"],
+        ncmIds: [102],
+        score: 99,
+      },
+    ];
+
+    assert.equal(findBestAmlLyricMatch(candidates, target, "standard")?.file, "best.ttml");
+  });
+
+  it("AMLL 候选遵循严格和宽松匹配档位", () => {
+    const candidates: AmlLyricCandidate[] = [
+      {
+        file: "loose.ttml",
+        title: "星间旅行 live",
+        titles: ["星间旅行 live"],
+        album: "其他专辑",
+        albums: ["其他专辑"],
+        artist: "其他歌手",
+        artists: ["其他歌手"],
+        score: 1,
+      },
+    ];
+
+    assert.equal(findBestAmlLyricMatch(candidates, target, "loose")?.file, "loose.ttml");
+    assert.equal(findBestAmlLyricMatch(candidates, target, "strict"), null);
   });
 });

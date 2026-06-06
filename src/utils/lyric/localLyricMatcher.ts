@@ -1,17 +1,18 @@
 export type LocalLyricMatchMode = "loose" | "standard" | "strict";
 export type LocalLyricFormat = "ttml" | "yrc" | "lrc";
+export type LocalLyricMetadataValue = string | string[];
 
 export interface LocalLyricMetadata {
-  album?: string;
-  musicName?: string;
-  artists?: string;
-  ncmMusicId?: string;
+  album?: LocalLyricMetadataValue;
+  musicName?: LocalLyricMetadataValue;
+  artists?: LocalLyricMetadataValue;
+  ncmMusicId?: LocalLyricMetadataValue;
 }
 
 export interface LocalLyricMatchTarget {
-  album?: string;
-  musicName?: string;
-  artists?: string;
+  album?: LocalLyricMetadataValue;
+  musicName?: LocalLyricMetadataValue;
+  artists?: LocalLyricMetadataValue;
 }
 
 export interface LocalLyricCandidate {
@@ -29,7 +30,19 @@ export interface LocalLyricMatchResult {
   matchedFields: number;
 }
 
-const VALUE_SEPARATOR = /[/&,&，、;；]+/;
+export interface AmlLyricCandidate {
+  title?: string;
+  titles?: LocalLyricMetadataValue;
+  artist?: string;
+  artists?: LocalLyricMetadataValue;
+  album?: string;
+  albums?: LocalLyricMetadataValue;
+  ncmIds?: Array<number | string>;
+  file?: string;
+  score?: number;
+}
+
+const VALUE_SEPARATOR = /[/&,，、;；]+/;
 const FORMAT_WEIGHT: Record<LocalLyricFormat, number> = {
   ttml: 3,
   yrc: 2,
@@ -43,12 +56,13 @@ const normalizeValue = (value: string) =>
     .replace(/\s+/g, "")
     .trim();
 
-export const normalizeLocalLyricValues = (value?: string): string[] => {
+export const normalizeLocalLyricValues = (value?: LocalLyricMetadataValue): string[] => {
   if (!value) return [];
+  const values = Array.isArray(value) ? value : [value];
   return [
     ...new Set(
-      value
-        .split(VALUE_SEPARATOR)
+      values
+        .flatMap((item) => item.split(VALUE_SEPARATOR))
         .map(normalizeValue)
         .filter(Boolean),
     ),
@@ -140,6 +154,59 @@ export const findBestLocalLyricMatch = (
 
     const timeDiff = (b.candidate.lastModified || 0) - (a.candidate.lastModified || 0);
     if (timeDiff) return timeDiff;
+
+    return a.order - b.order;
+  });
+
+  return matched[0]?.candidate || null;
+};
+
+const mergeValues = (
+  primary?: string,
+  values?: LocalLyricMetadataValue,
+): LocalLyricMetadataValue | undefined => {
+  const merged = [
+    ...(primary ? [primary] : []),
+    ...(Array.isArray(values) ? values : values ? [values] : []),
+  ];
+  return merged.length ? merged : undefined;
+};
+
+const normalizeNcmIds = (ids?: Array<number | string>) =>
+  Array.isArray(ids) ? ids.filter((id) => Number.isFinite(Number(id))) : [];
+
+export const findBestAmlLyricMatch = (
+  candidates: AmlLyricCandidate[],
+  target: LocalLyricMatchTarget,
+  mode: LocalLyricMatchMode,
+): AmlLyricCandidate | null => {
+  const matched = candidates
+    .map((candidate, order) => ({
+      candidate,
+      order,
+      score: Number(candidate.score || 0),
+      hasNcmId: normalizeNcmIds(candidate.ncmIds).length > 0,
+      match: matchLocalLyricMetadata(
+        {
+          musicName: mergeValues(candidate.title, candidate.titles),
+          album: mergeValues(candidate.album, candidate.albums),
+          artists: mergeValues(candidate.artist, candidate.artists),
+        },
+        target,
+        mode,
+      ),
+    }))
+    .filter((item) => Boolean(item.candidate.file) && item.match.matched);
+
+  matched.sort((a, b) => {
+    const scoreDiff = b.score - a.score;
+    if (scoreDiff) return scoreDiff;
+
+    const fieldDiff = b.match.matchedFields - a.match.matchedFields;
+    if (fieldDiff) return fieldDiff;
+
+    const ncmDiff = Number(b.hasNcmId) - Number(a.hasNcmId);
+    if (ncmDiff) return ncmDiff;
 
     return a.order - b.order;
   });
