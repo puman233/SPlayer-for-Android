@@ -1,0 +1,43 @@
+package top.imsyy.splayer.android.lyric;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+
+import org.junit.Test;
+
+public class AndroidLocalLyricPathMapperTest {
+  @Test
+  public void mapsMediaStoreRelativePathInsideTree() {
+    assertEquals(
+        "Album",
+        AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath(
+            "primary:Music", "Music/Album/"));
+  }
+
+  @Test
+  public void mapsMediaStoreRelativePathAtTreeRoot() {
+    assertEquals(
+        "",
+        AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath(
+            "primary:Music/Album", "Music/Album/"));
+  }
+
+  @Test
+  public void mapsMediaStoreRelativePathWhenTreeIsStorageRoot() {
+    assertEquals(
+        "Music/Album",
+        AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath("primary:", "Music/Album/"));
+  }
+
+  @Test
+  public void rejectsMediaStoreRelativePathOutsideTree() {
+    assertNull(
+        AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath(
+            "primary:Lyrics", "Music/Album/"));
+  }
+
+  @Test
+  public void rejectsBlankMediaStoreRelativePath() {
+    assertNull(AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath("primary:", ""));
+  }
+}

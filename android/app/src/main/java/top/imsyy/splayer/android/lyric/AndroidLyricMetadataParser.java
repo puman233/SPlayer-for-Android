@@ -2,6 +2,7 @@ package top.imsyy.splayer.android.lyric;
 
 import androidx.annotation.Nullable;
 import com.getcapacitor.JSObject;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -64,7 +65,7 @@ final class AndroidLyricMetadataParser {
 
     void putLrcTag(String key, String value) {
       if (value.isEmpty()) return;
-      switch (key.toLowerCase()) {
+      switch (key.toLowerCase(Locale.ROOT)) {
         case "ti":
           musicName = value;
           break;

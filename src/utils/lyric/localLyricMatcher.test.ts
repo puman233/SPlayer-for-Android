@@ -236,6 +236,29 @@ describe("localLyricMatcher", () => {
     assert.equal(findBestAmlLyricMatch(candidates, target, "standard")?.file, "best.ttml");
   });
 
+  it("AMLL 候选排序忽略无效网易云 ID", () => {
+    const candidates: AmlLyricCandidate[] = [
+      {
+        file: "invalid-ncm.ttml",
+        title: "星间旅行",
+        album: "夜空列车",
+        artist: "Alice",
+        ncmIds: ["", "  ", false as unknown as string],
+        score: 99,
+      },
+      {
+        file: "valid-ncm.ttml",
+        title: "星间旅行",
+        album: "夜空列车",
+        artist: "Alice",
+        ncmIds: ["100"],
+        score: 99,
+      },
+    ];
+
+    assert.equal(findBestAmlLyricMatch(candidates, target, "standard")?.file, "valid-ncm.ttml");
+  });
+
   it("AMLL 候选遵循标准和宽松匹配档位", () => {
     const candidates: AmlLyricCandidate[] = [
       {

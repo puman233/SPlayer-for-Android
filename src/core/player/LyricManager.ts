@@ -1,13 +1,10 @@
-import {
-  fetchAmlRawLyric,
-  searchAmlLyricsWithStatus,
-  type AmlLyricSearchResult,
-} from "@/api/amll";
+import { fetchAmlRawLyric, searchAmlLyricsWithStatus, type AmlLyricSearchResult } from "@/api/amll";
 import { qqMusicMatch } from "@/api/qqmusic";
 import { searchResult, SearchTypes } from "@/api/search";
 import { songLyric, songLyricTTML } from "@/api/song";
 import { keywords as defaultKeywords, regexes as defaultRegexes } from "@/assets/data/exclude";
 import { useCacheManager } from "@/core/resource/CacheManager";
+import { fetchAndroidPrioritizedLyricResult } from "@/core/player/androidLyricScheduler";
 import { AndroidLocalLyric } from "@/plugins/androidLocalLyric";
 import { useMusicStore, useSettingStore, useStatusStore, useStreamingStore } from "@/stores";
 import type { LyricPriority, SongLyric } from "@/types/lyric";
@@ -745,7 +742,10 @@ class LyricManager {
     };
   }
 
-  private getLocalLyricFormat(format: string | undefined, fallback: LocalLyricFormat): LocalLyricFormat {
+  private getLocalLyricFormat(
+    format: string | undefined,
+    fallback: LocalLyricFormat,
+  ): LocalLyricFormat {
     if (format === "ttml" || format === "yrc" || format === "lrc") return format;
     return fallback;
   }
@@ -833,11 +833,7 @@ class LyricManager {
       if (!lines.length) return;
 
       // 只有当没有 YRC 数据或优先级为 TTML 或 自动模式(TTML > QM) 时才覆盖
-      if (
-        !result.yrcData.length ||
-        priority === "ttml" ||
-        priority === "auto"
-      ) {
+      if (!result.yrcData.length || priority === "ttml" || priority === "auto") {
         result.yrcData = lines;
         ttmlAdopted = true;
       }
@@ -1034,7 +1030,7 @@ class LyricManager {
 
     // 从本地遍历
     try {
-      // Android 端：直接走索引歌词（fetchAndroidIndexedLyric），本地覆盖已在索引流程中处理
+      // Android 端由专用调度处理本地覆盖
       if (isCapacitorAndroid) return defaultResult;
 
       const lyricDirs = Array.isArray(localLyricPath) ? localLyricPath.map((p) => String(p)) : [];
@@ -1187,10 +1183,7 @@ class LyricManager {
   private async fetchAndroidAmlLyric(song: SongType): Promise<LyricFetchResult> {
     const settingStore = useSettingStore();
     const defaultResult = emptyLyricResult();
-    if (
-      settingStore.lyricPriority !== "ttml" &&
-      !settingStore.enableOnlineTTMLLyric
-    ) {
+    if (settingStore.lyricPriority !== "ttml" && !settingStore.enableOnlineTTMLLyric) {
       return defaultResult;
     }
 
@@ -1226,38 +1219,23 @@ class LyricManager {
 
   private async fetchAndroidPrioritizedLyric(song: SongType): Promise<LyricFetchResult> {
     const settingStore = useSettingStore();
-    const defaultResult = emptyLyricResult();
     const isLocalSong = Boolean(song.path);
     const priority = settingStore.lyricPriority;
 
-    if (isLocalSong) {
-      const sidecarResult = await this.fetchAndroidSidecarLyric(song);
-      if (this.hasLyricResult(sidecarResult)) return sidecarResult;
-    }
-
-    if (!isLocalSong) {
-      return this.fetchOnlineLyric(song);
-    }
-
-    const localDirectory = () => this.fetchAndroidDirectoryLyric(song, true);
-    const amllTtml = () => this.fetchAndroidAmlLyric(song);
-    const legacyQm = () => this.fetchAndroidLegacyQmLyric(song);
-    const official = () => this.fetchAndroidOfficialMatchedLyric(song);
-    const sourceOrders: Partial<Record<LyricPriority, Array<() => Promise<LyricFetchResult>>>> = {
-      local: [localDirectory, amllTtml, legacyQm, official],
-      ttml: [amllTtml, localDirectory, legacyQm, official],
-      qm: [legacyQm, localDirectory, amllTtml, official],
-      official: [official, localDirectory],
-      auto: [amllTtml, localDirectory, legacyQm, official],
-    };
-
-    const sources = sourceOrders[priority] || sourceOrders.auto || [];
-    for (const fetchSource of sources) {
-      const result = await fetchSource();
-      if (this.hasLyricResult(result)) return result;
-    }
-
-    return defaultResult;
+    return fetchAndroidPrioritizedLyricResult({
+      isLocalSong,
+      priority,
+      fetchers: {
+        hasResult: (result) => this.hasLyricResult(result),
+        emptyResult: emptyLyricResult,
+        fetchSidecar: () => this.fetchAndroidSidecarLyric(song),
+        fetchDirectory: (preferMetadata) => this.fetchAndroidDirectoryLyric(song, preferMetadata),
+        fetchOnline: () => this.fetchOnlineLyric(song),
+        fetchAmlTtml: () => this.fetchAndroidAmlLyric(song),
+        fetchLegacyQm: () => this.fetchAndroidLegacyQmLyric(song),
+        fetchOfficial: () => this.fetchAndroidOfficialMatchedLyric(song),
+      },
+    });
   }
 
   /**

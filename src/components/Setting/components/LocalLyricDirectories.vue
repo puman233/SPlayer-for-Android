@@ -173,9 +173,7 @@ const scanAndroidLyricDirectories = async (showSuccess = true) => {
     }));
     const summary = await AndroidLocalLyric.scanLyricDirectories({ directories });
     settingStore.androidLyricIndexMap = summary.indexMap || {};
-    if (Array.isArray(summary.entries)) {
-      settingStore.androidLyricEntries = summary.entries;
-    }
+    settingStore.androidLyricEntries = Array.isArray(summary.entries) ? summary.entries : [];
     settingStore.androidLyricScanMeta = {
       lastScanAt: Date.now(),
       totalFiles: summary.totalFiles || 0,

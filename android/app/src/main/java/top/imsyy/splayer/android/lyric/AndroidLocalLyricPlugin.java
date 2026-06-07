@@ -3,8 +3,10 @@ package top.imsyy.splayer.android.lyric;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.UriPermission;
+import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import androidx.activity.result.ActivityResult;
 import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
@@ -189,7 +191,11 @@ public class AndroidLocalLyricPlugin extends Plugin {
 
   @Nullable
   private JSObject findContentSidecarLyric(Uri audioUri) {
-    String baseName = getAudioBaseName(audioUri);
+    MediaStoreAudioInfo mediaInfo = queryMediaStoreAudioInfo(audioUri);
+    String baseName =
+        mediaInfo != null && !mediaInfo.displayName.isEmpty()
+            ? stripExtension(mediaInfo.displayName)
+            : getAudioBaseName(audioUri);
     if (baseName.isEmpty()) return null;
 
     JSObject direct = findSidecarFromTree(audioUri, audioUri, baseName);
@@ -198,7 +204,11 @@ public class AndroidLocalLyricPlugin extends Plugin {
     try {
       for (UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
         if (!permission.isReadPermission()) continue;
-        JSObject result = findSidecarFromTree(audioUri, permission.getUri(), baseName);
+        Uri treeUri = permission.getUri();
+        JSObject result = findSidecarFromTree(audioUri, treeUri, baseName);
+        if (result == null && mediaInfo != null) {
+          result = findSidecarFromMediaStoreInfo(treeUri, mediaInfo.relativePath, baseName);
+        }
         if (result != null) return result;
       }
     } catch (Exception ignored) {
@@ -206,6 +216,28 @@ public class AndroidLocalLyricPlugin extends Plugin {
     }
 
     return null;
+  }
+
+  @Nullable
+  private MediaStoreAudioInfo queryMediaStoreAudioInfo(Uri audioUri) {
+    String[] projection = {MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH};
+    try (Cursor cursor =
+        getContext().getContentResolver().query(audioUri, projection, null, null, null)) {
+      if (cursor == null || !cursor.moveToFirst()) return null;
+      String displayName = getCursorString(cursor, MediaStore.MediaColumns.DISPLAY_NAME);
+      String relativePath = getCursorString(cursor, MediaStore.MediaColumns.RELATIVE_PATH);
+      if (displayName.isEmpty() && relativePath.isEmpty()) return null;
+      return new MediaStoreAudioInfo(displayName, relativePath);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  private String getCursorString(Cursor cursor, String columnName) {
+    int index = cursor.getColumnIndex(columnName);
+    if (index < 0) return "";
+    String value = cursor.getString(index);
+    return value == null ? "" : value.trim();
   }
 
   @Nullable
@@ -221,6 +253,28 @@ public class AndroidLocalLyricPlugin extends Plugin {
       if (relativePath == null || relativePath.isEmpty()) return null;
 
       String parentRelativePath = getParentRelativePath(relativePath);
+      DocumentFile parent = resolveTreeDocument(treeUri, parentRelativePath);
+      if (parent != null && parent.isDirectory() && parent.canRead()) {
+        JSObject result = findSidecarInDocumentDirectory(parent, baseName);
+        if (result != null) return result;
+      }
+
+      return findSidecarByDocumentId(treeUri, treeDocumentId, parentRelativePath, baseName);
+    } catch (Exception ignored) {
+      return null;
+    }
+  }
+
+  @Nullable
+  private JSObject findSidecarFromMediaStoreInfo(
+      Uri treeUri, String mediaRelativePath, String baseName) {
+    try {
+      String treeDocumentId = DocumentsContract.getTreeDocumentId(treeUri);
+      String parentRelativePath =
+          AndroidLocalLyricPathMapper.mapMediaParentToTreeRelativePath(
+              treeDocumentId, mediaRelativePath);
+      if (parentRelativePath == null) return null;
+
       DocumentFile parent = resolveTreeDocument(treeUri, parentRelativePath);
       if (parent != null && parent.isDirectory() && parent.canRead()) {
         JSObject result = findSidecarInDocumentDirectory(parent, baseName);
@@ -536,6 +590,16 @@ public class AndroidLocalLyricPlugin extends Plugin {
     DirectoryInfo(String uri, String name) {
       this.uri = uri;
       this.name = name;
+    }
+  }
+
+  private static class MediaStoreAudioInfo {
+    final String displayName;
+    final String relativePath;
+
+    MediaStoreAudioInfo(String displayName, String relativePath) {
+      this.displayName = displayName;
+      this.relativePath = relativePath;
     }
   }
 

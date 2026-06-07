@@ -191,7 +191,14 @@ const mergeValues = (
 };
 
 const normalizeNcmIds = (ids?: Array<number | string>) =>
-  Array.isArray(ids) ? ids.filter((id) => Number.isFinite(Number(id))) : [];
+  Array.isArray(ids)
+    ? ids.filter((id) => {
+        if (typeof id === "number") return Number.isFinite(id);
+        if (typeof id !== "string") return false;
+        const value = id.trim();
+        return value.length > 0 && Number.isFinite(Number(value));
+      })
+    : [];
 
 export const findBestAmlLyricMatch = (
   candidates: AmlLyricCandidate[],

@@ -24,7 +24,7 @@ describe("amll api", () => {
         artists: "Bob",
         album: "夜空列车",
         albums: ["Night Train"],
-        ncmIds: ["123", 456, "bad"],
+        ncmIds: ["123", 456, "bad", "", "  ", false],
         file: "song.ttml",
         score: "98",
       },
@@ -50,6 +50,19 @@ describe("amll api", () => {
       buildAmlRawLyricUrl("dir/song name.ttml"),
       "https://amlldb.bikonoo.com/raw-lyrics/dir/song%20name.ttml",
     );
+  });
+
+  it("拒绝 raw lyric 路径穿越片段", () => {
+    assert.throws(() => buildAmlRawLyricUrl("../song.ttml"), /Invalid AMLL lyric file path/);
+    assert.throws(() => buildAmlRawLyricUrl("dir/./song.ttml"), /Invalid AMLL lyric file path/);
+  });
+
+  it("非法 raw lyric 路径下载返回 null", async () => {
+    globalThis.fetch = async () => {
+      throw new Error("不应请求非法路径");
+    };
+
+    assert.equal(await fetchAmlRawLyric("../song.ttml"), null);
   });
 
   it("空搜索结果返回成功状态和空数组", async () => {

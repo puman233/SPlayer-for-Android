@@ -53,7 +53,13 @@ const toNumberArray = (value: unknown): number[] | undefined => {
   const normalized = [
     ...new Set(
       values
-        .map((item) => Number(item))
+        .map((item) => {
+          if (typeof item === "string") {
+            const trimmed = item.trim();
+            return trimmed ? Number(trimmed) : Number.NaN;
+          }
+          return typeof item === "number" ? item : Number.NaN;
+        })
         .filter((item) => Number.isFinite(item)),
     ),
   ];
@@ -66,12 +72,12 @@ const toNumberValue = (value: unknown): number | undefined => {
 };
 
 export const buildAmlRawLyricUrl = (file: string): string => {
-  const encodedFile = file
-    .trim()
-    .split("/")
-    .filter(Boolean)
-    .map((item) => encodeURIComponent(item))
-    .join("/");
+  const segments = file.trim().split("/").filter(Boolean);
+  if (!segments.length || segments.some((item) => item === "." || item === "..")) {
+    throw new Error("Invalid AMLL lyric file path");
+  }
+
+  const encodedFile = segments.map((item) => encodeURIComponent(item)).join("/");
   return `${AMLL_API_BASE}/raw-lyrics/${encodedFile}`;
 };
 
