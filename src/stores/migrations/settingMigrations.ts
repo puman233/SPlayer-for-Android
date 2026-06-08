@@ -287,8 +287,8 @@ export const settingMigrations: Record<number, MigrationFunction> = {
       androidLyricEntries: [],
     };
   },
-  26: (state) => {
-    const mode = String((state as Record<string, unknown>).localLyricMatchMode || "");
-    return mode === "strict" ? { localLyricMatchMode: "standard" } : {};
+  26: () => {
+    // 保留已发布版本号，避免覆盖严格档位。
+    return {};
   },
 };

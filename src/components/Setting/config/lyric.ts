@@ -510,8 +510,10 @@ export const useLyricSettings = (): SettingConfig => {
             label: "本地歌词匹配档位",
             type: "select",
             show: isCapacitorAndroid,
-            description: "标准=标题完全匹配且专辑或歌手匹配；宽松=标题包含匹配并校验可用佐证",
+            description:
+              "严格=标题、专辑、歌手三项全部完全匹配；标准=任意两项完全匹配；宽松=任意一项包含匹配",
             options: [
+              { label: "严格", value: "strict" },
               { label: "标准", value: "standard" },
               { label: "宽松", value: "loose" },
             ],
