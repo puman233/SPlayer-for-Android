@@ -72,8 +72,25 @@ public final class AudioCacheProvider {
   private static volatile SimpleCache simpleCache;
 
   private static final Object lock = new Object();
+  @Nullable private static volatile DiagnosticListener diagnosticListener;
 
   private AudioCacheProvider() {}
+
+  public interface DiagnosticListener {
+    void onDiagnosticLog(@NonNull String tag, @NonNull String message);
+  }
+
+  public static void setDiagnosticListener(@Nullable DiagnosticListener listener) {
+    diagnosticListener = listener;
+  }
+
+  private static void emitDiagnosticLog(@NonNull String tag, @NonNull String message) {
+    Log.d(TAG, tag + " " + message);
+    DiagnosticListener listener = diagnosticListener;
+    if (listener != null) {
+      listener.onDiagnosticLog(tag, message);
+    }
+  }
 
   /** 懒初始化 SimpleCache 单例（同进程多次构造同目录会抛 IllegalStateException）。 */
   @NonNull
@@ -139,7 +156,7 @@ public final class AudioCacheProvider {
 
     // http(s) 走 CacheDataSource；本地 file:// / content:// 直接 DefaultDataSource，
     // 避免本地文件被复制一份到 cacheDir/exo/。
-    DataSource.Factory httpCacheFactory = buildHttpCacheFactory(appContext, httpFactory, cache);
+    DataSource.Factory httpCacheFactory = buildHttpCacheFactory(appContext, httpFactory, cache, false);
     DataSource.Factory localFactory = new DefaultDataSource.Factory(appContext);
 
     return () -> new SchemeRoutingDataSource(httpCacheFactory, localFactory);
@@ -153,7 +170,8 @@ public final class AudioCacheProvider {
   private static DataSource.Factory buildHttpCacheFactory(
       @NonNull Context appContext,
       @NonNull DataSource.Factory httpFactory,
-      @NonNull SimpleCache cache) {
+      @NonNull SimpleCache cache,
+      boolean blockOnCache) {
     CacheDataSink.Factory cacheSinkFactory =
         new CacheDataSink.Factory().setCache(cache).setFragmentSize(Long.MAX_VALUE);
     return () -> {
@@ -163,8 +181,10 @@ public final class AudioCacheProvider {
               .setUpstreamDataSourceFactory(httpFactory)
               .setCacheKeyFactory(spec -> resolveCacheKey(spec.uri))
               .setFlags(
-                  CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
-                      | CacheDataSource.FLAG_BLOCK_ON_CACHE);
+                  blockOnCache
+                      ? CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
+                          | CacheDataSource.FLAG_BLOCK_ON_CACHE
+                      : CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
       if (!isLowDiskSpace(appContext)) {
         cf.setCacheWriteDataSinkFactory(cacheSinkFactory);
       } else {
@@ -186,7 +206,7 @@ public final class AudioCacheProvider {
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000);
-    return buildHttpCacheFactory(appContext, httpFactory, cache);
+    return buildHttpCacheFactory(appContext, httpFactory, cache, true);
   }
 
   /**
@@ -242,7 +262,15 @@ public final class AudioCacheProvider {
         pendingListeners.clear();
         current = ds;
       }
-      return ds.open(dataSpec);
+      long startedAt = android.os.SystemClock.elapsedRealtime();
+      try {
+        return ds.open(dataSpec);
+      } finally {
+        long costMs = android.os.SystemClock.elapsedRealtime() - startedAt;
+        if (isHttp && costMs > 1000L) {
+          emitDiagnosticLog("DIAG-AudioOpen", "slow open " + costMs + "ms key=" + resolveCacheKey(dataSpec.uri));
+        }
+      }
     }
 
     @Override
@@ -495,8 +523,13 @@ public final class AudioCacheProvider {
     chosen.execute(() -> {
       // 取每个 cacheKey 自己的 monitor：跨 executor 时同 cacheKey 串行，避免并发 CacheWriter 写同一组 span
       final Object writerLock = cacheKeyWriterLocks.computeIfAbsent(cacheKey, k -> new Object());
+      long lockWaitStartedAt = android.os.SystemClock.elapsedRealtime();
       try {
         synchronized (writerLock) {
+          long lockWaitMs = android.os.SystemClock.elapsedRealtime() - lockWaitStartedAt;
+          if (lockWaitMs > 500L) {
+            emitDiagnosticLog("DIAG-CacheWriter", "lock wait " + lockWaitMs + "ms key=" + cacheKey);
+          }
           DataSource.Factory factory = buildHttpCacheFactoryForPrefetch(appContext);
           DataSource ds = factory.createDataSource();
           DataSpec.Builder specBuilder =
