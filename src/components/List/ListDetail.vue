@@ -20,11 +20,7 @@
             </template>
           </n-image>
           <!-- 封面背板 （与主图同 source，复用同一 blob URL、共享引用计数） -->
-          <n-image
-            class="cover-shadow"
-            preview-disabled
-            :src="resolvedHeaderCover"
-          />
+          <n-image class="cover-shadow" preview-disabled :src="resolvedHeaderCover" />
           <!-- 遮罩 -->
           <div v-if="config.showCoverMask" class="cover-mask" />
           <!-- 播放量 -->
@@ -292,9 +288,7 @@ const settingStore = useSettingStore();
 
 // 头部大封面走 list-covers 本地缓存：命中返 blob URL，未命中返原 url 同时后台下载入档。
 // preview-src 仍用原始 url（预览低频次，误差可接受）。
-const headerCoverSrc = computed(
-  () => props.detailData?.coverSize?.m || props.detailData?.cover,
-);
+const headerCoverSrc = computed(() => props.detailData?.coverSize?.m || props.detailData?.cover);
 const cachedHeaderCover = useCoverCache(headerCoverSrc, "list-covers");
 const resolvedHeaderCover = computed(() => cachedHeaderCover.value || headerCoverSrc.value);
 

@@ -231,7 +231,10 @@ export const prefetchCoverToCache = async (
 };
 
 /** 列表项最小形态：从 cover / coverSize 提取首选 url。 */
-type CoverLike = { cover?: string; coverSize?: { s?: string; m?: string; l?: string; xl?: string } };
+type CoverLike = {
+  cover?: string;
+  coverSize?: { s?: string; m?: string; l?: string; xl?: string };
+};
 
 /**
  * 从一条列表项按尺寸偏好提取 url。<br>
@@ -240,10 +243,7 @@ type CoverLike = { cover?: string; coverSize?: { s?: string; m?: string; l?: str
  * - "s"（小图）：SongCard、SongList 行封面
  * - "m"（中图）：CoverList、ArtistList、Local/Streaming/HomeMobile 列表卡片
  */
-const pickListCoverUrl = (
-  item: CoverLike,
-  sizePref: "s" | "m" = "m",
-): string | undefined => {
+const pickListCoverUrl = (item: CoverLike, sizePref: "s" | "m" = "m"): string | undefined => {
   if (sizePref === "s") return item?.coverSize?.s || item?.cover;
   return item?.coverSize?.m || item?.coverSize?.s || item?.cover;
 };

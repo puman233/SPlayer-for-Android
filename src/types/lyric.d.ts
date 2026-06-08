@@ -11,4 +11,9 @@ export interface SongLyric {
 /**
  * 歌词优先级
  */
-export type LyricPriority = "auto" | "qm" | "ttml" | "official";
+export type LyricPriority = "auto" | "qm" | "ttml" | "official" | "local";
+
+/**
+ * 本地歌词匹配档位
+ */
+export type LocalLyricMatchMode = "strict" | "standard" | "loose";

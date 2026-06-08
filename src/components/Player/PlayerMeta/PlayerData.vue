@@ -155,6 +155,7 @@ import { SongUnlockServer } from "@/core/player/SongManager";
 import { useLyricManager } from "@/core/player/LyricManager";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { radioProgramDetail } from "@/api/radio";
+import { isCapacitorAndroid } from "@/utils/env";
 const props = defineProps<{
   /** 数据居中 */
   center?: boolean;
@@ -193,6 +194,9 @@ const lyricSourceOptions = computed(() => {
     { label: "自动", value: "auto" },
     { label: "官方优先", value: "official" },
   ];
+  if (isCapacitorAndroid) {
+    options.push({ label: "本地歌词优先", value: "local" });
+  }
   if (settingStore.enableQQMusicLyric) {
     options.push({ label: "QM 优先", value: "qm" });
   }

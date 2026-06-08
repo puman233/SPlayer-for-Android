@@ -71,14 +71,15 @@ const getApiErrorStatus = (status?: number) => {
 
 const ensureNeteaseApiConfig = async () => {
   if (!neteaseApiConfigPromise) {
-    generateNeteaseApiConfig ||= nodeRequire(path.join(
-      EMBEDDED_API_VENDOR_ROOT,
-      "generateConfig.js",
-    )) as () => Promise<void>;
-    neteaseApiConfigPromise = Promise.resolve(generateNeteaseApiConfig()).catch((error: unknown) => {
-      neteaseApiConfigPromise = null;
-      throw error;
-    });
+    generateNeteaseApiConfig ||= nodeRequire(
+      path.join(EMBEDDED_API_VENDOR_ROOT, "generateConfig.js"),
+    ) as () => Promise<void>;
+    neteaseApiConfigPromise = Promise.resolve(generateNeteaseApiConfig()).catch(
+      (error: unknown) => {
+        neteaseApiConfigPromise = null;
+        throw error;
+      },
+    );
   }
 
   await neteaseApiConfigPromise;

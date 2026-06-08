@@ -608,9 +608,8 @@ class PlayerController {
     // 后续 4 个 Capacitor IPC 累计 100-300ms。这些都不应卡在切歌热路径上，
     // 推到 idle frame 让 UI 把切歌动画 / 歌词加载先跑完，再幕后做队列同步。
     // Java 触发的 applyNativeTrackChanged / refreshAndroidQueueWindow 等仍走立即路径。
-    const ric = (
-      window as Window & { requestIdleCallback?: typeof requestIdleCallback }
-    ).requestIdleCallback;
+    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
+      .requestIdleCallback;
     const runSync = () => void this.syncAndroidPlaybackContext(song);
     if (typeof ric === "function") {
       this.runIdleWithTimeout(runSync);
@@ -684,7 +683,10 @@ class PlayerController {
     }
     const settingStore = useSettingStore();
     return {
-      quality: song.quality ?? handleSongQuality({ level: settingStore.songLevel }, "online") ?? QualityType.HQ,
+      quality:
+        song.quality ??
+        handleSongQuality({ level: settingStore.songLevel }, "online") ??
+        QualityType.HQ,
       source: "official",
     };
   }
@@ -1013,10 +1015,10 @@ class PlayerController {
       return;
     }
     if (!matchedById) {
-      console.warn(
-        "[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底",
-        { songId, fallbackId: nextSong.id },
-      );
+      console.warn("[Android] applyNativeAutoNext: songId 未匹配到列表，已通过下一索引兜底", {
+        songId,
+        fallbackId: nextSong.id,
+      });
     }
 
     if (typeof liked === "boolean" && typeof nextSong.id === "number") {

@@ -1,14 +1,25 @@
+import { fetchAmlRawLyric, searchAmlLyricsWithStatus, type AmlLyricSearchResult } from "@/api/amll";
 import { qqMusicMatch } from "@/api/qqmusic";
 import { searchResult, SearchTypes } from "@/api/search";
 import { songLyric, songLyricTTML } from "@/api/song";
 import { keywords as defaultKeywords, regexes as defaultRegexes } from "@/assets/data/exclude";
 import { useCacheManager } from "@/core/resource/CacheManager";
+import { fetchAndroidPrioritizedLyricResult } from "@/core/player/androidLyricScheduler";
 import { AndroidLocalLyric } from "@/plugins/androidLocalLyric";
 import { useMusicStore, useSettingStore, useStatusStore, useStreamingStore } from "@/stores";
 import type { LyricPriority, SongLyric } from "@/types/lyric";
 import type { SongType } from "@/types/main";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { applyBracketReplacement } from "@/utils/lyric/lyricFormat";
+import {
+  findBestAmlLyricMatch,
+  findBestLocalLyricMatch,
+  normalizeLocalLyricValues,
+  type LocalLyricCandidate,
+  type LocalLyricFormat,
+  type LocalLyricMatchMode,
+  type LocalLyricMatchTarget,
+} from "@/utils/lyric/localLyricMatcher";
 import { applyProfanityUncensor } from "@/utils/lyric/lyricProfanity";
 import {
   alignLyricLines,
@@ -60,6 +71,16 @@ interface LocalLyricOverrideResult {
   lrc?: unknown;
   ttml?: unknown;
 }
+
+interface LocalAmlMatchSignature {
+  mode: LocalLyricMatchMode;
+  fingerprint: string;
+}
+
+const emptyLyricResult = (): LyricFetchResult => ({
+  data: { lrcData: [], yrcData: [] },
+  meta: { usingTTMLLyric: false, usingQRCLyric: false },
+});
 
 /**
  * 歌词管理器
@@ -255,6 +276,7 @@ class LyricManager {
 
   /** 进程内 in-flight 去重：同一首歌的并发查询合并。 */
   private localMatchInFlight = new Map<string, Promise<number | null>>();
+  private localAmlMatchInFlight = new Map<string, Promise<string | null>>();
 
   private async readLocalMatchCache(cacheKey: string): Promise<number | null | undefined> {
     const settingStore = useSettingStore();
@@ -452,11 +474,142 @@ class LyricManager {
     return task;
   }
 
-  private async fetchMatchedOnlineLyricForLocal(song: SongType): Promise<LyricFetchResult | null> {
+  private getLocalLyricMatchTarget(song: SongType): LocalLyricMatchTarget {
+    return {
+      musicName: song.name,
+      album: this.getAlbumText(song),
+      artists: this.getArtistsText(song),
+    };
+  }
+
+  private static hashText(value: string): string {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  private getLocalAmlMatchSignature(song: SongType): LocalAmlMatchSignature {
+    const settingStore = useSettingStore();
+    const target = this.getLocalLyricMatchTarget(song);
+    const metadata = {
+      musicName: normalizeLocalLyricValues(target.musicName),
+      album: normalizeLocalLyricValues(target.album),
+      artists: normalizeLocalLyricValues(target.artists),
+    };
+    return {
+      mode: settingStore.localLyricMatchMode,
+      fingerprint: LyricManager.hashText(JSON.stringify(metadata)),
+    };
+  }
+
+  private getAmlRawCacheFileName(cacheKey: string, file: string): string {
+    const safeFile = encodeURIComponent(file).replace(/[^a-zA-Z0-9._-]/g, "_");
+    return `${cacheKey}.amll.${safeFile}.ttml`;
+  }
+
+  private async searchAmlCandidatesForLocal(
+    song: SongType,
+  ): Promise<{ completed: boolean; candidates: AmlLyricSearchResult[] }> {
+    const name = String(song.name || "").trim();
+    if (!name) return { completed: true, candidates: [] };
+
+    const artistsText = this.getArtistsText(song).trim();
+    const searchList = [
+      { query: name, type: "title" as const },
+      ...(artistsText ? [{ query: `${name} ${artistsText}`, type: "all" as const }] : []),
+    ];
+
+    const results: AmlLyricSearchResult[] = [];
+    const seenFiles = new Set<string>();
+    let completed = true;
+    for (const search of searchList) {
+      const response = await searchAmlLyricsWithStatus(search.query, search.type);
+      if (!response.ok) {
+        completed = false;
+        continue;
+      }
+      for (const item of response.results) {
+        if (seenFiles.has(item.file)) continue;
+        seenFiles.add(item.file);
+        results.push(item);
+      }
+    }
+    return { completed, candidates: results };
+  }
+
+  private async findAmlLyricFileForLocal(song: SongType): Promise<string | null> {
+    const cacheKey = `local_${song.id}`;
+    const signature = this.getLocalAmlMatchSignature(song);
+    const cached = await this.readLocalAmlMatchCache(cacheKey, signature);
+    if (cached !== undefined) return cached;
+
+    const inFlightKey = `${cacheKey}:${signature.mode}:${signature.fingerprint}`;
+    const inFlight = this.localAmlMatchInFlight.get(inFlightKey);
+    if (inFlight) return inFlight;
+
+    const task = (async (): Promise<string | null> => {
+      try {
+        const { completed, candidates } = await this.searchAmlCandidatesForLocal(song);
+        const match = findBestAmlLyricMatch(
+          candidates,
+          this.getLocalLyricMatchTarget(song),
+          signature.mode,
+        );
+        const file = match?.file || null;
+        if (file || completed) {
+          await this.writeLocalAmlMatchCache(cacheKey, file, signature);
+        }
+        return file;
+      } catch (error) {
+        console.warn("AMLL 歌词搜索失败:", error);
+        return null;
+      } finally {
+        this.localAmlMatchInFlight.delete(inFlightKey);
+      }
+    })();
+
+    this.localAmlMatchInFlight.set(inFlightKey, task);
+    return task;
+  }
+
+  private async fetchAmlMatchedLyricForLocal(song: SongType): Promise<LyricFetchResult | null> {
+    if (!isCapacitorAndroid || !song.path) return null;
+
+    const file = await this.findAmlLyricFileForLocal(song);
+    if (!file) return null;
+
+    const cacheKey = `local_${song.id}`;
+    const rawCacheFile = this.getAmlRawCacheFileName(cacheKey, file);
+    let ttmlContent = await this.readLyricCacheText(rawCacheFile);
+
+    if (!ttmlContent) {
+      ttmlContent = await fetchAmlRawLyric(file);
+      if (ttmlContent) {
+        await this.writeLyricCacheText(rawCacheFile, ttmlContent);
+      }
+    }
+
+    if (!ttmlContent) return null;
+    try {
+      const parsed = this.parseLocalLyricContent(ttmlContent, "ttml");
+      return this.hasLyricResult(parsed) ? parsed : null;
+    } catch (error) {
+      console.warn("解析 AMLL TTML 歌词失败:", error);
+      return null;
+    }
+  }
+
+  private async fetchMatchedOnlineLyricForLocal(
+    song: SongType,
+    priorityOverride?: LyricPriority,
+  ): Promise<LyricFetchResult | null> {
     const onlineId = await this.findOnlineSongIdForLocal(song);
     if (!onlineId) return null;
     const matchedSong: SongType = { ...song, id: onlineId, path: undefined };
-    const result = await this.fetchOnlineLyric(matchedSong);
+    const result = await this.fetchOnlineLyric(matchedSong, priorityOverride);
     if (!result.data.lrcData.length && !result.data.yrcData.length) return null;
     return result;
   }
@@ -474,13 +627,154 @@ class LyricManager {
     }
   }
 
+  private async readLyricCacheText(fileName: string): Promise<string | null> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return null;
+    try {
+      const result = await cacheManager.get("lyrics", fileName);
+      if (!result.success || !result.data) return null;
+      return new TextDecoder().decode(result.data);
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeLyricCacheText(fileName: string, data: string): Promise<void> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
+    try {
+      await cacheManager.set("lyrics", fileName, data);
+    } catch {
+      // 忽略写入失败
+    }
+  }
+
+  private async readLocalAmlMatchCache(
+    cacheKey: string,
+    signature: LocalAmlMatchSignature,
+  ): Promise<string | null | undefined> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return undefined;
+    try {
+      const result = await cacheManager.get("lyrics", `${cacheKey}.amll.match.json`);
+      if (!result.success || !result.data) return undefined;
+      const parsed = JSON.parse(new TextDecoder().decode(result.data));
+      if (parsed?.mode !== signature.mode || parsed?.fingerprint !== signature.fingerprint) {
+        return undefined;
+      }
+      const ts = Number(parsed?.ts || 0);
+      const file = parsed?.file;
+      if (file === undefined) return undefined;
+      const ttl =
+        file === null ? LyricManager.LOCAL_MATCH_TTL_NEG_MS : LyricManager.LOCAL_MATCH_TTL_OK_MS;
+      if (Date.now() - ts > ttl) return undefined;
+      return typeof file === "string" && file.trim() ? file : null;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async writeLocalAmlMatchCache(
+    cacheKey: string,
+    file: string | null,
+    signature: LocalAmlMatchSignature,
+  ): Promise<void> {
+    const settingStore = useSettingStore();
+    const cacheManager = useCacheManager();
+    if (!cacheManager.isAvailable() || !settingStore.cacheEnabled) return;
+    try {
+      await cacheManager.set(
+        "lyrics",
+        `${cacheKey}.amll.match.json`,
+        JSON.stringify({ ...signature, file, ts: Date.now() }),
+      );
+    } catch {
+      // 忽略写入失败
+    }
+  }
+
+  private hasLyricResult(result: LyricFetchResult): boolean {
+    return !isEmpty(result.data.lrcData) || !isEmpty(result.data.yrcData);
+  }
+
+  private parseLocalLyricContent(content: string, format: LocalLyricFormat): LyricFetchResult {
+    const defaultResult = emptyLyricResult();
+    if (!content) return defaultResult;
+
+    if (format === "ttml") {
+      const cleaned = cleanTTMLTranslations(content);
+      const lines = parseTTML(cleaned).lines || [];
+      if (!lines.length) return defaultResult;
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: true, usingQRCLyric: false },
+      };
+    }
+
+    if (format === "yrc") {
+      let lines: LyricLine[] = [];
+      if (content.trim().startsWith("<") || content.includes("<QrcInfos>")) {
+        lines = parseQRCLyric(content);
+      } else {
+        lines = parseYrc(content) || [];
+      }
+      if (!lines.length) return defaultResult;
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: false, usingQRCLyric: false },
+      };
+    }
+
+    const { format: lrcFormat, lines } = parseSmartLrc(content);
+    if (!lines.length) return defaultResult;
+    if (isWordLevelFormat(lrcFormat)) {
+      return {
+        data: { lrcData: [], yrcData: lines },
+        meta: { usingTTMLLyric: false, usingQRCLyric: false },
+      };
+    }
+    return {
+      data: { lrcData: alignLyricLines(lines), yrcData: [] },
+      meta: { usingTTMLLyric: false, usingQRCLyric: false },
+    };
+  }
+
+  private getLocalLyricFormat(
+    format: string | undefined,
+    fallback: LocalLyricFormat,
+  ): LocalLyricFormat {
+    if (format === "ttml" || format === "yrc" || format === "lrc") return format;
+    return fallback;
+  }
+
+  private async fetchAndroidSidecarLyric(song: SongType): Promise<LyricFetchResult> {
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid || !song.path) return defaultResult;
+
+    try {
+      const result = await AndroidLocalLyric.findSidecarLyric({ audioPath: song.path });
+      if (!result?.content) return defaultResult;
+      const format = this.getLocalLyricFormat(result.format, "lrc");
+      return this.parseLocalLyricContent(result.content, format);
+    } catch {
+      return defaultResult;
+    }
+  }
+
   /**
    * 处理在线歌词
    * @param song 歌曲对象
    * @returns 歌词数据和元数据
    */
-  private async fetchOnlineLyric(song: SongType): Promise<LyricFetchResult> {
+  private async fetchOnlineLyric(
+    song: SongType,
+    priorityOverride?: LyricPriority,
+  ): Promise<LyricFetchResult> {
     const settingStore = useSettingStore();
+    const priority = priorityOverride ?? settingStore.lyricPriority;
     const id = song.type === "radio" ? song.dj?.id : song.id;
     if (!id)
       return {
@@ -504,7 +798,7 @@ class LyricManager {
     // 处理 QQ 音乐歌词
     const adoptQQMusic = async () => {
       // 检查开关 (如果显式选了 QM 优先, 则忽略开关限制? 不, UI上限制了)
-      if (!settingStore.enableQQMusicLyric && settingStore.lyricPriority !== "qm") return;
+      if (!settingStore.enableQQMusicLyric && priority !== "qm") return;
 
       const qqLyric = await this.fetchQQMusicLyric(song);
       if (!qqLyric) return;
@@ -523,7 +817,7 @@ class LyricManager {
 
     // 处理 TTML 歌词
     const adoptTTML = async () => {
-      if (!settingStore.enableOnlineTTMLLyric && settingStore.lyricPriority !== "ttml") return;
+      if (!settingStore.enableOnlineTTMLLyric && priority !== "ttml") return;
       if (typeof id !== "number") return;
       let ttmlContent: string | null = await this.getRawLyricCache(id, "ttml");
       if (!ttmlContent) {
@@ -539,11 +833,7 @@ class LyricManager {
       if (!lines.length) return;
 
       // 只有当没有 YRC 数据或优先级为 TTML 或 自动模式(TTML > QM) 时才覆盖
-      if (
-        !result.yrcData.length ||
-        settingStore.lyricPriority === "ttml" ||
-        settingStore.lyricPriority === "auto"
-      ) {
+      if (!result.yrcData.length || priority === "ttml" || priority === "auto") {
         result.yrcData = lines;
         ttmlAdopted = true;
       }
@@ -602,7 +892,6 @@ class LyricManager {
     };
 
     // 执行优先策略
-    const priority = settingStore.lyricPriority;
     if (priority === "qm") {
       await adoptQQMusic();
       // 如果 QM 没结果，回退到 Default
@@ -643,10 +932,7 @@ class LyricManager {
    * @returns 歌词数据和元数据
    */
   private async fetchLocalLyric(song: SongType): Promise<LyricFetchResult> {
-    const defaultResult: LyricFetchResult = {
-      data: { lrcData: [], yrcData: [] },
-      meta: { usingTTMLLyric: false, usingQRCLyric: false },
-    };
+    const defaultResult = emptyLyricResult();
     if (!song.path) return defaultResult;
 
     try {
@@ -654,75 +940,7 @@ class LyricManager {
 
       // Android 端：使用 Capacitor 插件查找同目录歌词文件
       if (isCapacitorAndroid) {
-        try {
-          const result = await AndroidLocalLyric.findSidecarLyric({ audioPath: song.path });
-          if (result?.content) {
-            const format = result.format || "lrc";
-            if (format === "ttml") {
-              const cleaned = cleanTTMLTranslations(result.content);
-              const ttmlLines = parseTTML(cleaned).lines || [];
-              if (ttmlLines.length) {
-                return {
-                  data: { lrcData: [], yrcData: ttmlLines },
-                  meta: { usingTTMLLyric: true, usingQRCLyric: false },
-                };
-              }
-            }
-            if (format === "yrc") {
-              let yrcLines: LyricLine[] = [];
-              if (result.content.trim().startsWith("<") || result.content.includes("<QrcInfos>")) {
-                yrcLines = parseQRCLyric(result.content);
-              } else {
-                yrcLines = parseYrc(result.content) || [];
-              }
-              if (yrcLines.length) {
-                return {
-                  data: { lrcData: [], yrcData: yrcLines },
-                  meta: { usingTTMLLyric: false, usingQRCLyric: false },
-                };
-              }
-            }
-            // LRC 及其他格式
-            const { format: lrcFormat, lines } = parseSmartLrc(result.content);
-            if (lines.length) {
-              if (isWordLevelFormat(lrcFormat)) {
-                return {
-                  data: { lrcData: [], yrcData: lines },
-                  meta: { usingTTMLLyric: false, usingQRCLyric: false },
-                };
-              }
-              let aligned: SongLyric = { lrcData: alignLyricLines(lines), yrcData: [] };
-              let usingQRCLyric = false;
-              if (settingStore.localLyricQQMusicMatch && song) {
-                const qqLyric = await this.fetchQQMusicLyric(song);
-                if (qqLyric && qqLyric.yrcData.length > 0) {
-                  aligned = { lrcData: aligned.lrcData, yrcData: qqLyric.yrcData };
-                  usingQRCLyric = true;
-                }
-              }
-              return {
-                data: aligned,
-                meta: { usingTTMLLyric: false, usingQRCLyric },
-              };
-            }
-          }
-        } catch {
-          // sidecar 查找失败，继续后续流程
-        }
-
-        // 无本地歌词，尝试在线匹配
-        const matchedOnline = await this.fetchMatchedOnlineLyricForLocal(song);
-        if (matchedOnline) return matchedOnline;
-        if (settingStore.localLyricQQMusicMatch && song) {
-          const qqLyric = await this.fetchQQMusicLyric(song);
-          if (qqLyric && (qqLyric.lrcData.length > 0 || qqLyric.yrcData.length > 0)) {
-            return {
-              data: qqLyric,
-              meta: { usingTTMLLyric: false, usingQRCLyric: qqLyric.yrcData.length > 0 },
-            };
-          }
-        }
-        return defaultResult;
+        return this.fetchAndroidPrioritizedLyric(song);
       }
 
       // Electron 端：使用原有 IPC 逻辑
@@ -812,7 +1030,7 @@ class LyricManager {
 
     // 从本地遍历
     try {
-      // Android 端：直接走索引歌词（fetchAndroidIndexedLyric），本地覆盖已在索引流程中处理
+      // Android 端由专用调度处理本地覆盖
       if (isCapacitorAndroid) return defaultResult;
 
       const lyricDirs = Array.isArray(localLyricPath) ? localLyricPath.map((p) => String(p)) : [];
@@ -873,6 +1091,70 @@ class LyricManager {
     }
   }
 
+  private getAndroidLocalLyricCandidates(): LocalLyricCandidate[] {
+    const settingStore = useSettingStore();
+    const entries = Array.isArray(settingStore.androidLyricEntries)
+      ? settingStore.androidLyricEntries
+      : [];
+    const directoryOrder = new Map(
+      settingStore.androidLyricDirectories.map((directory, index) => [directory.uri, index]),
+    );
+
+    return entries
+      .map((entry, index) => {
+        const format = this.getLocalLyricFormat(entry.format, "lrc");
+        return {
+          uri: entry.uri,
+          name: entry.name,
+          lastModified: entry.lastModified || 0,
+          directoryUri: entry.directoryUri,
+          format,
+          metadata: entry.metadata,
+          directoryIndex: directoryOrder.get(entry.directoryUri) ?? index,
+        };
+      })
+      .filter((entry) => Boolean(entry.uri && entry.name && entry.directoryUri));
+  }
+
+  private async fetchAndroidMetadataMatchedLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid || !settingStore.androidLyricDirectories.length) return defaultResult;
+
+    const match = findBestLocalLyricMatch(
+      this.getAndroidLocalLyricCandidates(),
+      this.getLocalLyricMatchTarget(song),
+      settingStore.localLyricMatchMode,
+    );
+    if (!match?.uri) return defaultResult;
+
+    try {
+      const { content } = await AndroidLocalLyric.readLyricFile({ uri: match.uri });
+      return this.parseLocalLyricContent(content, match.format);
+    } catch (error) {
+      console.error("读取 Android 元数据匹配歌词失败:", error);
+      return defaultResult;
+    }
+  }
+
+  private async fetchAndroidDirectoryLyric(
+    song: SongType,
+    preferMetadata = Boolean(song.path),
+  ): Promise<LyricFetchResult> {
+    const defaultResult = emptyLyricResult();
+    if (!isCapacitorAndroid) return defaultResult;
+
+    if (!preferMetadata) {
+      const indexedResult = await this.fetchAndroidIndexedLyric(song.id);
+      if (this.hasLyricResult(indexedResult)) return indexedResult;
+    }
+
+    const metadataResult = await this.fetchAndroidMetadataMatchedLyric(song);
+    if (this.hasLyricResult(metadataResult)) return metadataResult;
+
+    return preferMetadata ? this.fetchAndroidIndexedLyric(song.id) : defaultResult;
+  }
+
   /**
    * 检测 Android 索引歌词覆盖
    * @param id 歌曲 ID
@@ -880,10 +1162,7 @@ class LyricManager {
    */
   private async fetchAndroidIndexedLyric(id: number): Promise<LyricFetchResult> {
     const settingStore = useSettingStore();
-    const defaultResult: LyricFetchResult = {
-      data: { lrcData: [], yrcData: [] },
-      meta: { usingTTMLLyric: false, usingQRCLyric: false },
-    };
+    const defaultResult = emptyLyricResult();
 
     if (!isCapacitorAndroid) return defaultResult;
     const entry = settingStore.androidLyricIndexMap[String(id)];
@@ -893,35 +1172,70 @@ class LyricManager {
       const { content } = await AndroidLocalLyric.readLyricFile({ uri: entry.uri });
       if (!content) return defaultResult;
 
-      const format = entry.format || "ttml";
-
-      if (format === "ttml") {
-        const cleaned = cleanTTMLTranslations(content);
-        const lines = parseTTML(cleaned).lines || [];
-        if (!lines.length) return defaultResult;
-        return {
-          data: { lrcData: [], yrcData: lines },
-          meta: { usingTTMLLyric: true, usingQRCLyric: false },
-        };
-      }
-
-      // LRC 格式
-      const { format: lrcFormat, lines } = parseSmartLrc(content);
-      if (!lines.length) return defaultResult;
-      if (isWordLevelFormat(lrcFormat)) {
-        return {
-          data: { lrcData: [], yrcData: lines },
-          meta: { usingTTMLLyric: false, usingQRCLyric: false },
-        };
-      }
-      return {
-        data: { lrcData: alignLyricLines(lines), yrcData: [] },
-        meta: { usingTTMLLyric: false, usingQRCLyric: false },
-      };
+      const format = this.getLocalLyricFormat(entry.format, "ttml");
+      return this.parseLocalLyricContent(content, format);
     } catch (error) {
       console.error("读取 Android 本地歌词失败:", error);
       return defaultResult;
     }
+  }
+
+  private async fetchAndroidAmlLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const defaultResult = emptyLyricResult();
+    if (settingStore.lyricPriority !== "ttml" && !settingStore.enableOnlineTTMLLyric) {
+      return defaultResult;
+    }
+
+    const result = await this.fetchAmlMatchedLyricForLocal(song);
+    return result || defaultResult;
+  }
+
+  private async fetchAndroidLegacyQmLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const defaultResult = emptyLyricResult();
+    if (
+      settingStore.lyricPriority !== "qm" &&
+      (!settingStore.enableQQMusicLyric || !settingStore.localLyricQQMusicMatch)
+    ) {
+      return defaultResult;
+    }
+
+    const qqLyric = await this.fetchQQMusicLyric(song);
+    if (!qqLyric || (!qqLyric.lrcData.length && !qqLyric.yrcData.length)) {
+      return defaultResult;
+    }
+
+    return {
+      data: qqLyric,
+      meta: { usingTTMLLyric: false, usingQRCLyric: qqLyric.yrcData.length > 0 },
+    };
+  }
+
+  private async fetchAndroidOfficialMatchedLyric(song: SongType): Promise<LyricFetchResult> {
+    const result = await this.fetchMatchedOnlineLyricForLocal(song, "official");
+    return result || emptyLyricResult();
+  }
+
+  private async fetchAndroidPrioritizedLyric(song: SongType): Promise<LyricFetchResult> {
+    const settingStore = useSettingStore();
+    const isLocalSong = Boolean(song.path);
+    const priority = settingStore.lyricPriority;
+
+    return fetchAndroidPrioritizedLyricResult({
+      isLocalSong,
+      priority,
+      fetchers: {
+        hasResult: (result) => this.hasLyricResult(result),
+        emptyResult: emptyLyricResult,
+        fetchSidecar: () => this.fetchAndroidSidecarLyric(song),
+        fetchDirectory: (preferMetadata) => this.fetchAndroidDirectoryLyric(song, preferMetadata),
+        fetchOnline: () => this.fetchOnlineLyric(song),
+        fetchAmlTtml: () => this.fetchAndroidAmlLyric(song),
+        fetchLegacyQm: () => this.fetchAndroidLegacyQmLyric(song),
+        fetchOfficial: () => this.fetchAndroidOfficialMatchedLyric(song),
+      },
+    });
   }
 
   /**
@@ -1230,6 +1544,8 @@ class LyricManager {
       const isLocal = Boolean(song.path);
       if (isStreaming) {
         fetchResult = await this.fetchStreamingLyric(song);
+      } else if (isCapacitorAndroid) {
+        fetchResult = await this.fetchAndroidPrioritizedLyric(song);
       } else {
         // 检查本地覆盖
         const overrideResult = await this.fetchLocalOverrideLyric(song.id);
@@ -1237,20 +1553,12 @@ class LyricManager {
           // 对齐
           overrideResult.data.lrcData = alignLyricLines(overrideResult.data.lrcData);
           fetchResult = overrideResult;
+        } else if (song.path) {
+          // 本地文件
+          fetchResult = await this.fetchLocalLyric(song);
         } else {
-          const androidOverrideResult = await this.fetchAndroidIndexedLyric(song.id);
-          if (
-            !isEmpty(androidOverrideResult.data.lrcData) ||
-            !isEmpty(androidOverrideResult.data.yrcData)
-          ) {
-            fetchResult = androidOverrideResult;
-          } else if (song.path) {
-            // 本地文件
-            fetchResult = await this.fetchLocalLyric(song);
-          } else {
-            // 在线获取
-            fetchResult = await this.fetchOnlineLyric(song);
-          }
+          // 在线获取
+          fetchResult = await this.fetchOnlineLyric(song);
         }
       }
       // 后处理：元数据排除

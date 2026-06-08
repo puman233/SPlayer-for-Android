@@ -157,7 +157,10 @@ onMounted(() => {
   }
 });
 
-watch(() => props.height, () => updateCanvasSize());
+watch(
+  () => props.height,
+  () => updateCanvasSize(),
+);
 
 onBeforeUnmount(() => {
   isKeepDrawing.value = false;

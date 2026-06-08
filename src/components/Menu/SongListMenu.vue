@@ -34,9 +34,7 @@ const dropdownShow = ref<boolean>(false);
 useBackClosable(dropdownShow, {
   onBack: () => {
     if (document.querySelectorAll(".n-dropdown-menu").length > 1) {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
-      );
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
       return true;
     }
     return false;

@@ -5,12 +5,15 @@ import { defaultAMLLDbServer } from "@/utils/meta";
 import { defineStore } from "pinia";
 import { CURRENT_SETTING_SCHEMA_VERSION, settingMigrations } from "./migrations/settingMigrations";
 import { ThemeColorType } from "@/types/color";
-import type { LyricPriority } from "@/types/lyric";
+import type { LocalLyricMatchMode, LyricPriority } from "@/types/lyric";
 import type {
   AndroidLyricDirectory,
+  AndroidLyricEntry,
   AndroidLyricIndexEntry,
   AndroidLyricScanMeta,
 } from "@/plugins/androidLocalLyric";
+
+export type AndroidLyricStoredEntry = AndroidLyricEntry;
 
 export interface SettingState {
   /** Schema 版本号 */
@@ -258,6 +261,8 @@ export interface SettingState {
   /** 歌词源优先级 */
   /** 歌词源优先级 */
   lyricPriority: LyricPriority;
+  /** Android 本地歌词匹配档位 */
+  localLyricMatchMode: LocalLyricMatchMode;
   /** 本地歌曲使用 QM 歌词匹配 */
   localLyricQQMusicMatch: boolean;
   /** AMLL DB 服务地址 */
@@ -276,6 +281,8 @@ export interface SettingState {
   androidLyricDirectories: AndroidLyricDirectory[];
   /** Android 本地歌词索引 */
   androidLyricIndexMap: Record<string, AndroidLyricIndexEntry>;
+  /** Android 本地歌词条目 */
+  androidLyricEntries: AndroidLyricStoredEntry[];
   /** Android 本地歌词扫描信息 */
   androidLyricScanMeta: AndroidLyricScanMeta;
   /** Android 下载目录 SAF URI */
@@ -626,6 +633,7 @@ export const useSettingStore = defineStore("setting", {
     enableOnlineTTMLLyric: true,
     enableQQMusicLyric: false,
     lyricPriority: "auto",
+    localLyricMatchMode: "standard",
     localLyricQQMusicMatch: false,
     amllDbServer: defaultAMLLDbServer,
     showWordLyrics: true,
@@ -657,6 +665,7 @@ export const useSettingStore = defineStore("setting", {
     localLyricPath: [],
     androidLyricDirectories: [],
     androidLyricIndexMap: {},
+    androidLyricEntries: [],
     androidLyricScanMeta: {
       lastScanAt: 0,
       totalFiles: 0,

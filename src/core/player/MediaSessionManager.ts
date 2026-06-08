@@ -223,11 +223,7 @@ class MediaSessionManager {
     const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${settingStore.songLevel}`;
     if (!force && this.lastSyncedApiContextKey === key) return;
     // 并发去重：同 key 已有 IPC 在跑直接复用 Promise；force 时强制新发起
-    if (
-      !force &&
-      this.pendingSyncApiContextKey === key &&
-      this.pendingSyncApiContextPromise
-    ) {
+    if (!force && this.pendingSyncApiContextKey === key && this.pendingSyncApiContextPromise) {
       return this.pendingSyncApiContextPromise;
     }
 

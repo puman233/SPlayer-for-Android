@@ -9,12 +9,31 @@ export interface AndroidLyricPickResult extends Partial<AndroidLyricDirectory> {
   cancelled: boolean;
 }
 
+export type AndroidLyricFormat = "ttml" | "yrc" | "lrc";
+
+export interface AndroidLyricMetadata {
+  album?: string;
+  musicName?: string;
+  artists?: string;
+  ncmMusicId?: string;
+}
+
 export interface AndroidLyricIndexEntry {
   uri: string;
   name: string;
   lastModified: number;
   directoryUri: string;
-  format: "ttml" | "lrc";
+  format: AndroidLyricFormat;
+  metadata?: AndroidLyricMetadata;
+}
+
+export interface AndroidLyricEntry {
+  uri: string;
+  name: string;
+  lastModified: number;
+  directoryUri: string;
+  format: AndroidLyricFormat;
+  metadata: AndroidLyricMetadata;
 }
 
 export interface AndroidLyricScanMeta {
@@ -34,12 +53,13 @@ export interface AndroidLyricScanFailure {
 
 export interface AndroidLyricScanSummary extends Omit<AndroidLyricScanMeta, "lastScanAt"> {
   indexMap: Record<string, AndroidLyricIndexEntry>;
+  entries?: AndroidLyricEntry[];
   failures?: AndroidLyricScanFailure[];
 }
 
 export interface AndroidSidecarLyricResult {
   content: string;
-  format: "ttml" | "lrc" | "yrc";
+  format: AndroidLyricFormat;
 }
 
 export interface AndroidLocalLyricPlugin {

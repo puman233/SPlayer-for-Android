@@ -5,8 +5,8 @@
         <n-text class="name">{{ item?.label || "本地歌词覆盖在线歌词" }}</n-text>
         <n-text class="tip" :depth="3" v-if="item?.description" v-html="item.description" />
         <n-text class="tip" :depth="3" v-else-if="isCapacitorAndroid">
-          选择歌词目录，支持 .ttml 和 .lrc 格式 <br />
-          TTML 按元数据里的网易云 ID 匹配，LRC 按文件名中的 ID 匹配 <br />
+          选择歌词目录，支持 .ttml、.yrc 和 .lrc 格式 <br />
+          TTML/LRC 元数据可用于本地歌曲匹配 <br />
           添加后会自动扫描
         </n-text>
         <n-text class="tip" :depth="3" v-else>
@@ -148,6 +148,7 @@ const getAndroidDirectoryDisplayName = (directory: AndroidLyricDirectory, index:
 
 const resetAndroidLyricIndex = () => {
   settingStore.androidLyricIndexMap = {};
+  settingStore.androidLyricEntries = [];
   settingStore.androidLyricScanMeta = {
     lastScanAt: 0,
     totalFiles: 0,
@@ -172,6 +173,7 @@ const scanAndroidLyricDirectories = async (showSuccess = true) => {
     }));
     const summary = await AndroidLocalLyric.scanLyricDirectories({ directories });
     settingStore.androidLyricIndexMap = summary.indexMap || {};
+    settingStore.androidLyricEntries = Array.isArray(summary.entries) ? summary.entries : [];
     settingStore.androidLyricScanMeta = {
       lastScanAt: Date.now(),
       totalFiles: summary.totalFiles || 0,

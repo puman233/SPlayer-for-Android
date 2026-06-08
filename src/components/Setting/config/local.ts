@@ -110,9 +110,7 @@ export const useLocalSettings = (): SettingConfig => {
     const res = await cacheManager.enforceLimit();
     await loadCacheSize();
     if (res.success) {
-      window.$message.success(
-        `整理完成，当前总占用 ${formatFileSize(res.data?.totalBytes ?? 0)}`,
-      );
+      window.$message.success(`整理完成，当前总占用 ${formatFileSize(res.data?.totalBytes ?? 0)}`);
     } else {
       window.$message.error(`整理失败: ${res.message || "未知错误"}`);
     }

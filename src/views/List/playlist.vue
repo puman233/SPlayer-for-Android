@@ -362,9 +362,7 @@ const handleOnlinePlaylist = async (id: number, getList: boolean, refresh: boole
         const total = cached.detail?.count || 0;
         const startOffset = cached.songs.length;
         if (total > 0 && startOffset < total) {
-          console.log(
-            `🔄 Resume partial playlist: ${startOffset}/${total} cached, continuing...`,
-          );
+          console.log(`🔄 Resume partial playlist: ${startOffset}/${total} cached, continuing...`);
           // fire-and-forget：UI 已显示缓存数据，续传在后台拉剩余页
           void getPlaylistAllSongs(id, total, /* refresh= */ false, /* startOffset= */ startOffset);
           return;

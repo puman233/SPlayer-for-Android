@@ -160,7 +160,9 @@ export const useMusicStore = defineStore("music", {
     // 获取歌曲封面
     getSongCover(size: "s" | "m" | "l" | "xl" | "cover" = "s") {
       return resolveCoverForWebView(
-        size === "cover" ? this.playSong.cover : this.playSong.coverSize?.[size] || this.playSong.cover,
+        size === "cover"
+          ? this.playSong.cover
+          : this.playSong.coverSize?.[size] || this.playSong.cover,
       );
     },
   },
@@ -178,7 +180,8 @@ export const useMusicStore = defineStore("music", {
 const resolveCoverForWebView = (url?: string) => {
   if (!url) return "";
   if (url.startsWith("http:")) return url.replace(/^http:/, "https:");
-  if (!isCapacitorAndroid || (!url.startsWith("file://") && !url.startsWith("content://"))) return url;
+  if (!isCapacitorAndroid || (!url.startsWith("file://") && !url.startsWith("content://")))
+    return url;
   try {
     return Capacitor.convertFileSrc(url);
   } catch {

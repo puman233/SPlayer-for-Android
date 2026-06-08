@@ -144,10 +144,7 @@ export const useOrientationTransition = () => {
       phase.value = "enter-rotating";
 
       // 等横屏布局挂载 + landscapeCoverEl 就位（中低端机型需额外余量）
-      await waitFor(
-        () => !isPhonePortrait.value && landscapeCoverEl.value !== null,
-        1200,
-      );
+      await waitFor(() => !isPhonePortrait.value && landscapeCoverEl.value !== null, 1200);
       await nextTick();
       await wait(50);
 
