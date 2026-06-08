@@ -68,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import top.imsyy.splayer.android.MainActivity;
 import top.imsyy.splayer.android.R;
 import top.imsyy.splayer.android.cache.AudioCacheProvider;
@@ -102,6 +103,7 @@ public final class PlaybackManager {
    */
   private final java.util.concurrent.atomic.AtomicLong resolveTokenCounter =
       new java.util.concurrent.atomic.AtomicLong();
+  private final AtomicLong artworkTokenCounter = new AtomicLong();
 
   private ExoPlayer player;
   /** 暴露给 MediaSession 的包装 Player：覆写 availableCommands，让系统媒体面板始终展示上一/下一首。 */
@@ -287,6 +289,8 @@ public final class PlaybackManager {
 
   private PlaybackManager(Context context) {
     this.appContext = context.getApplicationContext();
+    AudioCacheProvider.setDiagnosticListener(
+        (tag, message) -> mainHandler.post(() -> emitDiagnosticLog(tag, message)));
   }
 
   public static PlaybackManager getInstance(Context context) {
@@ -1438,6 +1442,15 @@ public final class PlaybackManager {
     currentPlugin.emitEvent("customAction", payload, true);
   }
 
+  private void emitDiagnosticLog(String tag, String message) {
+    AndroidNativePlaybackPlugin currentPlugin = plugin;
+    if (currentPlugin == null) return;
+    JSObject payload = new JSObject();
+    payload.put("tag", tag);
+    payload.put("message", message);
+    currentPlugin.emitEvent("diagnosticLog", payload, false);
+  }
+
   private void startTrackFromState(
       String source, TrackMetadata metadata, boolean likedState, boolean emitProgressImmediately) {
     if (player == null) {
@@ -2002,6 +2015,7 @@ public final class PlaybackManager {
       };
 
   private void loadCoverBitmapAsync(String coverUrl) {
+    final long artworkToken = artworkTokenCounter.incrementAndGet();
     if (coverUrl == null || coverUrl.isEmpty() || coverUrl.startsWith("blob:")) {
       coverBitmap = BitmapFactory.decodeResource(appContext.getResources(), R.mipmap.ic_launcher);
       coverArtworkBytes = encodeArtworkBytes(coverBitmap);
@@ -2072,6 +2086,10 @@ public final class PlaybackManager {
           final byte[] encodedBytes = encodeArtworkBytes(resolvedBitmap);
           mainHandler.post(
               () -> {
+                if (artworkToken != artworkTokenCounter.get()) {
+                  emitDiagnosticLog("DIAG-Artwork", "stale cover ignored");
+                  return;
+                }
                 coverBitmap = resolvedBitmap;
                 coverArtworkBytes = encodedBytes;
                 refreshCurrentMediaItemMetadata();

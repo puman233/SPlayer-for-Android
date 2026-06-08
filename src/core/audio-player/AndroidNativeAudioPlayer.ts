@@ -402,6 +402,12 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
         }
       }),
     );
+
+    this.listenerHandles.push(
+      await AndroidNativePlayback.addListener("diagnosticLog", (event) => {
+        console.debug(`[AndroidNativePlayback] [${event.tag}] ${event.message}`);
+      }),
+    );
   }
 
   private async releaseListeners() {

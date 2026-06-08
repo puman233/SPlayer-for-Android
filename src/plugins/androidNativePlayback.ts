@@ -168,6 +168,11 @@ export interface AndroidNativeVisualizerDataEvent {
   lowFreq: number;
 }
 
+export interface AndroidNativeDiagnosticLogEvent {
+  tag: string;
+  message: string;
+}
+
 export interface AndroidNativeFloatingLyricDataPayload {
   lrcData: string;
   yrcData: string;
@@ -269,6 +274,10 @@ export interface AndroidNativePlaybackPlugin {
   addListener(
     eventName: "visualizerData",
     listenerFunc: (event: AndroidNativeVisualizerDataEvent) => void,
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: "diagnosticLog",
+    listenerFunc: (event: AndroidNativeDiagnosticLogEvent) => void,
   ): Promise<PluginListenerHandle>;
   removeAllListeners(): Promise<void>;
 }
