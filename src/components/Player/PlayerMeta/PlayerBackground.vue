@@ -49,7 +49,9 @@ const LOW_FREQ_RELEASE = 0.045;
 const LOW_FREQ_DEAD_ZONE = 0.015;
 
 // 文档可见性：后台/锁屏时全链路降耗。前台启动默认 visible（SSR/无 document 兜底为 true）
-const documentVisible = ref(typeof document === "undefined" || document.visibilityState === "visible");
+const documentVisible = ref(
+  typeof document === "undefined" || document.visibilityState === "visible",
+);
 const onVisibility = () => {
   documentVisible.value = document.visibilityState === "visible";
 };

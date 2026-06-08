@@ -44,12 +44,18 @@ const toStringValue = (value: unknown): string | undefined =>
 
 const toStringArray = (value: unknown): string[] | undefined => {
   const values = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
-  const normalized = [...new Set(values.filter((item): item is string => typeof item === "string"))];
+  const normalized = [
+    ...new Set(values.filter((item): item is string => typeof item === "string")),
+  ];
   return normalized.length ? normalized : undefined;
 };
 
 const toNumberArray = (value: unknown): number[] | undefined => {
-  const values = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  const values = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value];
   const normalized = [
     ...new Set(
       values

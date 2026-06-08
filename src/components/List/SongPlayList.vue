@@ -186,7 +186,9 @@ const player = usePlayerController();
 const { isPadDevice, isPhonePortrait } = useDevice();
 
 const playListRef = ref<InstanceType<typeof VirtualScroll> | null>(null);
-const playlistTeleportTarget = computed(() => (statusStore.showFullPlayer ? ".full-player" : "#app"));
+const playlistTeleportTarget = computed(() =>
+  statusStore.showFullPlayer ? ".full-player" : "#app",
+);
 const isPadPortraitPlaylist = computed(() => isPadDevice.value && isPhonePortrait.value);
 const drawerWidth = computed(() => (isPadPortraitPlaylist.value ? "min(88vw, 560px)" : "400px"));
 const playlistItemHeight = computed(() => (isPadPortraitPlaylist.value ? 96 : 80));

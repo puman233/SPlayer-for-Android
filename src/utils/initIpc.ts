@@ -103,8 +103,9 @@ const initIpc = () => {
       const cover = musicStore.getSongCover("s") || "";
 
       const configPayload: TaskbarConfig =
-        (await window.electron.ipcRenderer.invoke<TaskbarConfig>(TASKBAR_IPC_CHANNELS.GET_OPTION)) ??
-        DEFAULT_TASKBAR_CONFIG;
+        (await window.electron.ipcRenderer.invoke<TaskbarConfig>(
+          TASKBAR_IPC_CHANNELS.GET_OPTION,
+        )) ?? DEFAULT_TASKBAR_CONFIG;
 
       const hasYrc = (musicStore.songLyric.yrcData?.length ?? 0) > 0;
       const lyricsPayload = {

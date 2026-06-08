@@ -23,9 +23,8 @@ const NETEASE_API = NeteaseCloudMusicApi as unknown as Record<
   (params: Record<string, unknown>) => Promise<any>
 >;
 const require = createRequire(import.meta.url);
-const generateNeteaseApiConfig = require(
-  "@neteasecloudmusicapienhanced/api/generateConfig.js",
-) as () => Promise<void>;
+const generateNeteaseApiConfig =
+  require("@neteasecloudmusicapienhanced/api/generateConfig.js") as () => Promise<void>;
 let neteaseApiConfigPromise: Promise<void> | null = null;
 
 const isAllowedOrigin = (origin?: string) => {
@@ -45,10 +44,12 @@ const getApiErrorStatus = (status?: number) => {
 
 const ensureNeteaseApiConfig = async () => {
   if (!neteaseApiConfigPromise) {
-    neteaseApiConfigPromise = Promise.resolve(generateNeteaseApiConfig()).catch((error: unknown) => {
-      neteaseApiConfigPromise = null;
-      throw error;
-    });
+    neteaseApiConfigPromise = Promise.resolve(generateNeteaseApiConfig()).catch(
+      (error: unknown) => {
+        neteaseApiConfigPromise = null;
+        throw error;
+      },
+    );
   }
 
   await neteaseApiConfigPromise;
@@ -170,28 +171,25 @@ export const createStandaloneApiServer = async () => {
   server.get("/api/netease/*", dynamicHandler);
   server.post("/api/netease/*", dynamicHandler);
 
-  server.get(
-    "/api/netease/lyric/ttml",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      const id = (request.query as Record<string, string | undefined>).id;
-      if (!id) {
-        return reply.status(400).send({ error: "id is required" });
-      }
+  server.get("/api/netease/lyric/ttml", async (request: FastifyRequest, reply: FastifyReply) => {
+    const id = (request.query as Record<string, string | undefined>).id;
+    if (!id) {
+      return reply.status(400).send({ error: "id is required" });
+    }
 
-      const url = DEFAULT_AMLL_DB_SERVER.replace("%s", String(id));
+    const url = DEFAULT_AMLL_DB_SERVER.replace("%s", String(id));
 
-      try {
-        const response = await fetch(url);
-        if (response.status !== 200) {
-          return reply.send(null);
-        }
-        return reply.send(await response.text());
-      } catch (error) {
-        server.log.error({ err: error, id }, "Fetch TTML lyric failed");
+    try {
+      const response = await fetch(url);
+      if (response.status !== 200) {
         return reply.send(null);
       }
-    },
-  );
+      return reply.send(await response.text());
+    } catch (error) {
+      server.log.error({ err: error, id }, "Fetch TTML lyric failed");
+      return reply.send(null);
+    }
+  });
 
   return server;
 };

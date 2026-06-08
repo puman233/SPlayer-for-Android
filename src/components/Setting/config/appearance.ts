@@ -256,7 +256,10 @@ export const useAppearanceSettings = (): SettingConfig => {
               action: () => {
                 activePageZoom.value = isPadDevice.value && isPhonePortrait.value ? 120 : 100;
               },
-              show: computed(() => activePageZoom.value !== (isPadDevice.value && isPhonePortrait.value ? 120 : 100)),
+              show: computed(
+                () =>
+                  activePageZoom.value !== (isPadDevice.value && isPhonePortrait.value ? 120 : 100),
+              ),
             },
           },
         ],

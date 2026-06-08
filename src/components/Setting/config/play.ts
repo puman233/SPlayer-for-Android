@@ -163,9 +163,8 @@ export const usePlaySettings = (): SettingConfig => {
         return;
       }
       try {
-        const result = await window.electron.ipcRenderer.invoke<MpvInstalledResult>(
-          "mpv-check-installed",
-        );
+        const result =
+          await window.electron.ipcRenderer.invoke<MpvInstalledResult>("mpv-check-installed");
         if (!result.installed) {
           window.$message.error("未检测到 MPV，请先安装 MPV 播放器", { duration: 3000 });
           return;
@@ -206,9 +205,8 @@ export const usePlaySettings = (): SettingConfig => {
     // MPV 引擎：从主进程查询 mpv 设备列表
     if (settingStore.playbackEngine === "mpv") {
       try {
-        const result = await window.electron.ipcRenderer.invoke<MpvAudioDevicesResult>(
-          "mpv-get-audio-devices",
-        );
+        const result =
+          await window.electron.ipcRenderer.invoke<MpvAudioDevicesResult>("mpv-get-audio-devices");
         if (result.success && result.devices) {
           outputDevices.value = result.devices.map(
             (device: { id: string; description: string }) => ({

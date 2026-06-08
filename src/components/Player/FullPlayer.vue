@@ -128,9 +128,7 @@ const { phase: orientationPhase } = useOrientationTransition();
 
 const { isPhone, isPhonePortrait, isPad } = useDevice();
 // tap-restore 仅沉浸式 / 平板生效；其他场景保留 autohide
-const tapRestoreEnabled = computed(
-  () => statusStore.isImmersiveFullscreen || isPad.value,
-);
+const tapRestoreEnabled = computed(() => statusStore.isImmersiveFullscreen || isPad.value);
 const tapRestoreShield = ref(false);
 let tapRestoreShieldTimer: number | undefined;
 const isCompactMobilePlayer = computed(() => isPhonePortrait.value);
@@ -232,9 +230,7 @@ const showComment = computed<boolean>(
 const commentDisplayMode = computed(() => settingStore.commentDisplayMode);
 
 /** 沉浸式 / 平板强制左侧半屏评论，忽略 commentDisplayMode */
-const forceLeftHalfComment = computed(
-  () => statusStore.isImmersiveFullscreen || isPad.value,
-);
+const forceLeftHalfComment = computed(() => statusStore.isImmersiveFullscreen || isPad.value);
 
 /** 评论是否在右侧 */
 const commentOnRight = computed(
@@ -243,9 +239,7 @@ const commentOnRight = computed(
 
 /** 是否半屏评论（无歌词时回退全屏） */
 const isHalfComment = computed(
-  () =>
-    (forceLeftHalfComment.value || commentDisplayMode.value !== "fullscreen") &&
-    !noLrc.value,
+  () => (forceLeftHalfComment.value || commentDisplayMode.value !== "fullscreen") && !noLrc.value,
 );
 
 /** 是否全屏评论 */

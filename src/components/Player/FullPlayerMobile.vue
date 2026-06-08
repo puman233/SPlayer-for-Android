@@ -246,10 +246,7 @@ const { isPadDevice, isPhoneDevice, isPhonePortrait } = useDevice();
 const canEnterImmersive = computed(() => isCapacitorAndroid && isPhoneDevice.value);
 // 纯净模式按钮：手机竖屏 / 平板竖屏 + 有歌词 + 非电台
 const showPureLyricButton = computed(
-  () =>
-    isPhonePortrait.value &&
-    musicStore.isHasLrc &&
-    musicStore.playSong.type !== "radio",
+  () => isPhonePortrait.value && musicStore.isHasLrc && musicStore.playSong.type !== "radio",
 );
 const showPortraitPlaylistButton = computed(
   () => isPhonePortrait.value && !statusStore.personalFmMode,

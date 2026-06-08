@@ -30,7 +30,7 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
     supportsRate: true,
     supportsSinkId: false,
     supportsEqualizer: false,
-    // Java 端用 FftAudioProcessor 在 ExoPlayer 渲染链上做 FFT 
+    // Java 端用 FftAudioProcessor 在 ExoPlayer 渲染链上做 FFT
     supportsSpectrum: true,
   };
 

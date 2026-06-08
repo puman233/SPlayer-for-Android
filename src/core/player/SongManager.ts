@@ -124,11 +124,7 @@ class SongManager {
     // 不依赖浏览器 HTTP 缓存（Capacitor WebView 的 disk cache 在重启后会丢）。
     // 只预下载主封面（列表组件主要用 coverSize.s/m，s-image 用 coverSize.l/xl）。
     if (isCapacitorAndroid) {
-      const primary =
-        song.coverSize?.l ||
-        song.coverSize?.xl ||
-        song.coverSize?.m ||
-        song.cover;
+      const primary = song.coverSize?.l || song.coverSize?.xl || song.coverSize?.m || song.cover;
       void prefetchCoverToCache(primary, "covers");
     }
   }

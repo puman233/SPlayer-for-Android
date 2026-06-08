@@ -12,12 +12,7 @@
   >
     <!-- 左：封面 + 紧凑信息 -->
     <div class="left-section" :class="{ 'show-comment': showComment }">
-      <PlayerComment
-        v-if="showComment"
-        class="landscape-comment"
-        embedded
-        :active="showComment"
-      />
+      <PlayerComment v-if="showComment" class="landscape-comment" embedded :active="showComment" />
       <template v-else>
         <div ref="coverRef" class="cover" data-stagger="cover">
           <!-- 复用 PlayerCover：跟随 settingStore.playerType / dynamicCover 走动态封面逻辑 -->

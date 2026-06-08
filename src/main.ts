@@ -61,11 +61,9 @@ if (isCapacitorAndroid) {
 // Electron 专属初始化路径：在 Android / Web 下不加载这些模块图谱，缩减主 chunk
 if (isElectron && !location.hash.includes("desktop-lyric")) {
   void (async () => {
-    const [{ default: initIpc }, { sendRegisterProtocol }, { useSettingStore }] = await Promise.all([
-      import("@/utils/initIpc"),
-      import("@/utils/protocol"),
-      import("@/stores"),
-    ]);
+    const [{ default: initIpc }, { sendRegisterProtocol }, { useSettingStore }] = await Promise.all(
+      [import("@/utils/initIpc"), import("@/utils/protocol"), import("@/stores")],
+    );
     initIpc();
     const settings = useSettingStore();
     sendRegisterProtocol("orpheus", settings.registryProtocol.orpheus);

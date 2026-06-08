@@ -395,9 +395,9 @@ const fontArrayToFamily = (fontArray: string[]): string => {
 // 获取桌面歌词配置
 const getTaskbarLyricConfig = async () => {
   if (!isElectron) return;
-  const config = await window.electron.ipcRenderer.invoke(TASKBAR_IPC_CHANNELS.GET_OPTION) as
-    | TaskbarConfig
-    | null;
+  const config = (await window.electron.ipcRenderer.invoke(
+    TASKBAR_IPC_CHANNELS.GET_OPTION,
+  )) as TaskbarConfig | null;
   if (config?.fontFamily) taskbarFontFamily.value = config.fontFamily;
 };
 

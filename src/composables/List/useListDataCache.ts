@@ -90,10 +90,7 @@ export const useListDataCache = () => {
    * @param id 列表 ID
    * @returns 缓存数据，如果不存在或已过期则返回 null
    */
-  const loadCache = async (
-    type: ListType,
-    id: number | string,
-  ): Promise<ListCacheData | null> => {
+  const loadCache = async (type: ListType, id: number | string): Promise<ListCacheData | null> => {
     const key = getCacheKey(type, id);
 
     try {

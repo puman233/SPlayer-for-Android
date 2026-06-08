@@ -288,9 +288,7 @@ const lyricFontSizeLabel = computed(() =>
 );
 const lyricFontSizeValue = computed<number>({
   get: () =>
-    isLandscapeImmersive.value
-      ? settingStore.lyricFontSizeLandscape
-      : settingStore.lyricFontSize,
+    isLandscapeImmersive.value ? settingStore.lyricFontSizeLandscape : settingStore.lyricFontSize,
   set: (v) => {
     if (isLandscapeImmersive.value) {
       settingStore.lyricFontSizeLandscape = v;

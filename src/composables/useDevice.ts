@@ -51,18 +51,14 @@ const effectiveHeight = computed(() => rawHeight.value);
 // 设备形态判定用「viewport 与 screen 短边取较大者」：
 // 部分 Android WebView 会把 status bar / 三键导航栏从 innerWidth/innerHeight 里扣掉，
 // 导致 7 寸平板的 viewport 短边低于 600 被误判为手机；screen.* 是物理屏幕尺寸，更稳。
-const viewportShortest = computed(() =>
-  Math.min(effectiveWidth.value, effectiveHeight.value),
-);
+const viewportShortest = computed(() => Math.min(effectiveWidth.value, effectiveHeight.value));
 const screenShortest = computed(() => {
   const w = rawScreenWidth.value;
   const h = rawScreenHeight.value;
   if (!w || !h) return 0;
   return Math.min(w, h);
 });
-const shortestSide = computed(() =>
-  Math.max(viewportShortest.value, screenShortest.value),
-);
+const shortestSide = computed(() => Math.max(viewportShortest.value, screenShortest.value));
 const isLandscape = computed(() => effectiveWidth.value > effectiveHeight.value);
 
 // === 用户手动覆盖：防止 UA / 短边识别失败时无法切换设备形态 ===

@@ -97,10 +97,7 @@ const srcRef = computed(() => {
   }
   return url;
 });
-const cachedSrc =
-  props.cacheType === "none"
-    ? srcRef
-    : useCoverCache(srcRef, props.cacheType);
+const cachedSrc = props.cacheType === "none" ? srcRef : useCoverCache(srcRef, props.cacheType);
 
 const emit = defineEmits<{
   // 加载完成

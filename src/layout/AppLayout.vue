@@ -243,15 +243,15 @@ watch(
 const contentRef = ref<HTMLElement | null>(null);
 const { height: contentHeight } = useElementSize(contentRef);
 
-const backgroundMaskOpacity = computed(() =>
-  Math.min(Math.max(statusStore.backgroundConfig.maskOpacity, 0), 80) / 100,
+const backgroundMaskOpacity = computed(
+  () => Math.min(Math.max(statusStore.backgroundConfig.maskOpacity, 0), 80) / 100,
 );
 
 // 布局层透明度
 const imageLayoutVars = computed(() => {
   const f = Math.min(Math.max(statusStore.backgroundConfig.maskOpacity, 0), 80) / 80;
   return {
-    bgTop: 0.02 + f * 0.20,
+    bgTop: 0.02 + f * 0.2,
     bgBottom: 0.01 + f * 0.14,
     surface: 0.02 + f * 0.22,
     nav: 0.04 + f * 0.24,
