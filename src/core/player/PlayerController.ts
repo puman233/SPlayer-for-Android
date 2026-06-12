@@ -347,7 +347,11 @@ class PlayerController {
       if (requestToken === this.currentRequestToken) {
         if (audioManager.engineType === "android-native") audioManager.stop();
         console.error("❌ 播放初始化失败:", error);
-        this.handlePlaybackError(undefined);
+        this.handlePlaybackError(
+          error instanceof Error && error.message === "AUDIO_SOURCE_EMPTY"
+            ? AudioErrorCode.SRC_NOT_SUPPORTED
+            : undefined,
+        );
       }
     }
   }
@@ -603,18 +607,11 @@ class PlayerController {
       await this.parseLocalMusicInfo(song.path);
     }
 
-    // 预载下一首：fire-and-forget，让 playLoading=false 不被网络请求阻塞 1-3s
-    // syncAndroidPlaybackContext 内部 buildAndroidWindowTracks 同步遍历 41 首歌（5-30ms），
-    // 后续 4 个 Capacitor IPC 累计 100-300ms。这些都不应卡在切歌热路径上，
-    // 推到 idle frame 让 UI 把切歌动画 / 歌词加载先跑完，再幕后做队列同步。
-    // Java 触发的 applyNativeTrackChanged / refreshAndroidQueueWindow 等仍走立即路径。
-    const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
-      .requestIdleCallback;
     const runSync = () => void this.syncAndroidPlaybackContext(song);
-    if (typeof ric === "function") {
-      this.runIdleWithTimeout(runSync);
+    if (isCapacitorAndroid && useAudioManager().engineType === "android-native") {
+      runSync();
     } else {
-      setTimeout(runSync, 0);
+      this.runIdleWithTimeout(runSync);
     }
     if (settingStore.useNextPrefetch) songManager.prefetchNextSong();
 
@@ -1312,16 +1309,6 @@ class PlayerController {
     if (this.retryInfo.songId !== currentSongId) {
       // 新歌曲，重置重试计数
       this.retryInfo = { songId: currentSongId, count: 0 };
-    }
-    // 防止无限重试
-    const ABSOLUTE_MAX_RETRY = 3;
-    if (this.retryInfo.count >= ABSOLUTE_MAX_RETRY) {
-      console.error(`❌ 歌曲 ${currentSongId} 已重试 ${this.retryInfo.count} 次，强制跳过`);
-      window.$message.error("播放失败，已自动跳过");
-      statusStore.playLoading = false;
-      this.retryInfo.count = 0;
-      await this.skipToNextWithDelay();
-      return;
     }
     // 用户主动中止
     if (errCode === AudioErrorCode.ABORTED || errCode === AudioErrorCode.DOM_ABORT) {

@@ -8,7 +8,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -57,12 +59,68 @@ public final class PlaybackUrlResolver {
   private volatile String apiBaseUrl = "";
   private volatile String cookie = "";
   private volatile String songLevel = "exhigh";
+  private volatile boolean disableAiAudio = false;
+
+  private static String normalizeLevel(@Nullable String level, boolean disableAiAudio) {
+    if (level == null || level.isEmpty()) return "exhigh";
+    if (disableAiAudio
+        && ("jymaster".equals(level)
+            || "sky".equals(level)
+            || "jyeffect".equals(level)
+            || "vivid".equals(level))) {
+      return "hires";
+    }
+    return level;
+  }
+
+  private static String[] getRequestLevels(String level) {
+    if ("dolby".equals(level)) return new String[] {"dolby", "hires", "lossless", "exhigh"};
+    if ("standard".equals(level)) return new String[] {level};
+    if ("higher".equals(level)) return new String[] {"higher", "exhigh"};
+    if ("hires".equals(level)) return new String[] {"hires", "lossless", "exhigh"};
+    if ("lossless".equals(level)) return new String[] {"lossless", "exhigh"};
+    if ("exhigh".equals(level)) return new String[] {"exhigh"};
+    return new String[] {level, "hires", "lossless", "exhigh"};
+  }
+
+  private static String qualityKeyForLevel(String level) {
+    if ("standard".equals(level)) return "l";
+    if ("higher".equals(level)) return "m";
+    if ("exhigh".equals(level)) return "h";
+    if ("lossless".equals(level)) return "sq";
+    if ("hires".equals(level)) return "hr";
+    if ("jyeffect".equals(level)) return "je";
+    if ("sky".equals(level)) return "sk";
+    if ("jymaster".equals(level)) return "jm";
+    if ("dolby".equals(level)) return "db";
+    return "";
+  }
+
+  private static boolean isPlayableQualityLevel(@Nullable JSONObject qualityData, String level) {
+    if (qualityData == null || "exhigh".equals(level)) return true;
+    String key = qualityKeyForLevel(level);
+    if (key.isEmpty()) return true;
+    JSONObject quality = qualityData.optJSONObject(key);
+    return quality != null && quality.optLong("br", 0L) > 0L;
+  }
+
+  private static String[] filterRequestLevels(String[] levels, @Nullable JSONObject qualityData) {
+    if (qualityData == null) return levels;
+    List<String> out = new ArrayList<>();
+    for (String level : levels) {
+      if (isPlayableQualityLevel(qualityData, level)) out.add(level);
+    }
+    return out.toArray(new String[0]);
+  }
 
   public synchronized void updateContext(
-      @Nullable String baseUrl, @Nullable String cookieValue, @Nullable String level) {
+      @Nullable String baseUrl,
+      @Nullable String cookieValue,
+      @Nullable String level,
+      boolean disableAiAudioState) {
     String newBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     String newCookie = cookieValue == null ? "" : cookieValue.trim();
-    String newLevel = level != null && !level.isEmpty() ? level : this.songLevel;
+    String newLevel = normalizeLevel(level != null && !level.isEmpty() ? level : this.songLevel, disableAiAudioState);
 
     // 任一上下文变化都要清缓存：
     // - level 变 → URL 文件/码率/endpoint 不同
@@ -71,11 +129,13 @@ public final class PlaybackUrlResolver {
     boolean contextChanged =
         !newBaseUrl.equals(this.apiBaseUrl)
             || !newCookie.equals(this.cookie)
-            || !newLevel.equals(this.songLevel);
+            || !newLevel.equals(this.songLevel)
+            || disableAiAudioState != this.disableAiAudio;
 
     this.apiBaseUrl = newBaseUrl;
     this.cookie = newCookie;
     this.songLevel = newLevel;
+    this.disableAiAudio = disableAiAudioState;
 
     if (contextChanged) {
       synchronized (cache) {
@@ -102,9 +162,16 @@ public final class PlaybackUrlResolver {
   @Nullable
   public String resolveSync(long songId) {
     if (songId <= 0) return null;
-    String level = songLevel;
-    // 缓存键：songId + level。level 差异 → URL 不同文件/码率/endpoint，不能合并。
+    String level;
+    String baseUrl;
+    String cookieValue;
+    synchronized (this) {
+      level = normalizeLevel(songLevel, disableAiAudio);
+      baseUrl = apiBaseUrl;
+      cookieValue = cookie;
+    }
     String cacheKey = songId + ":" + level;
+    String originalCacheKey = cacheKey;
     synchronized (cache) {
       String hit = cache.get(cacheKey);
       if (hit != null) return hit;
@@ -120,88 +187,116 @@ public final class PlaybackUrlResolver {
         negativeCache.remove(cacheKey);
       }
     }
-    String baseUrl = apiBaseUrl;
-    String cookieValue = cookie;
     if (baseUrl.isEmpty()) {
       Log.w(TAG, "resolveSync skipped: apiBaseUrl empty");
       return null;
     }
 
-    HttpURLConnection connection = null;
+    JSONObject qualityData = null;
+    if ("dolby".equals(level)
+        || "jymaster".equals(level)
+        || "sky".equals(level)
+        || "jyeffect".equals(level)) {
+      qualityData = fetchQualityData(baseUrl, cookieValue, songId);
+      if (qualityData != null && !isPlayableQualityLevel(qualityData, level)) {
+        level = "hires";
+        cacheKey = songId + ":" + level;
+      }
+    }
+
     String resolvedUrl = null;
-    boolean networkFailure = false;
-    try {
-      // dolby 走旧版接口，其余走 /song/url/v1
-      String endpoint;
-      if ("dolby".equals(level)) {
-        endpoint =
-            baseUrl
-                + "/song/url?id="
-                + songId
-                + "&br=999000&immerseType=c51&timestamp="
-                + System.currentTimeMillis();
-      } else {
-        endpoint =
-            baseUrl
-                + "/song/url/v1?id="
-                + songId
-                + "&level="
-                + URLEncoder.encode(level, StandardCharsets.UTF_8.name())
-                + "&timestamp="
-                + System.currentTimeMillis();
+    boolean hadNetworkFailure = false;
+    boolean hadBusinessResponse = false;
+    String resolvedLevel = level;
+    String[] requestLevels = filterRequestLevels(getRequestLevels(level), qualityData);
+    if (requestLevels.length == 0) {
+      synchronized (negativeCache) {
+        negativeCache.put(originalCacheKey, System.currentTimeMillis());
+        negativeCache.put(cacheKey, System.currentTimeMillis());
       }
-      if (!cookieValue.isEmpty()) {
-        endpoint += "&cookie=" + URLEncoder.encode(cookieValue, StandardCharsets.UTF_8.name());
-      }
+      return null;
+    }
+    for (String requestLevel : requestLevels) {
+      HttpURLConnection connection = null;
+      try {
+        // dolby 走旧版接口，其余走 /song/url/v1
+        String endpoint;
+        if ("dolby".equals(requestLevel)) {
+          endpoint =
+              baseUrl
+                  + "/song/url?id="
+                  + songId
+                  + "&br=999000&immerseType=c51&timestamp="
+                  + System.currentTimeMillis();
+        } else {
+          endpoint =
+              baseUrl
+                  + "/song/url/v1?id="
+                  + songId
+                  + "&level="
+                  + URLEncoder.encode(requestLevel, StandardCharsets.UTF_8.name())
+                  + "&timestamp="
+                  + System.currentTimeMillis();
+        }
+        if (!cookieValue.isEmpty()) {
+          endpoint += "&cookie=" + URLEncoder.encode(cookieValue, StandardCharsets.UTF_8.name());
+        }
 
-      connection = (HttpURLConnection) new URL(endpoint).openConnection();
-      connection.setRequestMethod("GET");
-      connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-      connection.setReadTimeout(READ_TIMEOUT_MS);
-      connection.setRequestProperty("Accept", "application/json");
-      if (!cookieValue.isEmpty()) {
-        connection.setRequestProperty("Cookie", cookieValue);
-      }
-      connection.connect();
+        connection = (HttpURLConnection) new URL(endpoint).openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+        connection.setReadTimeout(READ_TIMEOUT_MS);
+        connection.setRequestProperty("Accept", "application/json");
+        if (!cookieValue.isEmpty()) {
+          connection.setRequestProperty("Cookie", cookieValue);
+        }
+        connection.connect();
 
-      int httpCode = connection.getResponseCode();
-      if (httpCode != HttpURLConnection.HTTP_OK) {
-        Log.w(TAG, "resolveSync songId=" + songId + " http=" + httpCode);
-        networkFailure = true;
-      } else {
-        String body = readBody(connection);
-        JSONObject root = new JSONObject(body);
-        JSONArray data = root.optJSONArray("data");
-        if (data != null && data.length() > 0) {
-          JSONObject first = data.optJSONObject(0);
-          if (first != null) {
-            String url = first.optString("url", "");
-            if (!url.isEmpty() && !"null".equals(url)) {
-              resolvedUrl = url;
+        int httpCode = connection.getResponseCode();
+        if (httpCode != HttpURLConnection.HTTP_OK) {
+          Log.w(TAG, "resolveSync songId=" + songId + " level=" + requestLevel + " http=" + httpCode);
+          hadNetworkFailure = true;
+        } else {
+          hadBusinessResponse = true;
+          String body = readBody(connection);
+          JSONObject root = new JSONObject(body);
+          JSONArray data = root.optJSONArray("data");
+          if (data != null && data.length() > 0) {
+            JSONObject first = data.optJSONObject(0);
+            if (first != null) {
+              String url = first.optString("url", "");
+              if (!url.isEmpty() && !"null".equals(url)) {
+                resolvedUrl = url;
+                resolvedLevel = requestLevel;
+                break;
+              }
             }
           }
         }
+      } catch (Exception e) {
+        Log.w(TAG, "resolveSync failed songId=" + songId + " level=" + requestLevel, e);
+        hadNetworkFailure = true;
+      } finally {
+        if (connection != null) connection.disconnect();
       }
-    } catch (Exception e) {
-      Log.w(TAG, "resolveSync failed songId=" + songId, e);
-      networkFailure = true;
-    } finally {
-      if (connection != null) connection.disconnect();
     }
 
     if (resolvedUrl != null) {
       synchronized (cache) {
+        cache.put(originalCacheKey, resolvedUrl);
         cache.put(cacheKey, resolvedUrl);
+        cache.put(songId + ":" + resolvedLevel, resolvedUrl);
       }
-      // 成功：清负缓存（防止之前临时失败后错过重试窗口）
       synchronized (negativeCache) {
+        negativeCache.remove(originalCacheKey);
         negativeCache.remove(cacheKey);
+        negativeCache.remove(songId + ":" + resolvedLevel);
       }
       return resolvedUrl;
     }
-    // 仅业务层“无可播 URL”（HTTP 200 但 data 为空）入负缓存；网络异常不入，让上层可重试。
-    if (!networkFailure) {
+    if (hadBusinessResponse) {
       synchronized (negativeCache) {
+        negativeCache.put(originalCacheKey, System.currentTimeMillis());
         negativeCache.put(cacheKey, System.currentTimeMillis());
       }
     }
@@ -258,9 +353,11 @@ public final class PlaybackUrlResolver {
             }
             if (onResolved != null) onResolved.run();
           } finally {
-            flagRef.set(false);
             synchronized (inFlight) {
-              inFlight.remove(songId);
+              flagRef.set(false);
+              if (inFlight.get(songId) == flagRef) {
+                inFlight.remove(songId);
+              }
             }
           }
         });
@@ -274,6 +371,39 @@ public final class PlaybackUrlResolver {
       String line;
       while ((line = reader.readLine()) != null) sb.append(line);
       return sb.toString();
+    }
+  }
+
+  @Nullable
+  private static JSONObject fetchQualityData(String baseUrl, String cookieValue, long songId) {
+    HttpURLConnection connection = null;
+    try {
+      String endpoint =
+          baseUrl
+              + "/song/music/detail?id="
+              + songId
+              + "&timestamp="
+              + System.currentTimeMillis();
+      if (!cookieValue.isEmpty()) {
+        endpoint += "&cookie=" + URLEncoder.encode(cookieValue, StandardCharsets.UTF_8.name());
+      }
+      connection = (HttpURLConnection) new URL(endpoint).openConnection();
+      connection.setRequestMethod("GET");
+      connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+      connection.setReadTimeout(READ_TIMEOUT_MS);
+      connection.setRequestProperty("Accept", "application/json");
+      if (!cookieValue.isEmpty()) {
+        connection.setRequestProperty("Cookie", cookieValue);
+      }
+      connection.connect();
+      if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+      JSONObject root = new JSONObject(readBody(connection));
+      return root.optJSONObject("data");
+    } catch (Exception e) {
+      Log.w(TAG, "fetchQualityData failed songId=" + songId, e);
+      return null;
+    } finally {
+      if (connection != null) connection.disconnect();
     }
   }
 }

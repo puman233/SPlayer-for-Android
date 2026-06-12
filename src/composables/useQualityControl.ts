@@ -135,10 +135,16 @@ export const useQualityControl = () => {
     }
     const item = availableQualities.value.find((q) => q.level === key);
     if (!item) return;
+    const previousLevel = settingStore.songLevel;
     // 更新音质
     settingStore.songLevel = key as typeof settingStore.songLevel;
-    // 切换音质，保持当前进度，不重新加载歌词
-    await player.switchQuality(statusStore.currentTime);
+    try {
+      // 切换音质，保持当前进度，不重新加载歌词
+      await player.switchQuality(statusStore.currentTime);
+    } catch (error) {
+      settingStore.songLevel = previousLevel;
+      throw error;
+    }
     // 获取实际切换后的音质项
     const actualItem = availableQualities.value.find(
       (q) => handleSongQuality(q) === statusStore.songQuality,

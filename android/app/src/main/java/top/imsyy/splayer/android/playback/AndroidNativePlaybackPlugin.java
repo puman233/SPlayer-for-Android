@@ -330,7 +330,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
               .syncApiContext(
                   call.getString("apiBaseUrl", ""),
                   call.getString("cookie", ""),
-                  call.getString("songLevel", "exhigh"));
+                  call.getString("songLevel", "exhigh"),
+                  Boolean.TRUE.equals(call.getBoolean("disableAiAudio", false)));
           call.resolve();
         });
   }

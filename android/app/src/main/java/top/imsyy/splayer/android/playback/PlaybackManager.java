@@ -123,6 +123,7 @@ public final class PlaybackManager {
   private String apiBaseUrl = "";
   private String cookie = "";
   private String songLevel = "exhigh";
+  private boolean disableAiAudio = false;
 
   /**
    * 当前 promotion 任务 —— load() 时排 10s timer，到期仍是这首歌则把它从 prefetch 升级为
@@ -360,7 +361,7 @@ public final class PlaybackManager {
           final String sourceSnapshot = currentSource;
           AudioPrefetchTtlIndex ttlIndex = AudioPrefetchTtlIndex.getInstance(appContext);
           ttlIndex.markAccess(cacheKey);
-          // 已 promoted 的歌不再排 timer（已是正式缓存，全量下载也已经触发过）
+          // 已 promoted 的歌不再排 timer（已是正式缓存，预载也已经触发过）
           if (!ttlIndex.isPromoted(cacheKey)) {
             schedulePromotion(cacheKey, sourceSnapshot);
           }
@@ -649,13 +650,15 @@ public final class PlaybackManager {
     }
   }
 
-  public synchronized void syncApiContext(String baseUrl, String cookieValue, String level) {
+  public synchronized void syncApiContext(
+      String baseUrl, String cookieValue, String level, boolean disableAiAudioState) {
     apiBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     cookie = cookieValue == null ? "" : cookieValue.trim();
+    disableAiAudio = disableAiAudioState;
     if (level != null && !level.isEmpty()) {
       songLevel = level;
     }
-    urlResolver.updateContext(apiBaseUrl, cookie, songLevel);
+    urlResolver.updateContext(apiBaseUrl, cookie, songLevel, disableAiAudio);
   }
 
   /**
@@ -1224,6 +1227,8 @@ public final class PlaybackManager {
       } else if (!forward) {
         // 后退方向窗口耗尽：回落 JS prev（不应触发 requestUrls，那是右缘语义）
         emitCustomAction("previous", null, null, null, null, true, null);
+      } else if ("auto".equals(source)) {
+        emitCustomAction("next", null, null, null, null, true, null);
       }
       return;
     }
@@ -1235,8 +1240,12 @@ public final class PlaybackManager {
     if (remainAttempts <= 0) {
       // 连续失败（账号 / 解锁 / 区域屏蔽）
       if (forward) {
-        pendingResumeAfterRefill = true;
-        emitRequestUrls();
+        if (shouldRequestUrlsForwardWrap()) {
+          pendingResumeAfterRefill = true;
+          emitRequestUrls();
+        } else {
+          emitCustomAction("next", null, null, null, null, true, null);
+        }
       } else {
         emitCustomAction("previous", null, null, null, null, true, null);
       }

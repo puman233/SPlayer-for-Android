@@ -99,6 +99,7 @@ export interface AndroidNativeApiContextPayload {
   cookie: string;
   /** 当前用户偏好音质等级（exhigh / lossless / hires / standard …），Java 端 UrlResolver 用于 /song/url/v1?level= */
   songLevel?: string;
+  disableAiAudio?: boolean;
 }
 
 export type AndroidNativePlaybackStateEvent = AndroidNativePlaybackState;

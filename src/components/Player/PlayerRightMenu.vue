@@ -198,22 +198,18 @@ const handleControls = (key: string) => {
   }
 };
 
-// 更新音质数据
 watch(
   () => musicStore.playSong.id,
-  async () => {
+  () => {
     statusStore.availableQualities = [];
-    await loadQualities();
     if (showQualityPopover.value && statusStore.availableQualities.length === 0) {
       showQualityPopover.value = false;
     }
   },
 );
 
-// 监听 VIP 状态或设置变化，重新加载音质
-watch([() => dataStore.userData.vipType, () => settingStore.disableAiAudio], async () => {
+watch([() => dataStore.userData.vipType, () => settingStore.disableAiAudio], () => {
   statusStore.availableQualities = [];
-  await loadQualities();
 });
 </script>
 
