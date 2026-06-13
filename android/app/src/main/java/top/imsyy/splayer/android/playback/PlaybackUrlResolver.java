@@ -60,6 +60,7 @@ public final class PlaybackUrlResolver {
   private volatile String cookie = "";
   private volatile String songLevel = "exhigh";
   private volatile boolean disableAiAudio = false;
+  private volatile boolean playSongDemo = false;
 
   private static String normalizeLevel(@Nullable String level, boolean disableAiAudio) {
     if (level == null || level.isEmpty()) return "exhigh";
@@ -117,7 +118,8 @@ public final class PlaybackUrlResolver {
       @Nullable String baseUrl,
       @Nullable String cookieValue,
       @Nullable String level,
-      boolean disableAiAudioState) {
+      boolean disableAiAudioState,
+      boolean playSongDemoState) {
     String newBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     String newCookie = cookieValue == null ? "" : cookieValue.trim();
     String newLevel = normalizeLevel(level != null && !level.isEmpty() ? level : this.songLevel, disableAiAudioState);
@@ -130,12 +132,14 @@ public final class PlaybackUrlResolver {
         !newBaseUrl.equals(this.apiBaseUrl)
             || !newCookie.equals(this.cookie)
             || !newLevel.equals(this.songLevel)
-            || disableAiAudioState != this.disableAiAudio;
+            || disableAiAudioState != this.disableAiAudio
+            || playSongDemoState != this.playSongDemo;
 
     this.apiBaseUrl = newBaseUrl;
     this.cookie = newCookie;
     this.songLevel = newLevel;
     this.disableAiAudio = disableAiAudioState;
+    this.playSongDemo = playSongDemoState;
 
     if (contextChanged) {
       synchronized (cache) {
@@ -165,10 +169,12 @@ public final class PlaybackUrlResolver {
     String level;
     String baseUrl;
     String cookieValue;
+    boolean allowTrial;
     synchronized (this) {
       level = normalizeLevel(songLevel, disableAiAudio);
       baseUrl = apiBaseUrl;
       cookieValue = cookie;
+      allowTrial = playSongDemo;
     }
     String cacheKey = songId + ":" + level;
     String originalCacheKey = cacheKey;
@@ -265,6 +271,10 @@ public final class PlaybackUrlResolver {
             JSONObject first = data.optJSONObject(0);
             if (first != null) {
               String url = first.optString("url", "");
+              if (!first.isNull("freeTrialInfo") && !allowTrial) {
+                Log.w(TAG, "resolveSync songId=" + songId + " level=" + requestLevel + " trial skipped");
+                continue;
+              }
               if (!url.isEmpty() && !"null".equals(url)) {
                 resolvedUrl = url;
                 resolvedLevel = requestLevel;

@@ -230,7 +230,7 @@ class MediaSessionManager {
       settingStore.songLevel,
       settingStore.disableAiAudio,
     );
-    const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${songLevel}|${settingStore.disableAiAudio}`;
+    const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${songLevel}|${settingStore.disableAiAudio}|${settingStore.playSongDemo}`;
     if (!force && this.lastSyncedApiContextKey === key) return;
     // 并发去重：同 key 已有 IPC 在跑直接复用 Promise；force 时强制新发起
     if (!force && this.pendingSyncApiContextKey === key && this.pendingSyncApiContextPromise) {
@@ -245,6 +245,7 @@ class MediaSessionManager {
           cookie,
           songLevel,
           disableAiAudio: settingStore.disableAiAudio,
+          playSongDemo: settingStore.playSongDemo,
         });
         this.lastSyncedApiContextKey = key;
       } finally {

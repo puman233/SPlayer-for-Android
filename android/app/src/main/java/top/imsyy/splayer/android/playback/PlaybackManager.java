@@ -124,6 +124,7 @@ public final class PlaybackManager {
   private String cookie = "";
   private String songLevel = "exhigh";
   private boolean disableAiAudio = false;
+  private boolean playSongDemo = false;
 
   /**
    * 当前 promotion 任务 —— load() 时排 10s timer，到期仍是这首歌则把它从 prefetch 升级为
@@ -598,6 +599,7 @@ public final class PlaybackManager {
 
     // 立即预解析前方未解析项，避免后台 ENDED 时才发现无 URL。
     prefetchUpcomingUrls();
+    requestUrlsIfWindowExhausted();
     updateMediaSessionButtons();
     updateNotification();
     emitPlaybackState(false);
@@ -651,14 +653,20 @@ public final class PlaybackManager {
   }
 
   public synchronized void syncApiContext(
-      String baseUrl, String cookieValue, String level, boolean disableAiAudioState) {
+      String baseUrl,
+      String cookieValue,
+      String level,
+      boolean disableAiAudioState,
+      boolean playSongDemoState) {
     apiBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     cookie = cookieValue == null ? "" : cookieValue.trim();
     disableAiAudio = disableAiAudioState;
+    playSongDemo = playSongDemoState;
     if (level != null && !level.isEmpty()) {
       songLevel = level;
     }
-    urlResolver.updateContext(apiBaseUrl, cookie, songLevel, disableAiAudio);
+    urlResolver.updateContext(apiBaseUrl, cookie, songLevel, disableAiAudio, playSongDemo);
+    prefetchUpcomingUrls();
   }
 
   /**

@@ -100,6 +100,7 @@ export interface AndroidNativeApiContextPayload {
   /** 当前用户偏好音质等级（exhigh / lossless / hires / standard …），Java 端 UrlResolver 用于 /song/url/v1?level= */
   songLevel?: string;
   disableAiAudio?: boolean;
+  playSongDemo?: boolean;
 }
 
 export type AndroidNativePlaybackStateEvent = AndroidNativePlaybackState;
@@ -252,6 +253,7 @@ export interface AndroidNativePlaybackPlugin {
    * 同 url 并发去重；切歌时未完成的预下载会自动取消让带宽。
    */
   prefetchAudio(options: { url: string }): Promise<void>;
+  isPromotedAudioReady(options: { url: string }): Promise<{ ready: boolean }>;
   addListener(
     eventName: "playbackStateChanged",
     listenerFunc: (event: AndroidNativePlaybackStateEvent) => void,

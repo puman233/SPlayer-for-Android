@@ -331,7 +331,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
                   call.getString("apiBaseUrl", ""),
                   call.getString("cookie", ""),
                   call.getString("songLevel", "exhigh"),
-                  Boolean.TRUE.equals(call.getBoolean("disableAiAudio", false)));
+                  Boolean.TRUE.equals(call.getBoolean("disableAiAudio", false)),
+                  Boolean.TRUE.equals(call.getBoolean("playSongDemo", false)));
           call.resolve();
         });
   }
@@ -483,6 +484,14 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     }
     AudioCacheProvider.prefetchUrl(getContext(), url);
     call.resolve();
+  }
+
+  @PluginMethod
+  public void isPromotedAudioReady(PluginCall call) {
+    String url = call.getString("url", "");
+    JSObject result = new JSObject();
+    result.put("ready", AudioCacheProvider.isPromotedAudioReady(getContext(), url));
+    call.resolve(result);
   }
 
   @PluginMethod

@@ -103,6 +103,32 @@ class SongManager {
 
   private prefetchToken = 0;
 
+  private readonly androidAudioUrlCacheKey = "android-audio-source-url-cache";
+
+  private readAndroidAudioUrlCache(): Record<string, string> {
+    if (!isCapacitorAndroid) return {};
+    try {
+      const raw = localStorage.getItem(this.androidAudioUrlCacheKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private rememberAndroidAudioUrl(id: number, url: string | undefined | null) {
+    if (!isCapacitorAndroid || !id || !url || !url.startsWith("http")) return;
+    try {
+      const cache = this.readAndroidAudioUrlCache();
+      cache[String(id)] = url;
+      const entries = Object.entries(cache).slice(-200);
+      localStorage.setItem(this.androidAudioUrlCacheKey, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      return;
+    }
+  }
+
   private encodeLocalFilePath(path: string): string {
     const safePath = path.replace(/%(?![0-9a-fA-F]{2})/g, "%25");
     return encodeURI(safePath)
@@ -185,10 +211,20 @@ class SongManager {
    * 返 null 让上层走原始 URL，底层 CacheDataSource 会自动命中本地缓存文件不重走网络。
    */
   private checkLocalCache = async (
-    _id: number,
+    id: number,
     _quality?: QualityType,
     _md5?: string,
   ): Promise<string | null> => {
+    if (isCapacitorAndroid) {
+      const cachedUrl = this.readAndroidAudioUrlCache()[String(id)];
+      if (!cachedUrl) return null;
+      try {
+        const { ready } = await AndroidNativePlayback.isPromotedAudioReady({ url: cachedUrl });
+        return ready ? cachedUrl : null;
+      } catch {
+        return null;
+      }
+    }
     return null;
   };
 
@@ -307,6 +343,7 @@ class SongManager {
     }
     // 缓存对应音质音乐
     if (finalUrl) {
+      this.rememberAndroidAudioUrl(id, finalUrl);
       this.triggerCacheDownload(id, finalUrl, quality);
     }
     return { id, url: finalUrl, isTrial, quality };
@@ -381,6 +418,7 @@ class SongManager {
       if (r.status === "fulfilled" && r.value.success) {
         const unlockUrl = r.value?.result?.url;
         // 解锁成功后，触发下载
+        this.rememberAndroidAudioUrl(songId, unlockUrl);
         this.triggerCacheDownload(songId, unlockUrl);
         // 推断音质
         let quality = QualityType.HQ;
