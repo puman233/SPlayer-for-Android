@@ -155,7 +155,7 @@
       <!-- 列表操作 -->
       <Teleport to="body">
         <Transition name="fade" mode="out-in">
-          <div v-if="floatToolShow" class="list-menu">
+          <div v-if="floatToolShow && !statusStore.showFullPlayer" class="list-menu">
             <n-float-button-group position="relative">
               <n-float-button v-if="hasPlaySong >= 0" width="42" @click="scrollToCurrentSong">
                 <SvgIcon :size="22" name="Location" />
@@ -171,7 +171,7 @@
       <Teleport to="body">
         <Transition name="fade">
           <div
-            v-if="isDragging && draggable && dragLabelData"
+            v-if="isDragging && draggable && dragLabelData && !statusStore.showFullPlayer"
             class="drag-label"
             :style="{
               top: `${dragLabelPosition.top}px`,

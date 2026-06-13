@@ -173,6 +173,16 @@ const isMax = ref(false);
 const showAside = ref(false);
 useBackClosable(showAside);
 
+watch(
+  () => statusStore.showFullPlayer,
+  (show) => {
+    if (show) {
+      showAside.value = false;
+      showCloseModal.value = false;
+    }
+  },
+);
+
 // 最小化
 const min = () => window.electron.ipcRenderer.send("win-min");
 

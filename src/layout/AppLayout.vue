@@ -103,7 +103,7 @@
                 <component v-else :is="Component" class="router-view" />
               </Transition>
             </RouterView>
-            <n-back-top :right="40" :bottom="120">
+            <n-back-top v-if="!statusStore.showFullPlayer" :right="40" :bottom="120">
               <SvgIcon :size="22" name="Up" />
             </n-back-top>
           </n-layout>
@@ -121,7 +121,7 @@
               <component v-else :is="Component" class="router-view" />
             </Transition>
           </RouterView>
-          <n-back-top :right="16" :bottom="phoneBackTopBottom">
+          <n-back-top v-if="!statusStore.showFullPlayer" :right="16" :bottom="phoneBackTopBottom">
             <SvgIcon :size="22" name="Up" />
           </n-back-top>
         </main>
@@ -458,6 +458,7 @@ onBeforeUnmount(() => {
 
   &.show-full-player {
     opacity: 0;
+    pointer-events: none;
     transform: scale(0.9);
 
     #main-header {
