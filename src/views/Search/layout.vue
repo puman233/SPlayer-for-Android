@@ -93,5 +93,12 @@ watch(
     flex: 1;
     overflow: hidden;
   }
+  // 手机端取消溢出隐藏，交给外层滚动容器
+  @media (max-width: 768px) {
+    .router-view {
+      min-height: 0;
+      overflow: visible;
+    }
+  }
 }
 </style>
