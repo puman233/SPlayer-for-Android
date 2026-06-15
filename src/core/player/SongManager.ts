@@ -44,6 +44,55 @@ export type AudioSource = {
   source?: AudioSourceType;
 };
 
+type SongUrlLevel = NonNullable<Parameters<typeof songUrl>[1]>;
+
+const FALLBACK_SONG_URL_LEVELS: SongUrlLevel[] = ["hires", "lossless", "exhigh"];
+
+const SONG_URL_LEVEL_QUALITY_KEYS: Partial<Record<SongUrlLevel, string>> = {
+  standard: "l",
+  higher: "m",
+  exhigh: "h",
+  lossless: "sq",
+  hires: "hr",
+  jyeffect: "je",
+  sky: "sk",
+  jymaster: "jm",
+};
+
+const normalizeSongUrlLevel = (level: string, disableAiAudio: boolean): SongUrlLevel => {
+  if (disableAiAudio && AI_AUDIO_LEVELS.includes(level)) return "hires";
+  return level as SongUrlLevel;
+};
+
+const isPlayableQualityLevel = (
+  qualityData: Record<string, any> | undefined,
+  level: SongUrlLevel,
+): boolean => {
+  if (!qualityData || level === "exhigh") return true;
+  const key = SONG_URL_LEVEL_QUALITY_KEYS[level];
+  if (!key) return true;
+  return Number(qualityData[key]?.br) > 0;
+};
+
+const getSongUrlRequestLevels = (
+  level: SongUrlLevel,
+  qualityData?: Record<string, any>,
+): SongUrlLevel[] => {
+  if (level === "dolby") return [level];
+  if (level === "standard") return [level];
+  const levels: SongUrlLevel[] = (() => {
+    if (level === "higher") return [level, "exhigh"];
+    if (level === "lossless") return [level, "exhigh"];
+    if (level === "exhigh") return [level];
+    return Array.from(new Set([level, ...FALLBACK_SONG_URL_LEVELS]));
+  })();
+  return levels.filter((requestLevel) => isPlayableQualityLevel(qualityData, requestLevel));
+};
+
+const getSongUrlData = (res: Awaited<ReturnType<typeof songUrl>>) => {
+  return Array.isArray(res.data) ? res.data[0] : res.data?.[0];
+};
+
 /**
  * 歌曲管理器
  * 负责歌曲的获取、缓存、预加载等操作
@@ -51,6 +100,34 @@ export type AudioSource = {
 class SongManager {
   /** 预载下一首歌曲播放信息 */
   private nextPrefetch: AudioSource | undefined;
+
+  private prefetchToken = 0;
+
+  private readonly androidAudioUrlCacheKey = "android-audio-source-url-cache";
+
+  private readAndroidAudioUrlCache(): Record<string, string> {
+    if (!isCapacitorAndroid) return {};
+    try {
+      const raw = localStorage.getItem(this.androidAudioUrlCacheKey);
+      if (!raw) return {};
+      const data = JSON.parse(raw);
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private rememberAndroidAudioUrl(id: number, url: string | undefined | null) {
+    if (!isCapacitorAndroid || !id || !url || !url.startsWith("http")) return;
+    try {
+      const cache = this.readAndroidAudioUrlCache();
+      cache[String(id)] = url;
+      const entries = Object.entries(cache).slice(-200);
+      localStorage.setItem(this.androidAudioUrlCacheKey, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+      return;
+    }
+  }
 
   private encodeLocalFilePath(path: string): string {
     const safePath = path.replace(/%(?![0-9a-fA-F]{2})/g, "%25");
@@ -134,10 +211,20 @@ class SongManager {
    * 返 null 让上层走原始 URL，底层 CacheDataSource 会自动命中本地缓存文件不重走网络。
    */
   private checkLocalCache = async (
-    _id: number,
+    id: number,
     _quality?: QualityType,
     _md5?: string,
   ): Promise<string | null> => {
+    if (isCapacitorAndroid) {
+      const cachedUrl = this.readAndroidAudioUrlCache()[String(id)];
+      if (!cachedUrl) return null;
+      try {
+        const { ready } = await AndroidNativePlayback.isPromotedAudioReady({ url: cachedUrl });
+        return ready ? cachedUrl : null;
+      } catch {
+        return null;
+      }
+    }
     return null;
   };
 
@@ -153,25 +240,32 @@ class SongManager {
    */
   public getOnlineUrl = async (id: number, isPc: boolean = false): Promise<AudioSource> => {
     const settingStore = useSettingStore();
-    let level: string = isPc ? "exhigh" : settingStore.songLevel;
+    let level: SongUrlLevel = normalizeSongUrlLevel(
+      isPc ? "exhigh" : settingStore.songLevel,
+      settingStore.disableAiAudio,
+    );
 
-    // Fuck AI Mode: 如果开启，且请求的 level 是 AI 音质，降级为 hires
-    if (settingStore.disableAiAudio && AI_AUDIO_LEVELS.includes(level)) {
-      level = "hires";
-    }
+    let qualityData: Record<string, any> | undefined;
+    const getQualityData = async () => {
+      if (!qualityData) {
+        const qualityRes = await songQuality(id);
+        qualityData = qualityRes.data;
+      }
+      return qualityData;
+    };
 
     // 如果请求杜比音质，先检查歌曲是否支持
     if (level === "dolby") {
       try {
-        const qualityRes = await songQuality(id);
-        const hasDb = qualityRes.data?.db && Number(qualityRes.data.db.br) > 0;
+        const quality = await getQualityData();
+        const hasDb = quality?.db && Number(quality.db.br) > 0;
         // 如果不支持杜比，降级到最高可用音质
         if (!hasDb) {
           console.log(`🔽 [${id}] 歌曲不支持杜比音质，自动降级`);
           // 按优先级降级：hires -> lossless -> exhigh
-          if (qualityRes.data?.hr && Number(qualityRes.data.hr.br) > 0) {
+          if (quality?.hr && Number(quality.hr.br) > 0) {
             level = "hires";
-          } else if (qualityRes.data?.sq && Number(qualityRes.data.sq.br) > 0) {
+          } else if (quality?.sq && Number(quality.sq.br) > 0) {
             level = "lossless";
           } else {
             level = "exhigh";
@@ -183,11 +277,38 @@ class SongManager {
       }
     }
 
-    const res = await songUrl(id, level as any);
-    console.log(`🌐 ${id} music data:`, res);
+    if (!qualityData && level !== "standard" && level !== "exhigh") {
+      try {
+        const quality = await getQualityData();
+        if (!isPlayableQualityLevel(quality, level)) {
+          level = "hires";
+        }
+      } catch (e) {
+        if (AI_AUDIO_LEVELS.includes(level)) {
+          console.warn(`检查 AI 音质支持失败，降级到 Hi-Res:`, e);
+          level = "hires";
+        } else {
+          console.warn(`检查音质支持失败，继续按当前音质请求:`, e);
+        }
+      }
+    }
 
-    // 兼容新旧接口的数据结构
-    const songData = Array.isArray(res.data) ? res.data[0] : res.data?.[0];
+    let res: Awaited<ReturnType<typeof songUrl>> | undefined;
+    let songData: ReturnType<typeof getSongUrlData> | undefined;
+
+    for (const requestLevel of getSongUrlRequestLevels(level, qualityData)) {
+      try {
+        res = await songUrl(id, requestLevel);
+        console.log(`🌐 ${id} music data:`, res);
+        songData = getSongUrlData(res);
+        if (songData?.url) {
+          level = requestLevel;
+          break;
+        }
+      } catch (error) {
+        console.warn(`🔽 [${id}] ${requestLevel} 音质地址获取失败，尝试降级`, error);
+      }
+    }
 
     // 是否有播放地址
     if (!songData || !songData?.url) return { id, url: undefined };
@@ -222,6 +343,7 @@ class SongManager {
     }
     // 缓存对应音质音乐
     if (finalUrl) {
+      this.rememberAndroidAudioUrl(id, finalUrl);
       this.triggerCacheDownload(id, finalUrl, quality);
     }
     return { id, url: finalUrl, isTrial, quality };
@@ -296,6 +418,7 @@ class SongManager {
       if (r.status === "fulfilled" && r.value.success) {
         const unlockUrl = r.value?.result?.url;
         // 解锁成功后，触发下载
+        this.rememberAndroidAudioUrl(songId, unlockUrl);
         this.triggerCacheDownload(songId, unlockUrl);
         // 推断音质
         let quality = QualityType.HQ;
@@ -320,6 +443,7 @@ class SongManager {
    * @returns 预载数据
    */
   public prefetchNextSong = async (): Promise<AudioSource | undefined> => {
+    const token = ++this.prefetchToken;
     try {
       const dataStore = useDataStore();
       const statusStore = useStatusStore();
@@ -348,6 +472,7 @@ class SongManager {
         this.prefetchCover(nextSong);
         lyricManager.prefetchLyric(nextSong);
         const { url, isTrial, quality } = await this.getOnlineUrl(nextSong.id, false);
+        if (token !== this.prefetchToken) return;
         if (url && !isTrial) {
           this.nextPrefetch = {
             id: nextSong.id,
@@ -390,6 +515,7 @@ class SongManager {
       }
       // 流媒体歌曲
       if (nextSong.type === "streaming" && nextSong.streamUrl) {
+        if (token !== this.prefetchToken) return;
         this.nextPrefetch = {
           id: nextSong.id,
           url: nextSong.streamUrl,
@@ -406,6 +532,7 @@ class SongManager {
       const canUnlock = isElectron && nextSong.type !== "radio" && settingStore.useSongUnlock;
       // 先请求官方地址
       const { url: officialUrl, isTrial, quality } = await this.getOnlineUrl(songId, false);
+      if (token !== this.prefetchToken) return;
       // Android 端主动预下载音频前 512KB：下一首切歌后 ExoPlayer setMediaItem 可不走网络手口
       const triggerAudioPrefetch = (audioUrl: string | undefined) => {
         if (!isCapacitorAndroid || !audioUrl || !audioUrl.startsWith("http")) return;
@@ -425,6 +552,7 @@ class SongManager {
       } else if (canUnlock) {
         // 官方失败或为试听时尝试解锁
         const unlockUrl = await this.getUnlockSongUrl(nextSong);
+        if (token !== this.prefetchToken) return;
         if (unlockUrl.url) {
           this.nextPrefetch = { id: songId, url: unlockUrl.url, isUnlocked: true };
           triggerAudioPrefetch(unlockUrl.url);
@@ -453,6 +581,7 @@ class SongManager {
    * 清除预加载缓存
    */
   public clearPrefetch() {
+    this.prefetchToken++;
     this.nextPrefetch = undefined;
     console.log("🧹 已清除歌曲 URL 缓存");
   }

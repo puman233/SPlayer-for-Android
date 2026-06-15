@@ -4,6 +4,7 @@ import { getCookie } from "@/utils/cookie";
 import { EMBEDDED_API_BASE_URL } from "@/utils/embeddedApi";
 import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { getPlaySongData } from "@/utils/format";
+import { AI_AUDIO_LEVELS } from "@/utils/meta";
 import { msToS } from "@/utils/time";
 import type { SystemMediaEvent } from "@emi";
 import { throttle } from "lodash-es";
@@ -24,6 +25,11 @@ import {
   sendMediaTimeline,
   updateDiscordConfig,
 } from "./PlayerIpc";
+
+const normalizeAndroidSongLevel = (level: string, disableAiAudio: boolean): string => {
+  if (disableAiAudio && AI_AUDIO_LEVELS.includes(level)) return "hires";
+  return level;
+};
 
 class MediaSessionManager {
   private metadataAbortController: AbortController | null = null;
@@ -220,7 +226,11 @@ class MediaSessionManager {
     const settingStore = useSettingStore();
     const musicCookie = getCookie("MUSIC_U");
     const cookie = musicCookie ? `MUSIC_U=${musicCookie};os=pc;` : "";
-    const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${settingStore.songLevel}`;
+    const songLevel = normalizeAndroidSongLevel(
+      settingStore.songLevel,
+      settingStore.disableAiAudio,
+    );
+    const key = `${EMBEDDED_API_BASE_URL}|${cookie}|${songLevel}|${settingStore.disableAiAudio}|${settingStore.playSongDemo}`;
     if (!force && this.lastSyncedApiContextKey === key) return;
     // 并发去重：同 key 已有 IPC 在跑直接复用 Promise；force 时强制新发起
     if (!force && this.pendingSyncApiContextKey === key && this.pendingSyncApiContextPromise) {
@@ -233,7 +243,9 @@ class MediaSessionManager {
         await AndroidNativePlayback.syncApiContext({
           apiBaseUrl: EMBEDDED_API_BASE_URL,
           cookie,
-          songLevel: settingStore.songLevel,
+          songLevel,
+          disableAiAudio: settingStore.disableAiAudio,
+          playSongDemo: settingStore.playSongDemo,
         });
         this.lastSyncedApiContextKey = key;
       } finally {

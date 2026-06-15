@@ -54,8 +54,22 @@
           align="center"
         >
           <!-- 音质 -->
-          <span v-if="settingStore.showPlayerQuality" class="meta-item">
-            {{ !statusStore.songQuality ? "未知音质" : statusStore.songQuality }}
+          <n-popselect
+            v-if="settingStore.showPlayerQuality && canQuickSelectQuality"
+            v-model:show="showQualityPopover"
+            trigger="manual"
+            placement="right"
+            :value="currentPlayingLevel"
+            :options="qualityOptions"
+            @update:value="handleQualitySelectAndClose"
+            @clickoutside="handleQualityClickOutside"
+          >
+            <span ref="qualityTagRef" class="meta-item clickable" @click.stop="handleQualityClick">
+              {{ qualityText }}
+            </span>
+          </n-popselect>
+          <span v-else-if="settingStore.showPlayerQuality" class="meta-item">
+            {{ qualityText }}
           </span>
           <!-- 歌词模式 -->
           <n-popselect
@@ -156,6 +170,9 @@ import { useLyricManager } from "@/core/player/LyricManager";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { radioProgramDetail } from "@/api/radio";
 import { isCapacitorAndroid } from "@/utils/env";
+import { useQualityControl } from "@/composables/useQualityControl";
+import { useBackClosable } from "@/composables/useAndroidBack";
+import { useDevice } from "@/composables/useDevice";
 const props = defineProps<{
   /** 数据居中 */
   center?: boolean;
@@ -169,6 +186,72 @@ const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const lyricManager = useLyricManager();
 const player = usePlayerController();
+const { isPhonePortrait } = useDevice();
+
+const {
+  currentPlayingLevel,
+  qualityOptions,
+  loadQualities,
+  handleQualitySelect,
+  getQualityName,
+  isOnlineSong,
+} = useQualityControl();
+const showQualityPopover = ref(false);
+useBackClosable(showQualityPopover);
+const qualityTagRef = ref<HTMLElement | null>(null);
+const qualityLoading = ref(false);
+
+const qualityText = computed(() => getQualityName(statusStore.songQuality));
+const canQuickSelectQuality = computed(() => isPhonePortrait.value && isOnlineSong.value);
+
+const handleQualityClick = async () => {
+  if (qualityLoading.value) return;
+  if (showQualityPopover.value) {
+    showQualityPopover.value = false;
+    return;
+  }
+  qualityLoading.value = true;
+  try {
+    await loadQualities();
+    if (qualityOptions.value.length > 0) {
+      showQualityPopover.value = true;
+    } else {
+      window.$message.warning("暂无可切换音质");
+    }
+  } finally {
+    qualityLoading.value = false;
+  }
+};
+
+const handleQualitySelectAndClose = async (value: string) => {
+  try {
+    await handleQualitySelect(value);
+    showQualityPopover.value = false;
+  } catch (error) {
+    console.error("音质切换失败:", error);
+    window.$message.error("音质切换失败");
+  }
+};
+
+const handleQualityClickOutside = (e: MouseEvent) => {
+  if (qualityTagRef.value && qualityTagRef.value.contains(e.target as Node)) {
+    return;
+  }
+  showQualityPopover.value = false;
+};
+
+watch(
+  () => musicStore.playSong.id,
+  () => {
+    statusStore.availableQualities = [];
+    showQualityPopover.value = false;
+  },
+);
+
+watch([() => settingStore.disableAiAudio], () => {
+  statusStore.availableQualities = [];
+  showQualityPopover.value = false;
+});
 
 // 显示名称
 const displayName = computed(() => {
