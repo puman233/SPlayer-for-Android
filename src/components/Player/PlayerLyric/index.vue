@@ -163,7 +163,12 @@ const offsetMilliseconds = computed({
     return statusStore.getSongOffset(currentSongId.value);
   },
   set: (val: number | null) => {
-    statusStore.setSongOffset(currentSongId.value, val || 0);
+    const settingStore = useSettingStore();
+    const globalOffset = (settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetAlwaysApply)
+      ? settingStore.globalLyricOffsetValue
+      : 0;
+    const localOffset = (val || 0) - globalOffset;
+    statusStore.setSongOffset(currentSongId.value, localOffset);
   },
 });
 
@@ -179,7 +184,7 @@ const changeOffset = (delta: number) => {
  * 重置进度偏移
  */
 const resetOffset = () => {
-  statusStore.resetSongOffset(currentSongId.value);
+  offsetMilliseconds.value = 0;
 };
 
 onMounted(() => {

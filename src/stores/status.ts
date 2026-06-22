@@ -11,6 +11,7 @@ import type {
 import type { RepeatModeType, ShuffleModeType } from "@/types/shared/play-mode";
 import { isDevBuild } from "@/utils/env";
 import { defineStore } from "pinia";
+import { useSettingStore } from "./setting";
 
 interface StatusState {
   /** 菜单折叠状态 */
@@ -335,7 +336,14 @@ export const useStatusStore = defineStore("status", {
     getSongOffset(songId?: number): number {
       if (!songId) return 0;
       const offsetTime = this.currentTimeOffsetMap?.[songId] ?? 0;
-      return Math.floor(offsetTime * 1000);
+      const baseOffset = Math.floor(offsetTime * 1000);
+      
+      // 注意：这里需要动态导入 settingStore 避免循环依赖
+      const settingStore = useSettingStore();
+      if (settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetAlwaysApply) {
+        return baseOffset + settingStore.globalLyricOffsetValue;
+      }
+      return baseOffset;
     },
     /**
      * 设置指定歌曲的偏移
@@ -362,12 +370,13 @@ export const useStatusStore = defineStore("status", {
      */
     incSongOffset(songId?: number, delta: number = 500) {
       if (!songId) return;
-      const current = this.getSongOffset(songId);
-      const next = current + delta;
-      if (next === 0) {
+      const offsetTime = this.currentTimeOffsetMap?.[songId] ?? 0;
+      const currentLocal = Math.floor(offsetTime * 1000);
+      const nextLocal = currentLocal + delta;
+      if (nextLocal === 0) {
         delete this.currentTimeOffsetMap[songId];
       } else {
-        this.setSongOffset(songId, next);
+        this.setSongOffset(songId, nextLocal);
       }
     },
     /** 重置指定歌曲的偏移为 0 */

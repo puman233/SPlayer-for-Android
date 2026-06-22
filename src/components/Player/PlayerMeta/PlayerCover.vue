@@ -4,6 +4,8 @@
     v-if="settingStore.playerType === 'fullscreen' && !isPhone"
     class="full-screen"
     :style="{ '--gradient-percent': settingStore.playerFullscreenGradient + '%' }"
+    @pointerdown.stop
+    @pointerup="onCoverPointerUp"
   >
     <s-image
       :src="getCoverUrl('xl')"
@@ -19,6 +21,8 @@
   <div
     v-else
     :class="['player-cover', settingStore.playerType, { playing: statusStore.playStatus }]"
+    @pointerdown.stop
+    @pointerup="onCoverPointerUp"
   >
     <!-- 指针 -->
     <img
@@ -186,6 +190,63 @@ const getCoverUrl = (size: "s" | "m" | "l" | "xl" = "l") => {
     return localCoverDataUrl.value;
   }
   return musicStore.getSongCover(size);
+};
+
+// 双击封面切换当前歌曲的偏移状态
+const onDoubleClickCover = () => {
+  if (settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetDoubleClickApply) {
+    const currentSongId = musicStore.playSong?.id;
+    if (!currentSongId) return;
+
+    const offsetValue = settingStore.globalLyricOffsetValue;
+    const currentOffset = statusStore.getSongOffset(currentSongId);
+    const sign = offsetValue > 0 ? "+" : "";
+
+    if (settingStore.globalLyricOffsetAlwaysApply) {
+      if (currentOffset === offsetValue) {
+        statusStore.setSongOffset(currentSongId, -offsetValue);
+        window.$message?.success("本歌曲将临时关闭偏移");
+      } else {
+        statusStore.resetSongOffset(currentSongId);
+        window.$message?.success(`已恢复全局偏移: ${sign}${offsetValue}ms`);
+      }
+    } else {
+      if (currentOffset === offsetValue) {
+        statusStore.resetSongOffset(currentSongId);
+        window.$message?.success(`已关闭单曲偏移: ${sign}${offsetValue}ms`);
+      } else {
+        statusStore.setSongOffset(currentSongId, offsetValue);
+        window.$message?.success(`已开启单曲偏移: ${sign}${offsetValue}ms`);
+      }
+    }
+  }
+};
+
+let lastCoverTapAt = 0;
+let lastCoverTapX = 0;
+let lastCoverTapY = 0;
+const COVER_DOUBLE_TAP_DELAY = 320;
+const COVER_DOUBLE_TAP_DISTANCE = 24;
+
+const onCoverPointerUp = (event: PointerEvent) => {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  const now = Date.now();
+  const dx = event.clientX - lastCoverTapX;
+  const dy = event.clientY - lastCoverTapY;
+  const isDoubleTap =
+    now - lastCoverTapAt <= COVER_DOUBLE_TAP_DELAY &&
+    Math.hypot(dx, dy) <= COVER_DOUBLE_TAP_DISTANCE;
+
+  if (isDoubleTap) {
+    lastCoverTapAt = 0;
+    onDoubleClickCover();
+    return;
+  }
+
+  lastCoverTapAt = now;
+  lastCoverTapX = event.clientX;
+  lastCoverTapY = event.clientY;
 };
 
 watch(

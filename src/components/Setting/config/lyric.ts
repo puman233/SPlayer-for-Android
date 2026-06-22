@@ -463,6 +463,66 @@ export const useLyricSettings = (): SettingConfig => {
             }),
           },
           {
+            key: "globalLyricOffsetEnabled",
+            label: "全局歌词偏移",
+            type: "switch",
+            description: "是否启用全局歌词时间轴偏移",
+            value: computed({
+              get: () => settingStore.globalLyricOffsetEnabled,
+              set: (v) => (settingStore.globalLyricOffsetEnabled = v),
+            }),
+            children: [
+              {
+                key: "globalLyricOffsetValue",
+                label: "偏移数值",
+                type: "input-number",
+                description: "全局歌词偏移数值 (+ -)，单位毫秒",
+                min: -10000,
+                max: 10000,
+                step: 10,
+                suffix: "ms",
+                value: computed({
+                  get: () => settingStore.globalLyricOffsetValue,
+                  set: (v) => (settingStore.globalLyricOffsetValue = v || 0),
+                }),
+              },
+              {
+                key: "globalLyricOffsetPresetSign",
+                label: "快捷预设单位",
+                type: "select",
+                description: "快捷开关中的预设数值符号 (+ 或 -)",
+                options: [
+                  { label: "+", value: "+" },
+                  { label: "-", value: "-" },
+                ],
+                value: computed({
+                  get: () => settingStore.globalLyricOffsetPresetSign,
+                  set: (v) => (settingStore.globalLyricOffsetPresetSign = v),
+                }),
+              },
+              {
+                key: "globalLyricOffsetAlwaysApply",
+                label: "始终启用偏移",
+                type: "switch",
+                description: "开启后，任何歌曲播放时都将默认应用该偏移数值",
+                value: computed({
+                  get: () => settingStore.globalLyricOffsetAlwaysApply,
+                  set: (v) => (settingStore.globalLyricOffsetAlwaysApply = v),
+                }),
+              },
+              {
+                key: "globalLyricOffsetDoubleClickApply",
+                label: "双击歌词页封面应用偏移",
+                type: "switch",
+                description: "开启后，双击歌词页封面可应用当前全局偏移",
+                value: computed({
+                  get: () => settingStore.globalLyricOffsetDoubleClickApply,
+                  set: (v) => (settingStore.globalLyricOffsetDoubleClickApply = v),
+                }),
+              },
+            ],
+          },
+          {
             key: "lyricOffsetStep",
             label: "歌词时延调节步长",
             type: "input-number",
