@@ -167,7 +167,18 @@ let savedPageType: MobilePageType = "info";
 
       <div v-if="hasLyric" class="page lyric-page">
         <div class="lyric-header">
-          <s-image :src="musicStore.getSongCover('s')" cache-type="covers" class="lyric-cover" />
+          <div
+            class="lyric-cover"
+            data-no-page-swipe
+            @pointerdown.stop
+            @pointerup="onLyricCoverPointerUp"
+          >
+            <s-image
+              :src="musicStore.getSongCover('s')"
+              cache-type="covers"
+              class="lyric-cover-image"
+            />
+          </div>
           <div class="lyric-info">
             <div class="name text-hidden">
               {{
@@ -301,6 +312,66 @@ const pageIndex = ref(resolveSavedPageIndex(savedPageType));
 const pageTransitionDisabled = ref(false);
 const pageSwipeBlocked = ref(false);
 let pageTransitionTimer = 0;
+let lastLyricCoverTapAt = 0;
+let lastLyricCoverTapX = 0;
+let lastLyricCoverTapY = 0;
+
+const LYRIC_COVER_DOUBLE_TAP_DELAY = 320;
+const LYRIC_COVER_DOUBLE_TAP_DISTANCE = 24;
+
+const applyGlobalLyricOffsetToCurrentSong = () => {
+  if (!settingStore.globalLyricOffsetEnabled || !settingStore.globalLyricOffsetDoubleClickApply) {
+    return;
+  }
+  const currentSongId = musicStore.playSong?.id;
+  if (!currentSongId) return;
+
+  const offsetValue = settingStore.globalLyricOffsetValue;
+  const currentOffset = statusStore.getSongOffset(currentSongId);
+  const sign = offsetValue > 0 ? "+" : "";
+
+  if (settingStore.globalLyricOffsetAlwaysApply) {
+    if (currentOffset === offsetValue) {
+      statusStore.setSongOffset(currentSongId, -offsetValue);
+      window.$message?.success("本歌曲将临时关闭偏移");
+    } else {
+      statusStore.resetSongOffset(currentSongId);
+      window.$message?.success(`已恢复全局偏移: ${sign}${offsetValue}ms`);
+    }
+  } else {
+    if (currentOffset === offsetValue) {
+      statusStore.resetSongOffset(currentSongId);
+      window.$message?.success(`已关闭单曲偏移: ${sign}${offsetValue}ms`);
+    } else {
+      statusStore.setSongOffset(currentSongId, offsetValue);
+      window.$message?.success(`已开启单曲偏移: ${sign}${offsetValue}ms`);
+    }
+  }
+};
+
+// 歌词页封面使用双点，避免和移动端下滑手势冲突
+const onLyricCoverPointerUp = (event: PointerEvent) => {
+  event.stopPropagation();
+  if (event.cancelable) event.preventDefault();
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+
+  const now = Date.now();
+  const dx = event.clientX - lastLyricCoverTapX;
+  const dy = event.clientY - lastLyricCoverTapY;
+  const isDoubleTap =
+    now - lastLyricCoverTapAt <= LYRIC_COVER_DOUBLE_TAP_DELAY &&
+    Math.hypot(dx, dy) <= LYRIC_COVER_DOUBLE_TAP_DISTANCE;
+
+  if (isDoubleTap) {
+    lastLyricCoverTapAt = 0;
+    applyGlobalLyricOffsetToCurrentSong();
+    return;
+  }
+
+  lastLyricCoverTapAt = now;
+  lastLyricCoverTapX = event.clientX;
+  lastLyricCoverTapY = event.clientY;
+};
 
 const lyricHeaderHorizontalPadding = computed(() => {
   const padding = Math.max(0, settingStore.lyricHorizontalOffset);
@@ -337,7 +408,8 @@ const dragHandleStyle = computed(() => {
   if (currentPageType.value === "lyric") {
     return {
       top: "calc(52px + var(--mobile-safe-top))",
-      left: "16px",
+      // 歌词页保留下滑手势，但避开左侧封面区域，防止封面双点被捕获层吃掉
+      left: "calc(20px + var(--lyric-h-offset, 0px) + 72px)",
       right: "72px",
       height: "74px",
     };
@@ -926,11 +998,20 @@ const contentTransform = computed(() => {
       }
 
       .lyric-cover {
+        position: relative;
+        z-index: 11;
         width: 50px;
         height: 50px;
         flex-shrink: 0;
         border-radius: 6px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        touch-action: manipulation;
+
+        .lyric-cover-image {
+          width: 100%;
+          height: 100%;
+        }
 
         :deep(img) {
           width: 100%;
@@ -1238,6 +1319,11 @@ const contentTransform = computed(() => {
           width: 64px;
           height: 64px;
           border-radius: 10px;
+
+          .lyric-cover-image {
+            width: 100%;
+            height: 100%;
+          }
 
           :deep(img) {
             border-radius: 10px;

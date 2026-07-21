@@ -425,6 +425,16 @@ export interface SettingState {
     time: boolean;
     description: boolean;
   };
+  /** 全局歌词时间轴偏移开关 */
+  globalLyricOffsetEnabled: boolean;
+  /** 全局歌词时间轴偏移数值 (ms) */
+  globalLyricOffsetValue: number;
+  /** 全局歌词时间轴快捷预设单位符号 */
+  globalLyricOffsetPresetSign: "+" | "-";
+  /** 双击歌词页封面应用全局偏移 */
+  globalLyricOffsetDoubleClickApply: boolean;
+  /** 始终启用全局偏移 */
+  globalLyricOffsetAlwaysApply: boolean;
   /** 全屏播放器界面元素显示配置 */
   fullscreenPlayerElements: {
     like: boolean;
@@ -758,6 +768,11 @@ export const useSettingStore = defineStore("setting", {
       time: true,
       description: true,
     },
+    globalLyricOffsetEnabled: false,
+    globalLyricOffsetValue: 0,
+    globalLyricOffsetPresetSign: "+",
+    globalLyricOffsetDoubleClickApply: false,
+    globalLyricOffsetAlwaysApply: false,
     fullscreenPlayerElements: {
       like: true,
       addToPlaylist: true,
