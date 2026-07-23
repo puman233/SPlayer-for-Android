@@ -2,10 +2,15 @@
 <template>
   <n-drawer
     v-model:show="statusStore.playListShow"
-    :class="{ 'full-player': statusStore.showFullPlayer, 'pad-portrait': isPadPortraitPlaylist }"
+    :class="{
+      'full-player': statusStore.showFullPlayer,
+      'pad-portrait': isPadPortraitPlaylist,
+      'phone-sheet': isPhoneBottomSheet,
+    }"
     :auto-focus="false"
     id="main-playlist"
-    :style="{ width: drawerWidth }"
+    :placement="drawerPlacement"
+    :style="drawerStyle"
     :to="playlistTeleportTarget"
   >
     <n-drawer-content :native-scrollbar="false" closable>
@@ -57,6 +62,11 @@
                     statusStore.playListShow = false;
                   }
                 "
+                role="button"
+                tabindex="0"
+                :aria-label="`播放 ${songData.name || '未知曲目'}`"
+                @keydown.enter.stop="player.togglePlayIndex(index, true)"
+                @keydown.space.prevent.stop="player.togglePlayIndex(index, true)"
               >
                 <!-- 拖拽手柄 -->
                 <div
@@ -65,6 +75,9 @@
                   @touchstart.passive="
                     handlePointerDown($event, index, songData.name || '未知曲目')
                   "
+                  role="button"
+                  tabindex="0"
+                  aria-label="拖动歌曲排序"
                   @click.stop
                 >
                   <SvgIcon :size="20" name="Menu" />
@@ -103,7 +116,15 @@
                   </div>
                 </div>
                 <!-- 移除 -->
-                <div class="remove" @click.stop="player.removeSongIndex(index)">
+                <div
+                  class="remove"
+                  role="button"
+                  tabindex="0"
+                  aria-label="移除歌曲"
+                  @click.stop="player.removeSongIndex(index)"
+                  @keydown.enter.stop="player.removeSongIndex(index)"
+                  @keydown.space.prevent.stop="player.removeSongIndex(index)"
+                >
                   <SvgIcon :size="20" name="Delete" />
                 </div>
               </div>
@@ -139,6 +160,7 @@
               size="large"
               strong
               secondary
+              :disabled="statusStore.playIndex < 0 || !dataStore.playList.length"
               @click="scrollToItem(statusStore.playIndex)"
             >
               <template #icon>
@@ -190,12 +212,20 @@ const playlistTeleportTarget = computed(() =>
   statusStore.showFullPlayer ? ".full-player" : "#app",
 );
 const isPadPortraitPlaylist = computed(() => isPadDevice.value && isPhonePortrait.value);
-const drawerWidth = computed(() => (isPadPortraitPlaylist.value ? "min(88vw, 560px)" : "400px"));
-const playlistItemHeight = computed(() => (isPadPortraitPlaylist.value ? 96 : 80));
+const isPhoneBottomSheet = computed(() => !isPadDevice.value && isPhonePortrait.value);
+const drawerPlacement = computed(() => (isPhoneBottomSheet.value ? "bottom" : "right"));
+const drawerStyle = computed(() =>
+  isPhoneBottomSheet.value
+    ? { width: "100%", height: "min(72dvh, 620px)" }
+    : { width: isPadPortraitPlaylist.value ? "min(88vw, 560px)" : "min(400px, 100vw)" },
+);
+const playlistItemHeight = computed(() => (isPadPortraitPlaylist.value ? 96 : 88));
 const playlistHeight = computed(() =>
-  isPadPortraitPlaylist.value
-    ? "calc(var(--page-zoom-100dvh, 100dvh) - 170px)"
-    : "calc(var(--page-zoom-100dvh, 100dvh) - 142px)",
+  isPhoneBottomSheet.value
+    ? "calc(min(72dvh, 620px) - 142px)"
+    : isPadPortraitPlaylist.value
+      ? "calc(var(--page-zoom-100dvh, 100dvh) - 170px)"
+      : "calc(var(--page-zoom-100dvh, 100dvh) - 142px)",
 );
 
 // 播放列表数据
@@ -347,7 +377,7 @@ const {
     align-items: center;
     justify-content: space-between;
     flex-direction: row;
-    min-height: 64px;
+    min-height: 72px;
     overflow: hidden;
     border-radius: 8px;
     margin-bottom: 0;
@@ -371,7 +401,7 @@ const {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 30px;
+      width: 44px;
       height: 100%;
       cursor: grab;
       color: rgba(var(--text-color), 0.3);
@@ -432,7 +462,9 @@ const {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 8px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
       border-radius: 8px;
       transition: background-color 0.3s;
       cursor: pointer;
@@ -520,6 +552,24 @@ const {
   .n-drawer-footer {
     height: 72px;
     padding: 16px;
+  }
+  &.phone-sheet {
+    --n-border-radius: 20px 20px 0 0;
+    border-radius: 20px 20px 0 0;
+
+    .n-drawer-header {
+      height: 64px;
+      padding: 16px 20px 10px;
+    }
+
+    .n-drawer-footer {
+      height: calc(78px + var(--safe-area-bottom));
+      padding: 12px 16px calc(12px + var(--safe-area-bottom));
+    }
+
+    .playlist-list {
+      padding: 8px 12px 12px;
+    }
   }
   &.pad-portrait {
     --n-border-radius: 18px;

@@ -38,12 +38,15 @@ const setModalClosed = (modalKey: string): void => {
   openedModals.delete(modalKey);
 };
 
-export const openUserAgreement = async () => {
+export const openUserAgreement = async (onAccepted?: () => void) => {
   const settingStore = useSettingStore();
   // 检查是否需要重新同意协议
   const needReAgree = settingStore.userAgreementVersion !== CURRENT_AGREEMENT_VERSION;
   // 如果已经同意了当前版本，则不需要再弹窗
-  if (!needReAgree) return;
+  if (!needReAgree) {
+    onAccepted?.();
+    return;
+  }
   const { default: UserAgreement } = await import("@/components/Modal/UserAgreement.vue");
   const modal = window.$modal.create({
     preset: "card",
@@ -61,6 +64,7 @@ export const openUserAgreement = async () => {
       return h(UserAgreement, {
         onClose: () => {
           modal.destroy();
+          onAccepted?.();
         },
       });
     },
@@ -529,7 +533,7 @@ export const openHomePageSectionManager = async () => {
 };
 
 /** 打开复制歌词弹窗 */
-export const openCopyLyrics = async () => {
+export const openCopyLyrics = async (initialLineIndex?: number) => {
   const { default: CopyLyrics } = await import("@/components/Modal/CopyLyrics.vue");
   const modal = window.$modal.create({
     preset: "card",
@@ -539,9 +543,26 @@ export const openCopyLyrics = async () => {
     title: "复制歌词",
     content: () => {
       return h(CopyLyrics, {
+        initialLineIndex,
         onClose: () => modal.destroy(),
       });
     },
+  });
+};
+
+/** 打开歌词海报编辑器 */
+export const openLyricPoster = async (
+  selectedLines: number[],
+  options: { showTranslation: boolean; showRomaji: boolean },
+) => {
+  const { default: LyricPoster } = await import("@/components/Modal/LyricPoster.vue");
+  window.$modal.create({
+    preset: "card",
+    transformOrigin: "center",
+    autoFocus: false,
+    style: { width: "min(1100px, 94vw)" },
+    title: "歌词海报",
+    content: () => h(LyricPoster, { selectedLines, ...options }),
   });
 };
 

@@ -163,6 +163,7 @@ const props = defineProps({
 const emit = defineEmits<{
   lineClick: [event: LyricLineMouseEvent];
   lineContextmenu: [event: LyricLineMouseEvent];
+  lineLongPress: [index: number];
 }>();
 
 /**
@@ -185,7 +186,15 @@ const wrapperRef = useTemplateRef<HTMLDivElement>("wrapper-ref");
 const playerRef = ref<CoreLyricPlayer>();
 
 // 事件处理器
-const lineClickHandler = (e: Event) => emit("lineClick", e as LyricLineMouseEvent);
+let suppressNextLineClick = false;
+const lineClickHandler = (e: Event) => {
+  if (suppressNextLineClick) {
+    suppressNextLineClick = false;
+    e.preventDefault();
+    return;
+  }
+  emit("lineClick", e as LyricLineMouseEvent);
+};
 const lineContextMenuHandler = (e: Event) => emit("lineContextmenu", e as LyricLineMouseEvent);
 
 // 底部行元素
@@ -193,6 +202,13 @@ const bottomLineEl = computed(() => playerRef.value?.getBottomLineElement());
 
 type InternalLyricLineObject = {
   enable?: (time?: number, shouldPlay?: boolean) => void | Promise<void>;
+  getElement?: () => HTMLElement;
+  getLine?: () => LyricLine;
+};
+
+type InternalLyricLineGroup = {
+  mainLine: InternalLyricLineObject;
+  bgLine?: InternalLyricLineObject;
 };
 
 type InternalLyricPlayer = CoreLyricPlayer & {
@@ -200,12 +216,93 @@ type InternalLyricPlayer = CoreLyricPlayer & {
   bufferedLines?: Set<number>;
   processedLines?: LyricLine[];
   currentLyricLineObjects?: InternalLyricLineObject[];
+  currentLyricGroups?: InternalLyricLineGroup[];
+  lyricLinesIndexes?: WeakMap<InternalLyricLineObject, number>;
   scrollToIndex?: number;
   resetScroll?: () => void;
   calcLayout?: () => void | Promise<void>;
 };
 
 const getInternalPlayer = () => playerRef.value as InternalLyricPlayer | undefined;
+
+const LONG_PRESS_DURATION = 2500;
+const LONG_PRESS_MOVE_LIMIT = 24;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressOrigin: { x: number; y: number; pointerId?: number } | null = null;
+
+const cancelLongPress = () => {
+  if (longPressTimer !== null) clearTimeout(longPressTimer);
+  longPressTimer = null;
+  longPressOrigin = null;
+};
+
+const findLineIndex = (target: EventTarget | null, x: number, y: number) => {
+  const player = getInternalPlayer();
+  if (!player || !Array.isArray(player.currentLyricGroups)) return -1;
+  const targetNode = target instanceof Node ? target : null;
+  for (const group of player.currentLyricGroups) {
+    for (const line of [group.mainLine, group.bgLine]) {
+      const element = line?.getElement?.();
+      if (!line || !element) continue;
+      const rect = element.getBoundingClientRect();
+      const containsPoint = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      if (!(targetNode && element.contains(targetNode)) && !containsPoint) continue;
+
+      const mappedIndex = player.lyricLinesIndexes?.get(line);
+      if (mappedIndex !== undefined) return mappedIndex;
+      const sourceLine = line.getLine?.();
+      return sourceLine ? (player.processedLines?.indexOf(sourceLine) ?? -1) : -1;
+    }
+  }
+  return -1;
+};
+
+const scheduleLongPress = (
+  target: EventTarget | null,
+  x: number,
+  y: number,
+  pointerId?: number,
+) => {
+  const index = findLineIndex(target, x, y);
+  if (index < 0) return;
+  cancelLongPress();
+  longPressOrigin = { x, y, pointerId };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    longPressOrigin = null;
+    suppressNextLineClick = true;
+    navigator.vibrate?.(30);
+    emit("lineLongPress", index);
+  }, LONG_PRESS_DURATION);
+};
+
+const startTouchLongPress = (event: TouchEvent) => {
+  const touch = event.touches[0];
+  if (!touch) return;
+  scheduleLongPress(event.target, touch.clientX, touch.clientY);
+};
+
+const moveTouchLongPress = (event: TouchEvent) => {
+  const touch = event.touches[0];
+  const origin = longPressOrigin;
+  if (!touch || !origin || origin.pointerId !== undefined) return;
+  if (Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > LONG_PRESS_MOVE_LIMIT) {
+    cancelLongPress();
+  }
+};
+
+const startPointerLongPress = (event: PointerEvent) => {
+  if (event.pointerType !== "mouse" || event.button !== 0) return;
+  scheduleLongPress(event.target, event.clientX, event.clientY, event.pointerId);
+};
+
+const movePointerLongPress = (event: PointerEvent) => {
+  const origin = longPressOrigin;
+  if (!origin || origin.pointerId === undefined || origin.pointerId !== event.pointerId) return;
+  if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > LONG_PRESS_MOVE_LIMIT) {
+    cancelLongPress();
+  }
+};
 
 // 补齐新激活行的动画时间
 const syncNewHotLineAnimations = (
@@ -404,6 +501,7 @@ watch(
 );
 
 onBeforeUnmount(cancelPendingSetLyric);
+onBeforeUnmount(cancelLongPress);
 
 // 当前播放时间
 watch(
@@ -452,9 +550,30 @@ defineExpose<LyricPlayerRef>({
 </script>
 
 <template>
-  <div ref="wrapper-ref">
+  <div
+    ref="wrapper-ref"
+    class="lyric-player-wrapper"
+    @touchstart.capture="startTouchLongPress"
+    @touchmove.capture="moveTouchLongPress"
+    @touchend.capture="cancelLongPress"
+    @touchcancel.capture="cancelLongPress"
+    @pointerdown.capture="startPointerLongPress"
+    @pointermove.capture="movePointerLongPress"
+    @pointerup.capture="cancelLongPress"
+    @contextmenu.prevent
+  >
     <Teleport v-if="bottomLineEl" :to="bottomLineEl">
       <slot name="bottom-line" />
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.lyric-player-wrapper {
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+</style>

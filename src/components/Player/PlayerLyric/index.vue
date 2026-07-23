@@ -1,14 +1,18 @@
 <template>
   <div class="player-lyric">
     <!-- 歌词内容 -->
-    <AMLyric v-if="settingStore.useAMLyrics" :currentTime="playSeek" />
-    <DefaultLyric v-else :currentTime="playSeek" />
+    <AMLyric
+      v-if="settingStore.useAMLyrics"
+      :currentTime="playSeek"
+      @lyric-line-long-press="openCopyLyrics"
+    />
+    <DefaultLyric v-else :currentTime="playSeek" @lyric-line-long-press="openCopyLyrics" />
     <!-- 歌词菜单 -->
     <n-flex :class="['lyric-menu', { show: statusStore.playerMetaShow }]" justify="center" vertical>
       <div
         v-if="settingStore.fullscreenPlayerElements.copyLyric"
         class="menu-icon"
-        @click="openCopyLyrics"
+        @click="openCopyLyrics()"
       >
         <SvgIcon name="Copy" />
       </div>
@@ -164,9 +168,10 @@ const offsetMilliseconds = computed({
   },
   set: (val: number | null) => {
     const settingStore = useSettingStore();
-    const globalOffset = (settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetAlwaysApply)
-      ? settingStore.globalLyricOffsetValue
-      : 0;
+    const globalOffset =
+      settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetAlwaysApply
+        ? settingStore.globalLyricOffsetValue
+        : 0;
     const localOffset = (val || 0) - globalOffset;
     statusStore.setSongOffset(currentSongId.value, localOffset);
   },

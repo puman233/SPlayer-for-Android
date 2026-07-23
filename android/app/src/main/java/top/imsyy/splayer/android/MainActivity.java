@@ -18,6 +18,7 @@ import top.imsyy.splayer.android.cache.AudioPrefetchTtlIndex;
 import top.imsyy.splayer.android.download.AndroidDownloadPlugin;
 import top.imsyy.splayer.android.lyric.AndroidLocalLyricPlugin;
 import top.imsyy.splayer.android.playback.AndroidNativePlaybackPlugin;
+import top.imsyy.splayer.android.share.AndroidSharePlugin;
 
 public class MainActivity extends BridgeActivity {
   // 供 plugin 跨类引用，避免双源硬编码
@@ -34,6 +35,7 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(AndroidLocalLyricPlugin.class);
     registerPlugin(AndroidDownloadPlugin.class);
     registerPlugin(AndroidCachePlugin.class);
+    registerPlugin(AndroidSharePlugin.class);
     super.onCreate(savedInstanceState);
     // 冷启动重置沉浸式 pref，避免强杀残留隐藏导航栏；旋屏重建（savedInstanceState != null）保留
     if (savedInstanceState == null) {

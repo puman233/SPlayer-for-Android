@@ -29,7 +29,7 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
   public readonly capabilities: EngineCapabilities = {
     supportsRate: true,
     supportsSinkId: false,
-    supportsEqualizer: false,
+    supportsEqualizer: true,
     // Java 端用 FftAudioProcessor 在 ExoPlayer 渲染链上做 FFT
     supportsSpectrum: true,
   };
@@ -269,6 +269,16 @@ export class AndroidNativeAudioPlayer extends EventTarget implements IPlaybackEn
       void AndroidNativePlayback.setRate({ rate });
     }
   }
+
+  public setFilterGain(index: number, value: number): void {
+    if (!isCapacitorAndroid || index < 0 || index >= 10) return;
+    const gains = this.eqBands.length ? [...this.eqBands] : Array(10).fill(0);
+    gains[index] = Math.max(-12, Math.min(12, value));
+    this.eqBands = gains;
+    void AndroidNativePlayback.setEqualizer({ bands: gains });
+  }
+
+  private eqBands: number[] = Array(10).fill(0);
 
   public getRate(): number {
     return this._rate;

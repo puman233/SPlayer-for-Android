@@ -69,7 +69,15 @@
               :id="`lrc-${index}`"
               :class="getLyricLineClass(item, index)"
               :style="getLyricLineStyle(item, index)"
-              @click="jumpSeek(item.data.startTime)"
+              @touchstart="startTouchLongPress($event, item.originalIndex)"
+              @touchmove="moveTouchLongPress"
+              @touchend="cancelLongPress"
+              @touchcancel="cancelLongPress"
+              @pointerdown="startPointerLongPress($event, item.originalIndex)"
+              @pointermove="movePointerLongPress"
+              @pointerup="cancelLongPress"
+              @contextmenu.prevent
+              @click="handleLineClick($event, item.data.startTime)"
             >
               <!-- 逐字歌词 -->
               <template v-if="isYrcMode">
@@ -148,12 +156,77 @@ const props = defineProps({
   },
 });
 
+const emit = defineEmits<{
+  lyricLineLongPress: [index: number];
+}>();
+
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();
 const settingStore = useSettingStore();
 const player = usePlayerController();
 
 const lyricScrollContainer = ref<HTMLElement | null>(null);
+const LONG_PRESS_DURATION = 2500;
+const LONG_PRESS_MOVE_LIMIT = 24;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressOrigin: { x: number; y: number; pointerId?: number } | null = null;
+let suppressNextClick = false;
+
+const cancelLongPress = () => {
+  if (longPressTimer !== null) clearTimeout(longPressTimer);
+  longPressTimer = null;
+  longPressOrigin = null;
+};
+
+const scheduleLongPress = (x: number, y: number, index: number, pointerId?: number) => {
+  cancelLongPress();
+  longPressOrigin = { x, y, pointerId };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    longPressOrigin = null;
+    suppressNextClick = true;
+    navigator.vibrate?.(30);
+    emit("lyricLineLongPress", index);
+  }, LONG_PRESS_DURATION);
+};
+
+const startTouchLongPress = (event: TouchEvent, index: number) => {
+  const touch = event.touches[0];
+  if (!touch) return;
+  scheduleLongPress(touch.clientX, touch.clientY, index);
+};
+
+const moveTouchLongPress = (event: TouchEvent) => {
+  const touch = event.touches[0];
+  const origin = longPressOrigin;
+  if (!touch || !origin || origin.pointerId !== undefined) return;
+  if (Math.hypot(touch.clientX - origin.x, touch.clientY - origin.y) > LONG_PRESS_MOVE_LIMIT) {
+    cancelLongPress();
+  }
+};
+
+const startPointerLongPress = (event: PointerEvent, index: number) => {
+  if (event.pointerType !== "mouse" || event.button !== 0) return;
+  scheduleLongPress(event.clientX, event.clientY, index, event.pointerId);
+};
+
+const movePointerLongPress = (event: PointerEvent) => {
+  const origin = longPressOrigin;
+  if (!origin || origin.pointerId === undefined || origin.pointerId !== event.pointerId) return;
+  if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > LONG_PRESS_MOVE_LIMIT) {
+    cancelLongPress();
+  }
+};
+
+const handleLineClick = (event: MouseEvent, time: number) => {
+  if (suppressNextClick) {
+    suppressNextClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  jumpSeek(time);
+};
 
 const effectiveLyricsScrollOffset = computed(() =>
   isCapacitorAndroid
@@ -540,6 +613,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  cancelLongPress();
   // 清理滚动动画
   if (scrollAnimationId !== null) {
     cancelAnimationFrame(scrollAnimationId);
@@ -646,6 +720,9 @@ onBeforeUnmount(() => {
       opacity 0.35s,
       transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
     cursor: pointer;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-touch-callout: none;
     width: 100%;
     .content {
       display: block;

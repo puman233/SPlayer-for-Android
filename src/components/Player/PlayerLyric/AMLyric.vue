@@ -50,6 +50,7 @@
         }"
         class="am-lyric"
         @line-click="jumpSeek"
+        @line-long-press="emit('lyricLineLongPress', $event)"
       />
     </div>
   </Transition>
@@ -71,6 +72,10 @@ defineProps({
     default: 0,
   },
 });
+
+const emit = defineEmits<{
+  lyricLineLongPress: [index: number];
+}>();
 
 const musicStore = useMusicStore();
 const statusStore = useStatusStore();

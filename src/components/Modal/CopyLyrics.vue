@@ -44,25 +44,35 @@
         <n-button type="primary" :disabled="selectedLines.length === 0" @click="handleCopy">
           复制 ({{ selectedLines.length }})
         </n-button>
+        <n-button type="primary" :disabled="selectedLines.length === 0" @click="handlePoster">
+          生成海报
+        </n-button>
       </n-flex>
     </n-flex>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useMusicStore } from "@/stores";
+import { useMusicStore, useSettingStore } from "@/stores";
 import { copyData } from "@/utils/helper";
 
-const props = defineProps<{ onClose: () => void }>();
+import { openLyricPoster } from "@/utils/modal";
+
+const props = defineProps<{ onClose: () => void; initialLineIndex?: number }>();
 
 const musicStore = useMusicStore();
+const settingStore = useSettingStore();
 
 const selectedFilters = ref<string[]>(["translation", "romaji", "emptyLine", "songName", "artist"]);
-const selectedLines = ref<number[]>([]);
+const selectedLines = ref<number[]>(
+  typeof props.initialLineIndex === "number" ? [props.initialLineIndex] : [],
+);
 
 const rawLyrics = computed(() => {
   const { songLyric } = musicStore;
-  return songLyric.yrcData?.length ? songLyric.yrcData : songLyric.lrcData;
+  return settingStore.showWordLyrics && songLyric.yrcData?.length
+    ? songLyric.yrcData
+    : songLyric.lrcData;
 });
 
 const displayLyrics = computed(() => {
@@ -141,6 +151,14 @@ const handleCopy = async () => {
   } else {
     window.$message.warning("没有可复制的内容");
   }
+};
+
+const handlePoster = () => {
+  openLyricPoster([...selectedLines.value], {
+    showTranslation: showTranslation.value,
+    showRomaji: showRomaji.value,
+  });
+  props.onClose();
 };
 </script>
 

@@ -134,6 +134,9 @@ importers:
       plyr:
         specifier: ^3.8.4
         version: 3.8.4
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
       sortablejs:
         specifier: ^1.15.7
         version: 1.15.7
@@ -174,6 +177,9 @@ importers:
       '@types/node':
         specifier: ^24.13.0
         version: 24.13.0
+      '@types/qrcode':
+        specifier: ^1.5.6
+        version: 1.5.6
       '@types/sortablejs':
         specifier: ^1.15.9
         version: 1.15.9
@@ -1958,6 +1964,9 @@ packages:
 
   '@types/node@24.13.0':
     resolution: {integrity: sha512-5vtOqGQr4NJKeEzV441FcOi2MeG9UTWq9LqVLGneDdu4vlX17H8kQ2PA2UmNwCUGPVDj4oBjNhS7ReVEIWJJrg==}
+
+  '@types/qrcode@1.5.6':
+    resolution: {integrity: sha512-te7NQcV2BOvdj2b1hCAHzAoMNuj65kNBMz0KBaxM6c3VGBOhU0dURQKOtH8CFNI/dsKkwlv32p26qYQTWoB5bw==}
 
   '@types/slice-ansi@4.0.0':
     resolution: {integrity: sha512-+OpjSaq85gvlZAYINyzKpLeiFkSC4EsC6IIiT6v6TLSU5k5U83fHGj9Lel8oKEXM0HqgrMVCjXPDPVICtxF7EQ==}
@@ -6620,6 +6629,10 @@ snapshots:
   '@types/node@24.13.0':
     dependencies:
       undici-types: 7.18.2
+
+  '@types/qrcode@1.5.6':
+    dependencies:
+      '@types/node': 24.13.0
 
   '@types/slice-ansi@4.0.0': {}
 

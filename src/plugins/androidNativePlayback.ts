@@ -219,6 +219,7 @@ export interface AndroidNativePlaybackPlugin {
   seek(options: { positionMs: number }): Promise<AndroidNativePlaybackState>;
   setVolume(options: { volume: number }): Promise<void>;
   setRate(options: { rate: number }): Promise<void>;
+  setEqualizer(options: { bands: number[] }): Promise<void>;
   updateMetadata(options: AndroidNativeMetadataPayload): Promise<void>;
   updateQueueContext(options: AndroidNativeQueueContextPayload): Promise<void>;
   updateNotificationPrefs(options: AndroidNativeNotificationPrefsPayload): Promise<void>;

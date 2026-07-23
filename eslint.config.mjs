@@ -33,6 +33,7 @@ export default [
       "android/app/src/main/assets/www/nodejs-project/**",
       "android/app/src/main/assets/nodejs-mobile-cordova-assets/**",
       "android/capacitor-cordova-android-plugins/src/main/assets/**",
+      "android/capacitor-cordova-android-plugins/src/main/libs/**",
       "android-logcat.txt",
     ],
   },

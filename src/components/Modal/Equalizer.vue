@@ -15,7 +15,7 @@
           {{ preset.label }}
         </n-tag>
       </n-flex>
-      <n-switch v-model:value="enabled" :round="false" :disabled="!isElectron" />
+      <n-switch v-model:value="enabled" :round="false" />
     </n-flex>
 
     <div class="eq-sliders">
@@ -26,7 +26,7 @@
           :min="-12"
           :max="12"
           :step="0.1"
-          :disabled="!enabled || !isElectron"
+          :disabled="!enabled"
           vertical
           @update:value="onBandChange(i, $event)"
         />
@@ -37,7 +37,6 @@
 </template>
 
 <script setup lang="ts">
-import { isElectron } from "@/utils/env";
 import { useStatusStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 
@@ -98,7 +97,6 @@ const applyPreset = (key: PresetKey) => {
  * 根据当前开关状态应用/移除 EQ
  */
 const applyEq = () => {
-  if (!isElectron) return;
   statusStore.setEqEnabled(enabled.value);
   statusStore.setEqBands(bands.value);
   if (enabled.value) {

@@ -190,6 +190,7 @@ public final class PlaybackManager {
    * listener 跟随 currentPlayer 切换（参考 memory: Android Automix 复活约束）。
    */
   private final FftAudioProcessor fftAudioProcessor = new FftAudioProcessor();
+  private final EqualizerAudioProcessor equalizerAudioProcessor = new EqualizerAudioProcessor();
   /** 频谱是否已启用（JS 端通过 enableVisualizer 控制 listener 设置） */
   private boolean visualizerRequested = false;
   private final SessionCommand nextSessionCommand =
@@ -551,6 +552,10 @@ public final class PlaybackManager {
     updateNotification();
   }
 
+  public synchronized void setEqualizer(float[] gains) {
+    equalizerAudioProcessor.setGains(gains);
+  }
+
   public synchronized void updateMetadata(TrackMetadata metadata) {
     currentMetadata = metadata == null ? new TrackMetadata() : metadata;
     loadCoverBitmapAsync(currentMetadata.coverUrl);
@@ -871,7 +876,7 @@ public final class PlaybackManager {
             return new DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(new AudioProcessor[] {fftAudioProcessor})
+                .setAudioProcessors(new AudioProcessor[] {equalizerAudioProcessor, fftAudioProcessor})
                 .build();
           }
         };

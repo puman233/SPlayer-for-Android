@@ -63,12 +63,29 @@ const replacementBlock =
   "        throw new GradleException('nodejs-mobile-cordova couldn\\'t find the www folder in the Android project.');\n" +
   "    }";
 
+let patchedGradle = original;
+
 if (
   !original.includes("${rootProject.projectDir}/app/src/main/assets/public/") &&
   original.includes("String projectWWW;")
 ) {
-  const patched = original.replace(projectBlock, replacementBlock);
-  await writeFile(gradleFile, patched, "utf8");
+  patchedGradle = patchedGradle.replace(projectBlock, replacementBlock);
+}
+
+// Capacitor 会在 app 和 Cordova 聚合模块各应用一次脚本，原生库只需由 app 构建
+if (!patchedGradle.includes('if (project.name == "app") {\nandroid {')) {
+  patchedGradle = patchedGradle.replace(
+    "android {\n    defaultConfig {",
+    'if (project.name == "app") {\nandroid {\n    defaultConfig {',
+  );
+  patchedGradle = patchedGradle.replace(
+    "\n}\n\nimport org.gradle.internal.os.OperatingSystem;",
+    "\n}\n}\n\nimport org.gradle.internal.os.OperatingSystem;",
+  );
+}
+
+if (patchedGradle !== original) {
+  await writeFile(gradleFile, patchedGradle, "utf8");
 }
 
 const originalNodeJs = await readFile(nodeJsFile, "utf8");

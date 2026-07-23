@@ -54,6 +54,7 @@ declare module 'vue' {
     LoginUID: typeof import('./src/components/Modal/Login/LoginUID.vue')['default']
     Logo: typeof import('./src/components/Layout/Logo.vue')['default']
     LyricPlayer: typeof import('./src/components/AMLL/LyricPlayer.vue')['default']
+    LyricPoster: typeof import('./src/components/Modal/LyricPoster.vue')['default']
     LyricPreview: typeof import('./src/components/Setting/components/LyricPreview.vue')['default']
     MainPlayer: typeof import('./src/components/Player/MainPlayer.vue')['default']
     MainSetting: typeof import('./src/components/Setting/MainSetting.vue')['default']

@@ -518,9 +518,9 @@ class PlayerController {
         const onSwitch = crossfadeOptions.onSwitch;
         const wrappedOnSwitch = shouldDeferStateSync
           ? () => {
-            onSwitch?.();
-            updateSeekState();
-          }
+              onSwitch?.();
+              updateSeekState();
+            }
           : onSwitch;
         await audioManager.crossfadeTo(url, {
           duration: crossfadeOptions.duration,
@@ -1118,7 +1118,7 @@ class PlayerController {
       // 结束加载
       statusStore.playLoading = false;
       // 恢复 EQ
-      if (isElectron && statusStore.eqEnabled) {
+      if (audioManager.capabilities.supportsEqualizer && statusStore.eqEnabled) {
         const bands = statusStore.eqBands;
         if (bands && bands.length === 10) {
           bands.forEach((val, idx) => audioManager.setFilterGain(idx, val));
@@ -2121,7 +2121,7 @@ class PlayerController {
       AndroidNativePlayback.updateFloatingLyricData({
         lrcData: JSON.stringify(lrcData),
         yrcData: JSON.stringify(yrcData),
-      }).catch(() => { });
+      }).catch(() => {});
     };
     const ric = (window as Window & { requestIdleCallback?: typeof requestIdleCallback })
       .requestIdleCallback;
@@ -2156,7 +2156,7 @@ class PlayerController {
     AndroidNativePlayback.updateFloatingLyricSongInfo({
       name: info?.name ?? "",
       artist: info?.artist ?? "",
-    }).catch(() => { });
+    }).catch(() => {});
   }
 
   /**
@@ -2169,7 +2169,7 @@ class PlayerController {
     AndroidNativePlayback.updateFloatingLyricProgress({
       timeMs,
       playing,
-    }).catch(() => { });
+    }).catch(() => {});
   }
 
   /**
@@ -2194,7 +2194,7 @@ class PlayerController {
         fontSize: config.fontSize,
         fontWeight: config.fontWeight,
         position: config.position,
-      }).catch(() => { });
+      }).catch(() => {});
     } catch (e) {
       console.warn("[PlayerController] syncFloatingLyricConfig failed", e);
     }

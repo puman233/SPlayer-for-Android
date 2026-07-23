@@ -257,14 +257,21 @@
             <SvgIcon name="Forward5" :size="18" />
             <span class="qa-item-text">全局偏移</span>
           </div>
-          <n-switch v-model:value="settingStore.globalLyricOffsetEnabled" :round="false" size="small" />
+          <n-switch
+            v-model:value="settingStore.globalLyricOffsetEnabled"
+            :round="false"
+            size="small"
+          />
         </div>
-        
+
         <div class="qa-item qa-volume" v-if="settingStore.globalLyricOffsetEnabled">
           <div class="qa-item-label">
             <SvgIcon name="Forward5" :size="18" />
             <span class="qa-item-text">偏移数值</span>
-            <span class="qa-volume-value">{{ settingStore.globalLyricOffsetValue > 0 ? '+' : '' }}{{ settingStore.globalLyricOffsetValue }}ms</span>
+            <span class="qa-volume-value"
+              >{{ settingStore.globalLyricOffsetValue > 0 ? "+" : ""
+              }}{{ settingStore.globalLyricOffsetValue }}ms</span
+            >
           </div>
           <div class="qa-stepper">
             <n-button
@@ -289,18 +296,21 @@
         </div>
 
         <div class="qa-item qa-volume" v-if="settingStore.globalLyricOffsetEnabled">
-          <div class="qa-presets" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%;">
+          <div
+            class="qa-presets"
+            style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 100%"
+          >
             <n-button block secondary size="tiny" @click="applyGlobalLyricOffsetPreset(0)">
               0ms
             </n-button>
             <n-button block secondary size="tiny" @click="applyGlobalLyricOffsetPreset(250)">
-              {{ settingStore.globalLyricOffsetPresetSign === '-' ? '-250ms' : '+250ms' }}
+              {{ settingStore.globalLyricOffsetPresetSign === "-" ? "-250ms" : "+250ms" }}
             </n-button>
             <n-button block secondary size="tiny" @click="applyGlobalLyricOffsetPreset(500)">
-              {{ settingStore.globalLyricOffsetPresetSign === '-' ? '-500ms' : '+500ms' }}
+              {{ settingStore.globalLyricOffsetPresetSign === "-" ? "-500ms" : "+500ms" }}
             </n-button>
             <n-button block secondary size="tiny" @click="applyGlobalLyricOffsetPreset(850)">
-              {{ settingStore.globalLyricOffsetPresetSign === '-' ? '-850ms' : '+850ms' }}
+              {{ settingStore.globalLyricOffsetPresetSign === "-" ? "-850ms" : "+850ms" }}
             </n-button>
           </div>
         </div>
@@ -338,7 +348,11 @@
             <SvgIcon name="Forward5" :size="18" />
             <span class="qa-item-text">始终启用偏移</span>
           </div>
-          <n-switch v-model:value="settingStore.globalLyricOffsetAlwaysApply" :round="false" size="small" />
+          <n-switch
+            v-model:value="settingStore.globalLyricOffsetAlwaysApply"
+            :round="false"
+            size="small"
+          />
         </div>
 
         <div class="qa-item" v-if="settingStore.globalLyricOffsetEnabled">
@@ -346,7 +360,11 @@
             <SvgIcon name="Album" :size="18" />
             <span class="qa-item-text">双击封面开关</span>
           </div>
-          <n-switch v-model:value="settingStore.globalLyricOffsetDoubleClickApply" :round="false" size="small" />
+          <n-switch
+            v-model:value="settingStore.globalLyricOffsetDoubleClickApply"
+            :round="false"
+            size="small"
+          />
         </div>
       </div>
     </div>
@@ -595,6 +613,17 @@ onBeforeUnmount(() => {
   // text-color-3 在明暗模式下都是次要文字色（对比度合适）
   color: var(--n-text-color-3);
   letter-spacing: 0.4px;
+}
+
+.qa-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 6px 8px 8px;
+
+  :deep(.n-button:last-child) {
+    grid-column: 1 / -1;
+  }
 }
 
 .qa-item {

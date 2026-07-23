@@ -131,6 +131,21 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   }
 
   @PluginMethod
+  public void setEqualizer(PluginCall call) {
+    JSArray bands = call.getArray("bands", new JSArray());
+    runOnMainThread(
+        call,
+        () -> {
+          float[] gains = new float[Math.min(10, bands.length())];
+          for (int i = 0; i < gains.length; i++) {
+            gains[i] = (float) bands.optDouble(i, 0.0);
+          }
+          PlaybackManager.getInstance(getContext()).setEqualizer(gains);
+          call.resolve();
+        });
+  }
+
+  @PluginMethod
   public void updateMetadata(PluginCall call) {
     PlaybackManager.TrackMetadata metadata = new PlaybackManager.TrackMetadata();
     // long：上游 songId 可超 int32 上限，用 optLong 避免溢出
