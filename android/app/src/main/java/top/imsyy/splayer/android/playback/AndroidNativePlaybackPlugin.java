@@ -30,7 +30,9 @@ import top.imsyy.splayer.android.cache.AudioCacheProvider;
 @CapacitorPlugin(
     name = "AndroidNativePlayback",
     permissions = {
-      @Permission(alias = "notifications", strings = {Manifest.permission.POST_NOTIFICATIONS})
+      @Permission(
+          alias = "notifications",
+          strings = {Manifest.permission.POST_NOTIFICATIONS})
     })
 public class AndroidNativePlaybackPlugin extends Plugin {
   @Override
@@ -49,7 +51,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     // Capacitor 从 JS 传 number 时底层是 Double，getLong 取不到要用 getDouble 转 long
     long positionMs = (long) (double) call.getDouble("positionMs", 0.0);
     boolean autoPlay = call.getBoolean("autoPlay", false);
-    android.util.Log.d("CapacitorBridge", "load: positionMs=" + positionMs + " autoPlay=" + autoPlay);
+    android.util.Log.d(
+        "CapacitorBridge", "load: positionMs=" + positionMs + " autoPlay=" + autoPlay);
     resolveOnMainThread(
         call, () -> PlaybackManager.getInstance(getContext()).load(url, positionMs, autoPlay));
   }
@@ -198,9 +201,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   /**
    * 解析 JS 端推送的 windowTracks 数组（每首带元数据 + 已解析 URL + playListIndex）。
    *
-   * 容错策略：
-   * - JSArray 不存在或为空 → 返回空 list（PlaybackQueue 会进入空队列状态）
-   * - 单元素解析失败 → 跳过该元素继续解析其余（避免一首坏数据让整窗失效）
+   * <p>容错策略： - JSArray 不存在或为空 → 返回空 list（PlaybackQueue 会进入空队列状态） - 单元素解析失败 →
+   * 跳过该元素继续解析其余（避免一首坏数据让整窗失效）
    */
   @Nullable
   private List<PlaybackQueue.Track> readWindowTracks(PluginCall call) {
@@ -223,7 +225,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
         t.liked = obj.optBoolean("liked", false);
         t.playListIndex = obj.optInt("playListIndex", -1);
         t.skipSong = obj.optBoolean("skipSong", false);
-        // 必须 isNull 显式判空：optString 遇 JSON null 会返回字符串 "null"，会让 ExoPlayer 拿 Uri.parse("null") → ENOENT。
+        // 必须 isNull 显式判空：optString 遇 JSON null 会返回字符串 "null"，会让 ExoPlayer 拿 Uri.parse("null") →
+        // ENOENT。
         String url = obj.isNull("url") ? null : obj.optString("url", "");
         t.url = (url == null || url.isEmpty()) ? null : url;
         tracks.add(t);
@@ -237,9 +240,9 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   /**
    * 避开 optString 遇 JSON null 返字符串 "null" 的坑，先 isNull 拦截。
    *
-   * <p>语义约定：返回空串 "" 表示「未提供」。当前调用点（title/artist/album/coverUrl）下游
-   * 均把 "" 与 null 等价处理（参见 PlaybackManager.loadCoverBitmapAsync / refreshCurrentMediaItemMetadata），
-   * 不需要保留 null 区分。url 字段不走该 helper：见 readWindowTracks 内的特殊处理。
+   * <p>语义约定：返回空串 "" 表示「未提供」。当前调用点（title/artist/album/coverUrl）下游 均把 "" 与 null 等价处理（参见
+   * PlaybackManager.loadCoverBitmapAsync / refreshCurrentMediaItemMetadata）， 不需要保留 null 区分。url
+   * 字段不走该 helper：见 readWindowTracks 内的特殊处理。
    */
   private static String safeOptString(JSONObject obj, String key) {
     if (obj.isNull(key)) return "";
@@ -276,7 +279,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
     runOnMainThread(
         call,
         () -> {
-          SharedPreferences prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(getContext());
+          SharedPreferences prefs =
+              android.preference.PreferenceManager.getDefaultSharedPreferences(getContext());
           prefs.edit().putBoolean(MainActivity.PREF_SHOW_STATUS_BAR, show).apply();
           Activity activity = getActivity();
           if (activity instanceof MainActivity) {
@@ -308,8 +312,7 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   }
 
   /**
-   * 横屏沉浸式：active=true 用 SENSOR_LANDSCAPE 跟随设备翻转，
-   * active=false 用 UNSPECIFIED 释放（前端会再调 lockPortrait）。
+   * 横屏沉浸式：active=true 用 SENSOR_LANDSCAPE 跟随设备翻转， active=false 用 UNSPECIFIED 释放（前端会再调 lockPortrait）。
    */
   @PluginMethod
   public void setImmersiveLandscape(PluginCall call) {
@@ -485,8 +488,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
   /**
    * 预下载下一首音频前 512 KB 到 SimpleCache。
    *
-   * <p>调用方（SongManager.prefetchNextSong）拿到下一首 url 后立即 fire-and-forget。
-   * 切歌后 ExoPlayer setMediaItem 命中缓存，跳过 100-500ms 的 OPEN→网络握手。
+   * <p>调用方（SongManager.prefetchNextSong）拿到下一首 url 后立即 fire-and-forget。 切歌后 ExoPlayer setMediaItem
+   * 命中缓存，跳过 100-500ms 的 OPEN→网络握手。
    *
    * <p>同 cacheKey 的并发请求会被 dedup；切歌时上一首未完成的 prefetch 会被自动取消让带宽。
    */
@@ -526,9 +529,10 @@ public class AndroidNativePlaybackPlugin extends Plugin {
       call.resolve(permissionResult(true));
       return;
     }
-    Intent intent = new Intent(
-        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-        Uri.parse("package:" + getContext().getPackageName()));
+    Intent intent =
+        new Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + getContext().getPackageName()));
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
     getContext().startActivity(intent);
     // 用户需要手动授予，返回 false 表示需要用户操作

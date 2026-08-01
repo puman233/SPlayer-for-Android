@@ -63,8 +63,9 @@ public class AndroidSharePlugin extends Plugin {
       try (FileOutputStream output = new FileOutputStream(imageFile)) {
         output.write(decodeDataUrl(dataUrl));
       }
-      Uri uri = FileProvider.getUriForFile(
-          getContext(), getContext().getPackageName() + ".fileprovider", imageFile);
+      Uri uri =
+          FileProvider.getUriForFile(
+              getContext(), getContext().getPackageName() + ".fileprovider", imageFile);
       Intent intent = new Intent(Intent.ACTION_SEND);
       intent.setType("image/png");
       intent.putExtra(Intent.EXTRA_STREAM, uri);

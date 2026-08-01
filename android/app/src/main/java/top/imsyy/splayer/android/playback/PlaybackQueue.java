@@ -8,21 +8,26 @@ import java.util.List;
 /**
  * Java 端自治的滑动窗口播放队列。WebView 冻结时仍能自主切歌。
  *
- * <p>JS 端推 ±N 首窗口（{@code updateQueueContext}），Java 端窗口耗尽时 emit
- * {@code requestUrls} 让 JS 补。不线程安全，依赖 PlaybackManager 的 synchronized。
+ * <p>JS 端推 ±N 首窗口（{@code updateQueueContext}），Java 端窗口耗尽时 emit {@code requestUrls} 让 JS 补。不线程安全，依赖
+ * PlaybackManager 的 synchronized。
  *
  * <p>详见 .scratch/native-queue-design.md。
  */
 public final class PlaybackQueue {
   /** 当前窗口（已按 shuffleMode 排过序） */
   private List<Track> windowTracks = Collections.emptyList();
+
   /** 当前正在播的曲目在 windowTracks 中的索引；-1 表示队列空 */
   private int windowCurrentIndex = -1;
+
   /** 循环模式：跨歌曲行为由此决定 */
   private RepeatMode repeatMode = RepeatMode.OFF;
+
   /** 全局是否还有上一首 / 下一首（窗口外信息，由 JS 端计算后传入） */
   private boolean hasPreviousOutsideWindow = false;
+
   private boolean hasNextOutsideWindow = false;
+
   /** personalFM 模式：单首推进，不预解析多首 */
   private boolean personalFmMode = false;
 
@@ -48,6 +53,7 @@ public final class PlaybackQueue {
   public static final class Track {
     /** 内部 songId。必须 long：2024+ 部分 ID 超过 Integer.MAX_VALUE，int 会溢出为负。 */
     public long songId;
+
     public long durationMs;
     public boolean canLike;
     public boolean liked;
@@ -55,14 +61,18 @@ public final class PlaybackQueue {
     public String artist = "";
     public String album = "";
     public String coverUrl = "";
+
     /** 已解析的播放 URL；null 表示尚未解析（Java 端会按需通过 UrlResolver 补齐）。 */
     @Nullable public String url;
+
     /** 该曲目在 JS 端 playList 中的实际索引，回调时让 JS 直接定位 */
     public int playListIndex = -1;
+
     /**
      * 显式跳过标志：JS 端 shouldSkipSong（Fuck DJ Mode）置 true。
      *
      * <p>语义与 url==null 严格区分：
+     *
      * <ul>
      *   <li>url==null + skipSong=false → 还没 prefetch，Java 应主动解析后播放
      *   <li>skipSong=true → 用户屏蔽，Java 在 advance/back/peek 时直接跳过，不调上游解析接口
@@ -151,8 +161,7 @@ public final class PlaybackQueue {
   }
 
   /**
-   * 推进下一首；跳过 skipSong=true 的曲目（Fuck DJ 等用户级屏蔽），
-   * 但不跳过 url==null（让 UrlResolver 后台解析）。
+   * 推进下一首；跳过 skipSong=true 的曲目（Fuck DJ 等用户级屏蔽）， 但不跳过 url==null（让 UrlResolver 后台解析）。
    *
    * @param respectRepeatOne ENDED 调用传 true（响应单曲循环），用户 NEXT 传 false
    */

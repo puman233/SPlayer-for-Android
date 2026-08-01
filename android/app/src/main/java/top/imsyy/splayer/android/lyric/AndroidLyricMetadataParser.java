@@ -41,8 +41,7 @@ final class AndroidLyricMetadataParser {
 
   @Nullable
   private static String readAttribute(String tag, String name) {
-    Pattern attrPattern =
-        Pattern.compile("\\b" + Pattern.quote(name) + "\\s*=\\s*(['\"])(.*?)\\1");
+    Pattern attrPattern = Pattern.compile("\\b" + Pattern.quote(name) + "\\s*=\\s*(['\"])(.*?)\\1");
     Matcher matcher = attrPattern.matcher(tag);
     if (!matcher.find()) return null;
     return matcher.group(2);

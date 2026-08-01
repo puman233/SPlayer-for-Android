@@ -56,10 +56,7 @@ public class AndroidLyricMetadataParserTest {
     try {
       AndroidLyricMetadataParser.LyricMetadata metadata =
           AndroidLyricMetadataParser.extractLrcMetadata(
-              "[TI:星间旅行]\n"
-                  + "[AR:Alice / Bob]\n"
-                  + "[AL:夜空列车]\n"
-                  + "[00:01.00]第一句歌词");
+              "[TI:星间旅行]\n" + "[AR:Alice / Bob]\n" + "[AL:夜空列车]\n" + "[00:01.00]第一句歌词");
 
       assertEquals("星间旅行", metadata.musicName);
       assertEquals("Alice / Bob", metadata.artists);

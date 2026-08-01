@@ -8,7 +8,9 @@ import java.nio.ByteOrder;
 /** 10 段图示均衡器，运行在 Media3 PCM 解码链中。 */
 @UnstableApi
 public final class EqualizerAudioProcessor extends BaseAudioProcessor {
-  private static final double[] FREQUENCIES = {31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+  private static final double[] FREQUENCIES = {
+    31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000
+  };
   private final float[] gains = new float[10];
   private final double[][] coefficients = new double[10][5];
   private double[][] x1 = new double[10][0];
@@ -19,17 +21,21 @@ public final class EqualizerAudioProcessor extends BaseAudioProcessor {
   private int sampleRate;
 
   public synchronized void setGains(float[] values) {
-    for (int i = 0; i < gains.length; i++) gains[i] = values != null && i < values.length ? Math.max(-12, Math.min(12, values[i])) : 0;
+    for (int i = 0; i < gains.length; i++)
+      gains[i] = values != null && i < values.length ? Math.max(-12, Math.min(12, values[i])) : 0;
     updateCoefficients();
   }
 
   @Override
   protected AudioFormat onConfigure(AudioFormat format) throws UnhandledAudioFormatException {
-    if (format.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT) throw new UnhandledAudioFormatException(format);
+    if (format.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT)
+      throw new UnhandledAudioFormatException(format);
     channelCount = format.channelCount;
     sampleRate = format.sampleRate;
-    x1 = new double[10][channelCount]; x2 = new double[10][channelCount];
-    y1 = new double[10][channelCount]; y2 = new double[10][channelCount];
+    x1 = new double[10][channelCount];
+    x2 = new double[10][channelCount];
+    y1 = new double[10][channelCount];
+    y2 = new double[10][channelCount];
     updateCoefficients(format.sampleRate);
     return format;
   }
@@ -45,8 +51,11 @@ public final class EqualizerAudioProcessor extends BaseAudioProcessor {
       double alpha = Math.sin(w) / (2 * 1.0), cos = Math.cos(w);
       double b0 = 1 + alpha * a, b1 = -2 * cos, b2 = 1 - alpha * a;
       double a0 = 1 + alpha / a, a1 = -2 * cos, a2 = 1 - alpha / a;
-      coefficients[i][0] = b0 / a0; coefficients[i][1] = b1 / a0; coefficients[i][2] = b2 / a0;
-      coefficients[i][3] = a1 / a0; coefficients[i][4] = a2 / a0;
+      coefficients[i][0] = b0 / a0;
+      coefficients[i][1] = b1 / a0;
+      coefficients[i][2] = b2 / a0;
+      coefficients[i][3] = a1 / a0;
+      coefficients[i][4] = a2 / a0;
     }
   }
 
@@ -59,9 +68,16 @@ public final class EqualizerAudioProcessor extends BaseAudioProcessor {
       double sample = inputBuffer.getShort() / 32768.0;
       for (int band = 0; band < 10; band++) {
         double[] c = coefficients[band];
-        double result = c[0] * sample + c[1] * x1[band][channel] + c[2] * x2[band][channel] - c[3] * y1[band][channel] - c[4] * y2[band][channel];
-        x2[band][channel] = x1[band][channel]; x1[band][channel] = sample;
-        y2[band][channel] = y1[band][channel]; y1[band][channel] = result;
+        double result =
+            c[0] * sample
+                + c[1] * x1[band][channel]
+                + c[2] * x2[band][channel]
+                - c[3] * y1[band][channel]
+                - c[4] * y2[band][channel];
+        x2[band][channel] = x1[band][channel];
+        x1[band][channel] = sample;
+        y2[band][channel] = y1[band][channel];
+        y1[band][channel] = result;
         sample = result;
       }
       output.putShort((short) Math.max(-32768, Math.min(32767, Math.round(sample * 32768))));
@@ -70,8 +86,19 @@ public final class EqualizerAudioProcessor extends BaseAudioProcessor {
     output.flip();
   }
 
-  @Override protected void onFlush() {
-    for (int i = 0; i < 10; i++) for (int c = 0; c < channelCount; c++) { x1[i][c] = 0; x2[i][c] = 0; y1[i][c] = 0; y2[i][c] = 0; }
+  @Override
+  protected void onFlush() {
+    for (int i = 0; i < 10; i++)
+      for (int c = 0; c < channelCount; c++) {
+        x1[i][c] = 0;
+        x2[i][c] = 0;
+        y1[i][c] = 0;
+        y2[i][c] = 0;
+      }
   }
-  @Override protected void onReset() { onFlush(); }
+
+  @Override
+  protected void onReset() {
+    onFlush();
+  }
 }

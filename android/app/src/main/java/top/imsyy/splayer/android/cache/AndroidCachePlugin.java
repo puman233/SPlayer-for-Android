@@ -18,8 +18,8 @@ import org.json.JSONObject;
 /**
  * Android 端缓存 Capacitor 插件。
  *
- * <p>所有数据走 base64（JSON 不能携带二进制）。读取大文件性能损失可接受（封面通常 < 200KB，
- * 歌词 < 50KB；音频不走该通道而是 ExoPlayer SimpleCache 直读）。
+ * <p>所有数据走 base64（JSON 不能携带二进制）。读取大文件性能损失可接受（封面通常 < 200KB， 歌词 < 50KB；音频不走该通道而是 ExoPlayer
+ * SimpleCache 直读）。
  *
  * <p>JS 调用 {@link top.imsyy.splayer.android.cache.CacheStorage} 单例。
  */
@@ -27,8 +27,8 @@ import org.json.JSONObject;
 public class AndroidCachePlugin extends Plugin {
 
   /**
-   * type 白名单：仅允许 CacheStorage 已声明的子目录名，杜绝 "../shared_prefs" 之类路径穿越。
-   * 与 CacheStorage 层的第二道防线（typeDir canonical 校验）配合，双重隔离。
+   * type 白名单：仅允许 CacheStorage 已声明的子目录名，杜绝 "../shared_prefs" 之类路径穿越。 与 CacheStorage 层的第二道防线（typeDir
+   * canonical 校验）配合，双重隔离。
    */
   private static final Set<String> ALLOWED_TYPES =
       new HashSet<>(Arrays.asList(CacheStorage.knownTypes()));

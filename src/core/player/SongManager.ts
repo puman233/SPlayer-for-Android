@@ -123,7 +123,10 @@ class SongManager {
       const cache = this.readAndroidAudioUrlCache();
       cache[String(id)] = url;
       const entries = Object.entries(cache).slice(-200);
-      localStorage.setItem(this.androidAudioUrlCacheKey, JSON.stringify(Object.fromEntries(entries)));
+      localStorage.setItem(
+        this.androidAudioUrlCacheKey,
+        JSON.stringify(Object.fromEntries(entries)),
+      );
     } catch {
       return;
     }

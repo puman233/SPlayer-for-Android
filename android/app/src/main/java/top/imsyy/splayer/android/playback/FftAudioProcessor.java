@@ -1,7 +1,6 @@
 package top.imsyy.splayer.android.playback;
 
 import androidx.annotation.Nullable;
-import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.audio.BaseAudioProcessor;
 import androidx.media3.common.util.UnstableApi;
 import java.nio.ByteBuffer;
@@ -10,8 +9,8 @@ import java.nio.ByteOrder;
 /**
  * ExoPlayer 解码链 FFT 处理器，输出 fftBins[256] + lowFreq。
  *
- * <p>lowFreq 对齐 PC 端 AudioEffectManager：0–280Hz 均值→threshold=180→pow(x,2)→EMA(0.28)。
- * fftBins 为 80–2000Hz 紧凑频谱。PCM 原样透传；除 setListener 外都在音频线程调用。
+ * <p>lowFreq 对齐 PC 端 AudioEffectManager：0–280Hz 均值→threshold=180→pow(x,2)→EMA(0.28)。 fftBins 为
+ * 80–2000Hz 紧凑频谱。PCM 原样透传；除 setListener 外都在音频线程调用。
  */
 @UnstableApi
 public final class FftAudioProcessor extends BaseAudioProcessor {
@@ -20,37 +19,48 @@ public final class FftAudioProcessor extends BaseAudioProcessor {
 
   /** FFT 窗口大小（必须 2 的幂）。2048 点 ~23Hz/bin@48kHz，足以分辨 低频 0–280Hz 频带。 */
   private static final int FFT_SIZE = 2048;
+
   private static final int FFT_BIN_COUNT = FFT_SIZE / 2;
+
   /** STFT hop size，50% overlap。 */
   private static final int HOP_SIZE = FFT_SIZE / 2;
+
   /** 对外频谱 bin 数，保持 256 兼容前端。 */
   private static final int OUTPUT_BIN_COUNT = 256;
+
   /** 回调节流 ~33ms（30Hz），与 AnalyserNode rAF 节奏一致。 */
   private static final long FRAME_INTERVAL_NS = 33_000_000L;
+
   /** 目标等效采样率，贴近 PC AudioContext。 */
   private static final float TARGET_EFFECTIVE_RATE = 48000f;
 
   /** 频谱柱频段（Hz）。 */
   private static final float SPECTRUM_FREQ_LOW = 80f;
+
   private static final float SPECTRUM_FREQ_HIGH = 2000f;
+
   /** AMLL 低频驱动频带上限（Hz）。起点为 bin 1（跳过 DC），对应 PC 端前 3 bin @ fftSize=512。 */
   private static final float LOW_FREQ_BAND_END_HZ = 280f;
 
   /** dB 归一化窗口（对齐 AnalyserNode 默认 minDecibels/maxDecibels）。 */
   private static final float MIN_DB = -100f;
+
   private static final float MAX_DB = -30f;
 
   /** 低频底噪阈值（0–255 域）：低于此视为常态、不推动鼓点。 */
   private static final float LOW_FREQ_THRESHOLD = 180f;
+
   /** lowFreq EMA 平滑系数（对齐 PC 端 AudioEffectManager），raw 权重。 */
   private static final float LOW_FREQ_SMOOTHING = 0.28f;
 
   /** FFT 实例 + 蓄水池 + 工作数组。均为 thread-confined，仅音频线程访问。 */
   private final Fft fft = new Fft(FFT_SIZE);
+
   private final float[] sampleBuffer = new float[FFT_SIZE];
   private int sampleBufferPos = 0;
   private final float[] fftReal = new float[FFT_SIZE];
   private final float[] fftImag = new float[FFT_SIZE];
+
   /** 预计算 Hann 窗系数。 */
   private static final float[] HANN_WINDOW = buildHannWindow(FFT_SIZE);
 
@@ -61,29 +71,37 @@ public final class FftAudioProcessor extends BaseAudioProcessor {
     }
     return w;
   }
+
   /** FFT 原始 bin 强度（0-255 域），bin k 对应频率 k * effectiveRate / FFT_SIZE。 */
   private final int[] fftBins = new int[FFT_BIN_COUNT];
+
   /** 对外输出紧凑频谱：80-2000Hz bin 线性拉伸到 256；outputBins[0]=高频, [255]=低频。 */
   private final int[] outputBins = new int[OUTPUT_BIN_COUNT];
+
   /** 上次回调时间戳，用于节流。 */
   private long lastCallbackNs = 0L;
 
   /** 固定 stride，onConfigure 计算。 */
   private int frameStride = 1;
+
   /** 当前等效采样率。 */
   private float effectiveRate = TARGET_EFFECTIVE_RATE;
 
   /** 频谱柱 bin 范围。 */
   private int spectrumBinStart = 1;
+
   private int spectrumBinEnd = 1;
+
   /** AMLL 低频驱动 bin 范围（0–280Hz，bin 1 起跳过 DC）。 */
   private int lowFreqBandStart = 1;
+
   private int lowFreqBandEnd = 1;
 
   /** 低频包络平滑状态。 */
   private float lowFreqSmoothed = 0f;
 
   @Nullable private volatile DataListener listener;
+
   /** setListener 跨线程重置令牌：主线程只置 flag，音频线程在 analyze() 入口消费，避免状态字段 race */
   private volatile boolean pendingReset = false;
 
@@ -113,16 +131,19 @@ public final class FftAudioProcessor extends BaseAudioProcessor {
     float er = this.effectiveRate;
     if (er <= 0f) return;
     spectrumBinStart = Math.max(1, (int) Math.floor(SPECTRUM_FREQ_LOW * FFT_SIZE / er));
-    spectrumBinEnd = Math.min(FFT_BIN_COUNT - 1, (int) Math.ceil(SPECTRUM_FREQ_HIGH * FFT_SIZE / er));
+    spectrumBinEnd =
+        Math.min(FFT_BIN_COUNT - 1, (int) Math.ceil(SPECTRUM_FREQ_HIGH * FFT_SIZE / er));
     if (spectrumBinEnd < spectrumBinStart) spectrumBinEnd = spectrumBinStart;
     // 0–280Hz 对齐 PC 端前 3 bin@fftSize=512；bin 1 起跳过 DC 避免直流偏置污染。
     lowFreqBandStart = 1;
-    lowFreqBandEnd = Math.min(FFT_BIN_COUNT - 1, (int) Math.ceil(LOW_FREQ_BAND_END_HZ * FFT_SIZE / er));
+    lowFreqBandEnd =
+        Math.min(FFT_BIN_COUNT - 1, (int) Math.ceil(LOW_FREQ_BAND_END_HZ * FFT_SIZE / er));
     if (lowFreqBandEnd < lowFreqBandStart) lowFreqBandEnd = lowFreqBandStart;
   }
 
   @Override
-  protected AudioFormat onConfigure(AudioFormat inputAudioFormat) throws UnhandledAudioFormatException {
+  protected AudioFormat onConfigure(AudioFormat inputAudioFormat)
+      throws UnhandledAudioFormatException {
     // 仅接受 16bit PCM，其他 encoding 交上游 ToInt16PcmAudioProcessor 转换
     if (inputAudioFormat.encoding != androidx.media3.common.C.ENCODING_PCM_16BIT) {
       throw new UnhandledAudioFormatException(inputAudioFormat);
@@ -301,10 +322,10 @@ public final class FftAudioProcessor extends BaseAudioProcessor {
   /**
    * 原地 radix-2 Cooley-Tukey FFT。
    *
-   * 仅支持 size 为 2 的幂；构造时预计算旋转因子（W = e^(-i*2π*k/N)）的 cos/sin 表，
-   * 避免每次 FFT 都重算三角函数。
+   * <p>仅支持 size 为 2 的幂；构造时预计算旋转因子（W = e^(-i*2π*k/N)）的 cos/sin 表， 避免每次 FFT 都重算三角函数。
    *
-   * 用法：
+   * <p>用法：
+   *
    * <pre>
    *   Fft fft = new Fft(2048);
    *   float[] real = new float[2048];
@@ -351,14 +372,16 @@ public final class FftAudioProcessor extends BaseAudioProcessor {
       return size;
     }
 
-    /**
-     * 原地 FFT。real / imag 长度必须等于构造时的 size。输出位置 k 的频段对应频率 k * sampleRate / size。
-     */
+    /** 原地 FFT。real / imag 长度必须等于构造时的 size。输出位置 k 的频段对应频率 k * sampleRate / size。 */
     public void transform(float[] real, float[] imag) {
       if (real.length != size || imag.length != size) {
         throw new IllegalArgumentException(
-            "FFT input length mismatch: expected " + size + ", got real=" + real.length
-                + ", imag=" + imag.length);
+            "FFT input length mismatch: expected "
+                + size
+                + ", got real="
+                + real.length
+                + ", imag="
+                + imag.length);
       }
 
       // 位反转排序：经典 Cooley-Tukey 第一步

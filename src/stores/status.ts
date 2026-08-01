@@ -337,7 +337,7 @@ export const useStatusStore = defineStore("status", {
       if (!songId) return 0;
       const offsetTime = this.currentTimeOffsetMap?.[songId] ?? 0;
       const baseOffset = Math.floor(offsetTime * 1000);
-      
+
       // 注意：这里需要动态导入 settingStore 避免循环依赖
       const settingStore = useSettingStore();
       if (settingStore.globalLyricOffsetEnabled && settingStore.globalLyricOffsetAlwaysApply) {
