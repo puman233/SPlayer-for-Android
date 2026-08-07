@@ -14,8 +14,8 @@ import java.util.Set;
 /**
  * 音频预载缓存 TTL 索引。
  *
- * <p>独立于 {@link CacheStorage} 的全局 LRU：仅作用于 ExoPlayer SimpleCache 中的 prefetch 字节，
- * 给每个 cacheKey 维护"最后一次被访问"的时间戳，超过 {@link #TTL_MILLIS} 未访问则从 SimpleCache 删除。
+ * <p>独立于 {@link CacheStorage} 的全局 LRU：仅作用于 ExoPlayer SimpleCache 中的 prefetch 字节， 给每个 cacheKey
+ * 维护"最后一次被访问"的时间戳，超过 {@link #TTL_MILLIS} 未访问则从 SimpleCache 删除。
  *
  * <p>访问语义：
  *
@@ -32,22 +32,29 @@ public final class AudioPrefetchTtlIndex {
 
   private static final String TAG = "AudioPrefetchTtl";
   private static final String PREF_NAME = "audio_prefetch_index";
+
   /** promoted 集合 prefs：key 为 cacheKey，value 固定 true（只看 key 是否存在）。 */
   private static final String PREF_PROMOTED = "audio_cache_promoted";
+
   /** 50 分钟有效期；过期清除（仅适用于未 promoted 的 prefetch 字节）。 */
   public static final long TTL_MILLIS = 50L * 60L * 1000L;
+
   /** 周期清理间隔：30 分钟。 */
   public static final long SWEEP_INTERVAL_MILLIS = 30L * 60L * 1000L;
 
   private static volatile AudioPrefetchTtlIndex instance;
 
   private final Context appContext;
+
   /** prefetch 时间戳索引：cacheKey → lastAccessAtMs。仅包含「临时预载」条目。 */
   private final SharedPreferences prefs;
+
   /** promoted 集合：“正式缓存” cacheKey，不受 50min TTL，仅受全局 LRU 配额管。 */
   private final SharedPreferences promotedPrefs;
+
   /** 后台线程：sweep 涉及 SP 全表读 + SimpleCache.removeResource 物理删文件，不能跑在主线程。 */
   private final HandlerThread sweepThread;
+
   private final Handler sweepHandler;
   private final Runnable sweepRunnable =
       new Runnable() {
@@ -62,8 +69,7 @@ public final class AudioPrefetchTtlIndex {
   private AudioPrefetchTtlIndex(@NonNull Context appContext) {
     this.appContext = appContext.getApplicationContext();
     this.prefs = this.appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-    this.promotedPrefs =
-        this.appContext.getSharedPreferences(PREF_PROMOTED, Context.MODE_PRIVATE);
+    this.promotedPrefs = this.appContext.getSharedPreferences(PREF_PROMOTED, Context.MODE_PRIVATE);
     // 后台优先级线程：避免 sweep 时 SP/磁盘 IO 阻塞主线程。
     this.sweepThread = new HandlerThread("audio-prefetch-sweep", Thread.NORM_PRIORITY - 2);
     this.sweepThread.start();
@@ -85,6 +91,7 @@ public final class AudioPrefetchTtlIndex {
   /**
    * 标记一次访问：cacheKey → now。<br>
    * 调用方：prefetchUrl 完成 / PlaybackManager.load 时各调一次。重复调用即续期。
+   *
    * <p>若该 key 已 promoted，markAccess 为 no-op（promoted 不受 TTL）。
    */
   public void markAccess(@NonNull String cacheKey) {
@@ -219,7 +226,12 @@ public final class AudioPrefetchTtlIndex {
     if (expired > 0 || orphan > 0 || promotedOrphan > 0) {
       Log.d(
           TAG,
-          "sweep done: expired=" + expired + ", orphan=" + orphan + ", promotedOrphan=" + promotedOrphan);
+          "sweep done: expired="
+              + expired
+              + ", orphan="
+              + orphan
+              + ", promotedOrphan="
+              + promotedOrphan);
     }
   }
 

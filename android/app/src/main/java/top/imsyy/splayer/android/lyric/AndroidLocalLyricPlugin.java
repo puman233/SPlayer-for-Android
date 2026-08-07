@@ -27,7 +27,6 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -115,7 +114,8 @@ public class AndroidLocalLyricPlugin extends Plugin {
               DirectoryInfo directoryInfo = new DirectoryInfo(uriText, item.optString("name", ""));
               DocumentFile directory = DocumentFile.fromTreeUri(getContext(), uri);
               if (directory == null || !directory.exists() || !directory.canRead()) {
-                accumulator.addFailure(uriText, directoryInfo.name, "DIRECTORY_UNREADABLE", uriText);
+                accumulator.addFailure(
+                    uriText, directoryInfo.name, "DIRECTORY_UNREADABLE", uriText);
                 continue;
               }
 
@@ -202,7 +202,8 @@ public class AndroidLocalLyricPlugin extends Plugin {
     if (direct != null) return direct;
 
     try {
-      for (UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
+      for (UriPermission permission :
+          getContext().getContentResolver().getPersistedUriPermissions()) {
         if (!permission.isReadPermission()) continue;
         Uri treeUri = permission.getUri();
         JSObject result = findSidecarFromTree(audioUri, treeUri, baseName);
@@ -220,7 +221,9 @@ public class AndroidLocalLyricPlugin extends Plugin {
 
   @Nullable
   private MediaStoreAudioInfo queryMediaStoreAudioInfo(Uri audioUri) {
-    String[] projection = {MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH};
+    String[] projection = {
+      MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.RELATIVE_PATH
+    };
     try (Cursor cursor =
         getContext().getContentResolver().query(audioUri, projection, null, null, null)) {
       if (cursor == null || !cursor.moveToFirst()) return null;
@@ -243,7 +246,8 @@ public class AndroidLocalLyricPlugin extends Plugin {
   @Nullable
   private JSObject findSidecarFromTree(Uri audioUri, Uri treeUri, String baseName) {
     try {
-      if (audioUri.getAuthority() == null || !audioUri.getAuthority().equals(treeUri.getAuthority())) {
+      if (audioUri.getAuthority() == null
+          || !audioUri.getAuthority().equals(treeUri.getAuthority())) {
         return null;
       }
 
@@ -451,7 +455,9 @@ public class AndroidLocalLyricPlugin extends Plugin {
       children = directory.listFiles();
     } catch (SecurityException error) {
       accumulator.addFailure(
-          directory.getUri().toString(), directory.getName(), "DIRECTORY_PERMISSION_EXPIRED",
+          directory.getUri().toString(),
+          directory.getName(),
+          "DIRECTORY_PERMISSION_EXPIRED",
           directoryInfo.uri);
       return;
     }
@@ -483,11 +489,14 @@ public class AndroidLocalLyricPlugin extends Plugin {
         }
 
         AndroidLyricIndexEntry entry =
-            new AndroidLyricIndexEntry(fileUri, name, lastModified, directoryInfo.uri, format, metadata);
+            new AndroidLyricIndexEntry(
+                fileUri, name, lastModified, directoryInfo.uri, format, metadata);
         accumulator.addEntry(entry);
 
         Set<String> ids = new LinkedHashSet<>();
-        if ("ttml".equals(format) && metadata.ncmMusicId != null && !metadata.ncmMusicId.isEmpty()) {
+        if ("ttml".equals(format)
+            && metadata.ncmMusicId != null
+            && !metadata.ncmMusicId.isEmpty()) {
           ids.add(metadata.ncmMusicId);
         }
         String filenameId = extractFilenameId(name);
@@ -565,7 +574,8 @@ public class AndroidLocalLyricPlugin extends Plugin {
 
   private String readFileText(File file) throws IOException {
     try (BufferedReader reader =
-        new BufferedReader(new InputStreamReader(new java.io.FileInputStream(file), StandardCharsets.UTF_8))) {
+        new BufferedReader(
+            new InputStreamReader(new java.io.FileInputStream(file), StandardCharsets.UTF_8))) {
       StringBuilder builder = new StringBuilder();
       char[] buffer = new char[8192];
       int read;
@@ -683,7 +693,8 @@ public class AndroidLocalLyricPlugin extends Plugin {
       return response;
     }
 
-    private boolean shouldReplace(long oldLastModified, long newLastModified, String oldFormat, String newFormat) {
+    private boolean shouldReplace(
+        long oldLastModified, long newLastModified, String oldFormat, String newFormat) {
       int oldPriority = formatPriority(oldFormat);
       int newPriority = formatPriority(newFormat);
       if (newPriority != oldPriority) return newPriority > oldPriority;

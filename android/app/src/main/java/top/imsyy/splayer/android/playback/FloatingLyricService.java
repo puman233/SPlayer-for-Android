@@ -23,10 +23,10 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import androidx.annotation.Nullable;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class FloatingLyricService extends Service {
   private static final String TAG = "FloatingLyric";
@@ -36,8 +36,10 @@ public class FloatingLyricService extends Service {
   private WindowManager wm;
   private LyricView view;
   private WindowManager.LayoutParams lp;
+
   /** 锁定时的独立解锁按钮小窗口 */
   private View unlockBtnView;
+
   private WindowManager.LayoutParams unlockLp;
   private SharedPreferences prefs;
   private final Handler handler = new Handler(Looper.getMainLooper());
@@ -60,13 +62,18 @@ public class FloatingLyricService extends Service {
   boolean showTran = true;
   boolean doubleLine = true;
   boolean animation = true;
+
   /** 文本背景遮罩 */
   boolean textBackgroundMask = false;
+
   int backgroundMaskColor = 0x80000000;
+
   /** 对齐方式：left / center / right / both */
   String alignPosition = "both";
+
   /** 悬浮窗宽度占屏幕百分比 (30-100) */
   int windowWidthPercent = 92;
+
   /** 悬浮窗高度 (dp) */
   int windowHeightDp = 72;
 
@@ -81,12 +88,17 @@ public class FloatingLyricService extends Service {
   private boolean dragging;
 
   /* ---------- 控制栏按钮命中区 ---------- */
-  private final RectF rLock = new RectF(), rPrev = new RectF(), rPlay = new RectF(),
-      rNext = new RectF(), rClose = new RectF(), rUnlock = new RectF();
+  private final RectF rLock = new RectF(),
+      rPrev = new RectF(),
+      rPlay = new RectF(),
+      rNext = new RectF(),
+      rClose = new RectF(),
+      rUnlock = new RectF();
 
   // ==================== 生命周期 ====================
 
-  @Override public void onCreate() {
+  @Override
+  public void onCreate() {
     super.onCreate();
     prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
     locked = prefs.getBoolean("locked", false);
@@ -97,7 +109,10 @@ public class FloatingLyricService extends Service {
     // 如果上次是锁定状态，恢复穿透 + 显示解锁按钮
     if (locked) {
       lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-      try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+      try {
+        wm.updateViewLayout(view, lp);
+      } catch (Exception ignored) {
+      }
       showUnlockBtn();
     }
     PlaybackManager.getInstance(this).attachFloatingLyricService(this);
@@ -125,7 +140,8 @@ public class FloatingLyricService extends Service {
   /** 持久化当前配置 */
   private void persistConfigToPrefs() {
     if (prefs == null) return;
-    prefs.edit()
+    prefs
+        .edit()
         .putInt("colorPlayed", colorPlayed)
         .putInt("colorUnplayed", colorUnplayed)
         .putInt("colorShadow", colorShadow)
@@ -143,16 +159,30 @@ public class FloatingLyricService extends Service {
         .apply();
   }
 
-  @Override public int onStartCommand(Intent i, int f, int id) { return START_STICKY; }
+  @Override
+  public int onStartCommand(Intent i, int f, int id) {
+    return START_STICKY;
+  }
 
-  @Override public void onDestroy() {
+  @Override
+  public void onDestroy() {
     PlaybackManager.getInstance(this).detachFloatingLyricService(this);
     removeUnlockBtn();
-    if (view != null) { try { wm.removeView(view); } catch (Exception ignored) {} view = null; }
+    if (view != null) {
+      try {
+        wm.removeView(view);
+      } catch (Exception ignored) {
+      }
+      view = null;
+    }
     super.onDestroy();
   }
 
-  @Nullable @Override public IBinder onBind(Intent i) { return null; }
+  @Nullable
+  @Override
+  public IBinder onBind(Intent i) {
+    return null;
+  }
 
   // ==================== View 构建 ====================
 
@@ -161,20 +191,28 @@ public class FloatingLyricService extends Service {
     DisplayMetrics dm = getResources().getDisplayMetrics();
     int pct = Math.max(30, Math.min(100, windowWidthPercent));
     int hDp = Math.max(48, Math.min(240, windowHeightDp));
-    int w = (int)(dm.widthPixels * (pct / 100f)), h = (int)(hDp * dm.density);
+    int w = (int) (dm.widthPixels * (pct / 100f)), h = (int) (hDp * dm.density);
     int x = prefs.getInt("x", (dm.widthPixels - w) / 2);
-    int y = prefs.getInt("y", (int)(dm.heightPixels * 0.72f));
+    int y = prefs.getInt("y", (int) (dm.heightPixels * 0.72f));
 
-    lp = new WindowManager.LayoutParams(w, h,
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            : WindowManager.LayoutParams.TYPE_PHONE,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT);
+    lp =
+        new WindowManager.LayoutParams(
+            w,
+            h,
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT);
     lp.gravity = Gravity.TOP | Gravity.START;
-    lp.x = x; lp.y = y;
-    try { wm.addView(view, lp); } catch (Exception e) { Log.e(TAG, "addView", e); }
+    lp.x = x;
+    lp.y = y;
+    try {
+      wm.addView(view, lp);
+    } catch (Exception e) {
+      Log.e(TAG, "addView", e);
+    }
   }
 
   /** 根据当前 windowWidthPercent / windowHeightDp 重新应用窗口尺寸 */
@@ -183,12 +221,15 @@ public class FloatingLyricService extends Service {
     DisplayMetrics dm = getResources().getDisplayMetrics();
     int pct = Math.max(30, Math.min(100, windowWidthPercent));
     int hDp = Math.max(48, Math.min(240, windowHeightDp));
-    int newW = (int)(dm.widthPixels * (pct / 100f));
-    int newH = (int)(hDp * dm.density);
+    int newW = (int) (dm.widthPixels * (pct / 100f));
+    int newH = (int) (hDp * dm.density);
     if (lp.width == newW && lp.height == newH) return;
     lp.width = newW;
     lp.height = newH;
-    try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+    try {
+      wm.updateViewLayout(view, lp);
+    } catch (Exception ignored) {
+    }
   }
 
   // ==================== 对外 API ====================
@@ -212,9 +253,7 @@ public class FloatingLyricService extends Service {
     postRedraw();
   }
 
-  /**
-   * 应用来自 JS 端的桌面歌词配置。所有字段均可选，缺失则保持现值。
-   */
+  /** 应用来自 JS 端的桌面歌词配置。所有字段均可选，缺失则保持现值。 */
   public void applyConfig(JSONObject config) {
     if (config == null) return;
     Integer parsedPlayed = parseColor(config.opt("playedColor"));
@@ -256,11 +295,7 @@ public class FloatingLyricService extends Service {
     postRedraw();
   }
 
-  /**
-   * 解析颜色字符串：
-   *  - #RRGGBB / #AARRGGBB / #RGB
-   *  - rgb(r,g,b) / rgba(r,g,b,a)
-   */
+  /** 解析颜色字符串： - #RRGGBB / #AARRGGBB / #RGB - rgb(r,g,b) / rgba(r,g,b,a) */
   private static Integer parseColor(Object raw) {
     if (!(raw instanceof String)) return null;
     String v = ((String) raw).trim();
@@ -287,7 +322,8 @@ public class FloatingLyricService extends Service {
         }
         return Color.argb(a, r, g, b);
       }
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+    }
     return null;
   }
 
@@ -302,12 +338,18 @@ public class FloatingLyricService extends Service {
     if (v) {
       // 锁定：主窗口穿透 + 显示解锁小按钮
       lp.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-      try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+      try {
+        wm.updateViewLayout(view, lp);
+      } catch (Exception ignored) {
+      }
       showUnlockBtn();
     } else {
       // 解锁：主窗口恢复触摸 + 移除解锁按钮
       lp.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-      try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+      try {
+        wm.updateViewLayout(view, lp);
+      } catch (Exception ignored) {
+      }
       removeUnlockBtn();
     }
     postRedraw();
@@ -318,48 +360,64 @@ public class FloatingLyricService extends Service {
     if (unlockBtnView != null) return;
     DisplayMetrics dm = getResources().getDisplayMetrics();
     float d = dm.density;
-    int btnSize = (int)(32 * d);
+    int btnSize = (int) (32 * d);
 
-    unlockBtnView = new View(this) {
-      final Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
-      final Paint ip = new Paint(Paint.ANTI_ALIAS_FLAG);
-      @Override protected void onDraw(Canvas c) {
-        float d = getResources().getDisplayMetrics().density;
-        // 与主歌词窗口保持一致：仅在开启文本背景遮罩时绘制背景
-        if (textBackgroundMask) {
-          bp.setColor(backgroundMaskColor);
-          if ((bp.getColor() >>> 24) != 0) {
-            c.drawRoundRect(0, 0, getWidth(), getHeight(), 8*d, 8*d, bp);
+    unlockBtnView =
+        new View(this) {
+          final Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
+          final Paint ip = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+          @Override
+          protected void onDraw(Canvas c) {
+            float d = getResources().getDisplayMetrics().density;
+            // 与主歌词窗口保持一致：仅在开启文本背景遮罩时绘制背景
+            if (textBackgroundMask) {
+              bp.setColor(backgroundMaskColor);
+              if ((bp.getColor() >>> 24) != 0) {
+                c.drawRoundRect(0, 0, getWidth(), getHeight(), 8 * d, 8 * d, bp);
+              }
+            }
+            ip.setColor(0xFFFFFFFF);
+            ip.setTextAlign(Paint.Align.CENTER);
+            ip.setTextSize(16 * d);
+            Paint.FontMetrics fm = ip.getFontMetrics();
+            c.drawText("🔓", getWidth() / 2f, getHeight() / 2f - (fm.ascent + fm.descent) / 2f, ip);
           }
-        }
-        ip.setColor(0xFFFFFFFF);
-        ip.setTextAlign(Paint.Align.CENTER);
-        ip.setTextSize(16*d);
-        Paint.FontMetrics fm = ip.getFontMetrics();
-        c.drawText("🔓", getWidth()/2f, getHeight()/2f-(fm.ascent+fm.descent)/2f, ip);
-      }
-    };
+        };
     unlockBtnView.setOnClickListener(v -> setLocked(false));
 
-    int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-        ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        : WindowManager.LayoutParams.TYPE_PHONE;
+    int overlayType =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            : WindowManager.LayoutParams.TYPE_PHONE;
 
-    unlockLp = new WindowManager.LayoutParams(btnSize, btnSize, overlayType,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT);
+    unlockLp =
+        new WindowManager.LayoutParams(
+            btnSize,
+            btnSize,
+            overlayType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT);
     unlockLp.gravity = Gravity.TOP | Gravity.START;
     // 放在主窗口右上角
-    unlockLp.x = lp.x + lp.width - btnSize - (int)(4*d);
-    unlockLp.y = lp.y + (int)(4*d);
+    unlockLp.x = lp.x + lp.width - btnSize - (int) (4 * d);
+    unlockLp.y = lp.y + (int) (4 * d);
 
-    try { wm.addView(unlockBtnView, unlockLp); } catch (Exception e) { Log.e(TAG, "addUnlock", e); }
+    try {
+      wm.addView(unlockBtnView, unlockLp);
+    } catch (Exception e) {
+      Log.e(TAG, "addUnlock", e);
+    }
   }
 
   /** 移除解锁按钮窗口 */
   private void removeUnlockBtn() {
     if (unlockBtnView != null) {
-      try { wm.removeView(unlockBtnView); } catch (Exception ignored) {}
+      try {
+        wm.removeView(unlockBtnView);
+      } catch (Exception ignored) {
+      }
       unlockBtnView = null;
     }
   }
@@ -384,7 +442,8 @@ public class FloatingLyricService extends Service {
   int findIndex(List<Line> ly, long ms) {
     int r = -1;
     for (int i = 0; i < ly.size(); i++) {
-      if (ms >= ly.get(i).start) r = i; else break;
+      if (ms >= ly.get(i).start) r = i;
+      else break;
     }
     return r;
   }
@@ -392,20 +451,27 @@ public class FloatingLyricService extends Service {
   // ==================== 按钮处理 ====================
 
   private void onBtnTap(float x, float y) {
-    if (rUnlock.contains(x, y)) { setLocked(false); return; }
+    if (rUnlock.contains(x, y)) {
+      setLocked(false);
+      return;
+    }
     if (rClose.contains(x, y)) {
       PlaybackManager pm = PlaybackManager.getInstance(this);
       pm.hideFloatingLyric();
       pm.emitDesktopLyricClosed();
       return;
     }
-    if (rLock.contains(x, y)) { setLocked(true); return; }
+    if (rLock.contains(x, y)) {
+      setLocked(true);
+      return;
+    }
     if (rPrev.contains(x, y)) {
       PlaybackManager.getInstance(this).handleNotificationAction(PlaybackConstants.ACTION_PREVIOUS);
       return;
     }
     if (rPlay.contains(x, y)) {
-      PlaybackManager.getInstance(this).handleNotificationAction(PlaybackConstants.ACTION_TOGGLE_PLAYBACK);
+      PlaybackManager.getInstance(this)
+          .handleNotificationAction(PlaybackConstants.ACTION_TOGGLE_PLAYBACK);
       return;
     }
     if (rNext.contains(x, y)) {
@@ -427,13 +493,20 @@ public class FloatingLyricService extends Service {
         l.end = o.optLong("endTime", 0);
         l.tran = o.optString("translatedLyric", "");
         JSONArray wa = o.optJSONArray("words");
-        if (wa != null) for (int j = 0; j < wa.length(); j++) {
-          JSONObject wo = wa.getJSONObject(j);
-          l.words.add(new Word(wo.optString("word", ""), wo.optLong("startTime", 0), wo.optLong("endTime", 0)));
-        }
+        if (wa != null)
+          for (int j = 0; j < wa.length(); j++) {
+            JSONObject wo = wa.getJSONObject(j);
+            l.words.add(
+                new Word(
+                    wo.optString("word", ""),
+                    wo.optLong("startTime", 0),
+                    wo.optLong("endTime", 0)));
+          }
         r.add(l);
       }
-    } catch (Exception e) { Log.w(TAG, "parse", e); }
+    } catch (Exception e) {
+      Log.w(TAG, "parse", e);
+    }
     return r;
   }
 
@@ -444,21 +517,31 @@ public class FloatingLyricService extends Service {
     private final Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ip = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    LyricView(Context c) { super(c); }
+    LyricView(Context c) {
+      super(c);
+    }
 
-    @Override public boolean onTouchEvent(MotionEvent e) {
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
       // 锁定时主窗口 FLAG_NOT_TOUCHABLE，不会进入这里
       switch (e.getAction()) {
         case MotionEvent.ACTION_DOWN:
-          tX0 = e.getRawX(); tY0 = e.getRawY();
-          wX0 = lp.x; wY0 = lp.y; dragging = false;
+          tX0 = e.getRawX();
+          tY0 = e.getRawY();
+          wX0 = lp.x;
+          wY0 = lp.y;
+          dragging = false;
           return true;
         case MotionEvent.ACTION_MOVE:
           float dx = e.getRawX() - tX0, dy = e.getRawY() - tY0;
           if (!dragging && (Math.abs(dx) > DRAG_SLOP || Math.abs(dy) > DRAG_SLOP)) dragging = true;
           if (dragging) {
-            lp.x = wX0 + (int) dx; lp.y = wY0 + (int) dy;
-            try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+            lp.x = wX0 + (int) dx;
+            lp.y = wY0 + (int) dy;
+            try {
+              wm.updateViewLayout(view, lp);
+            } catch (Exception ignored) {
+            }
           }
           return true;
         case MotionEvent.ACTION_UP:
@@ -469,14 +552,21 @@ public class FloatingLyricService extends Service {
             showCtrls = !showCtrls;
             invalidate();
             handler.removeCallbacksAndMessages(null);
-            if (showCtrls) handler.postDelayed(() -> { showCtrls = false; postRedraw(); }, 5000);
+            if (showCtrls)
+              handler.postDelayed(
+                  () -> {
+                    showCtrls = false;
+                    postRedraw();
+                  },
+                  5000);
           }
           return true;
       }
       return super.onTouchEvent(e);
     }
 
-    @Override protected void onDraw(Canvas c) {
+    @Override
+    protected void onDraw(Canvas c) {
       int w = getWidth(), h = getHeight();
       float d = getResources().getDisplayMetrics().density;
       float sd = getResources().getDisplayMetrics().scaledDensity;
@@ -492,7 +582,7 @@ public class FloatingLyricService extends Service {
       }
       if ((bgColor >>> 24) != 0) {
         bp.setColor(bgColor);
-        c.drawRoundRect(0, 0, w, h, 14*d, 14*d, bp);
+        c.drawRoundRect(0, 0, w, h, 14 * d, 14 * d, bp);
       }
 
       if (locked) {
@@ -504,8 +594,10 @@ public class FloatingLyricService extends Service {
       }
 
       // 关键：播放中或正在动画中时自驱动连续重绘
-      boolean animating = animation && lineAnimStartNano > 0
-          && (System.nanoTime() - lineAnimStartNano) < LINE_ANIM_DURATION_NANO;
+      boolean animating =
+          animation
+              && lineAnimStartNano > 0
+              && (System.nanoTime() - lineAnimStartNano) < LINE_ANIM_DURATION_NANO;
       if ((playing || animating) && !showCtrls) {
         postInvalidateOnAnimation();
       }
@@ -517,11 +609,12 @@ public class FloatingLyricService extends Service {
       float tsz = fontSizeSp * sd;
       tp.setTextSize(tsz);
       // 字重：>=600 用 BOLD，否则 NORMAL
-      tp.setTypeface(Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
-      tp.setShadowLayer(2*d, 0, 0, colorShadow);
+      tp.setTypeface(
+          Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
+      tp.setShadowLayer(2 * d, 0, 0, colorShadow);
       tp.setShader(null);
 
-      float pad = 14*d, maxW = w - pad*2;
+      float pad = 14 * d, maxW = w - pad * 2;
       List<Line> ly = activeLines();
       long sk = seekMs();
       int idx = ly.isEmpty() ? -1 : findIndex(ly, sk);
@@ -567,7 +660,7 @@ public class FloatingLyricService extends Service {
       // 主歌词（带切入动画：上一行淡出+上移，当前行淡入+从下方移入）
       if (animation && eased < 1f && idx - 1 >= 0) {
         Line prev = ly.get(idx - 1);
-        int prevAlpha = (int)(255 * (1f - eased));
+        int prevAlpha = (int) (255 * (1f - eased));
         float prevOffset = -h * 0.4f * eased;
         int saved = c.save();
         c.translate(0, prevOffset);
@@ -578,7 +671,7 @@ public class FloatingLyricService extends Service {
         c.restoreToCount(saved);
       }
 
-      int curAlpha = animation ? (int)(255 * eased) : 255;
+      int curAlpha = animation ? (int) (255 * eased) : 255;
       float curOffset = animation ? h * 0.4f * (1f - eased) : 0f;
       int savedC = c.save();
       c.translate(0, curOffset);
@@ -596,7 +689,7 @@ public class FloatingLyricService extends Service {
       if (twoLine) {
         String sub = hasTran ? line.tran : lineText(ly.get(idx + 1));
         tp.setShader(null);
-        int subAlpha = animation ? (int)(255 * eased) : 255;
+        int subAlpha = animation ? (int) (255 * eased) : 255;
         tp.setColor((Math.max(0, Math.min(255, subAlpha)) << 24) | (colorUnplayed & 0x00FFFFFF));
         float subSize = tsz * 0.7f;
         tp.setTextSize(subSize);
@@ -605,8 +698,16 @@ public class FloatingLyricService extends Service {
     }
 
     /** 绘制文字并在宽度不足时按比例缩小，避免截断为省略号。 */
-    private void drawFittedText(Canvas c, String text, int w, float cy, Paint p,
-        float maxW, float pad, float baseSize, String align) {
+    private void drawFittedText(
+        Canvas c,
+        String text,
+        int w,
+        float cy,
+        Paint p,
+        float maxW,
+        float pad,
+        float baseSize,
+        String align) {
       if (text == null || text.isEmpty() || maxW <= 0) return;
       p.setShader(null);
       p.setTextSize(baseSize);
@@ -636,10 +737,11 @@ public class FloatingLyricService extends Service {
       c.drawText(text, x, y, p);
     }
 
-    private void paintWordLyric(Canvas c, Line line, long sk,
-        int w, float cy, float tsz, float pad, float d, int alpha) {
+    private void paintWordLyric(
+        Canvas c, Line line, long sk, int w, float cy, float tsz, float pad, float d, int alpha) {
       tp.setTextSize(tsz);
-      tp.setTypeface(Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
+      tp.setTypeface(
+          Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
       tp.setShader(null);
       // 逐字渲染时关闭 shadow，避免 gradient 模式下出现白色描边
       tp.setShadowLayer(0, 0, 0, 0);
@@ -692,8 +794,9 @@ public class FloatingLyricService extends Service {
           float sx = x + ww[i] * prog;
           int cp = (a << 24) | (colorPlayed & 0x00FFFFFF);
           int cu = (a << 24) | (colorUnplayed & 0x00FFFFFF);
-          tp.setShader(new LinearGradient(sx - d*0.5f, 0, sx + d*0.5f, 0,
-              cp, cu, Shader.TileMode.CLAMP));
+          tp.setShader(
+              new LinearGradient(
+                  sx - d * 0.5f, 0, sx + d * 0.5f, 0, cp, cu, Shader.TileMode.CLAMP));
           tp.setColor(Color.WHITE);
         }
         c.drawText(word.text, x, bl, tp);
@@ -701,37 +804,37 @@ public class FloatingLyricService extends Service {
       }
       tp.setShader(null);
       // 恢复 shadow
-      tp.setShadowLayer(2*d, 0, 0, colorShadow);
+      tp.setShadowLayer(2 * d, 0, 0, colorShadow);
     }
 
     private float wordProg(Word w, long sk) {
       if (sk >= w.end) return 1f;
       if (sk <= w.start) return 0f;
-      return (float)(sk - w.start) / Math.max(w.end - w.start, 1f);
+      return (float) (sk - w.start) / Math.max(w.end - w.start, 1f);
     }
 
     // ---------- 控制栏 ----------
 
     private void paintControls(Canvas c, int w, int h, float d) {
-      float sz = 34*d, gap = 20*d;
-      float tw = sz*5 + gap*4, sx = (w - tw) / 2f, cy = h / 2f;
+      float sz = 34 * d, gap = 20 * d;
+      float tw = sz * 5 + gap * 4, sx = (w - tw) / 2f, cy = h / 2f;
       ip.setTextAlign(Paint.Align.CENTER);
-      ip.setTextSize(18*d);
+      ip.setTextSize(18 * d);
       ip.setColor(0xFFFFFFFF);
 
       drawBtn(c, rLock, sx, cy, sz, d, "🔒");
       drawBtn(c, rPrev, sx + sz + gap, cy, sz, d, "⏮");
-      drawBtn(c, rPlay, sx + (sz+gap)*2, cy, sz, d, playing ? "⏸" : "▶");
-      drawBtn(c, rNext, sx + (sz+gap)*3, cy, sz, d, "⏭");
-      drawBtn(c, rClose, sx + (sz+gap)*4, cy, sz, d, "✕");
+      drawBtn(c, rPlay, sx + (sz + gap) * 2, cy, sz, d, playing ? "⏸" : "▶");
+      drawBtn(c, rNext, sx + (sz + gap) * 3, cy, sz, d, "⏭");
+      drawBtn(c, rClose, sx + (sz + gap) * 4, cy, sz, d, "✕");
     }
 
     private void drawBtn(Canvas c, RectF r, float l, float cy, float sz, float d, String icon) {
-      r.set(l, cy-sz/2, l+sz, cy+sz/2);
+      r.set(l, cy - sz / 2, l + sz, cy + sz / 2);
       bp.setColor(0x40FFFFFF);
-      c.drawRoundRect(r, 8*d, 8*d, bp);
+      c.drawRoundRect(r, 8 * d, 8 * d, bp);
       Paint.FontMetrics fm = ip.getFontMetrics();
-      c.drawText(icon, r.centerX(), r.centerY() - (fm.ascent+fm.descent)/2f, ip);
+      c.drawText(icon, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2f, ip);
     }
 
     // ---------- 工具 ----------
@@ -756,6 +859,11 @@ public class FloatingLyricService extends Service {
   static class Word {
     final String text;
     final long start, end;
-    Word(String t, long s, long e) { text = t; start = s; end = e; }
+
+    Word(String t, long s, long e) {
+      text = t;
+      start = s;
+      end = e;
+    }
   }
 }

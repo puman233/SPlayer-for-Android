@@ -21,14 +21,15 @@ import org.json.JSONObject;
 /**
  * Java 端 URL 解析器。WebView 冻结时仍可通过本地 embedded API（127.0.0.1:1145）拿到播放地址。
  *
- * <p>{@link #resolveSync} 阻塞调 /song/url/v1；{@link #prefetchAsync} 后台解析并写回
- * track.url。内置 64 项 LRU 缓存，2 线程并发。
+ * <p>{@link #resolveSync} 阻塞调 /song/url/v1；{@link #prefetchAsync} 后台解析并写回 track.url。内置 64 项 LRU
+ * 缓存，2 线程并发。
  */
 public final class PlaybackUrlResolver {
   private static final String TAG = "UrlResolver";
   private static final int CONNECT_TIMEOUT_MS = 8000;
   private static final int READ_TIMEOUT_MS = 8000;
   private static final int CACHE_SIZE = 64;
+
   /** 失败 songId 短期负缓存窗口（毫秒）：跨多次 prefetch 周期同一首失败时避免持续打上游 /song/url 接口。 */
   private static final long NEGATIVE_CACHE_TTL_MS = 30_000L;
 
@@ -122,7 +123,9 @@ public final class PlaybackUrlResolver {
       boolean playSongDemoState) {
     String newBaseUrl = baseUrl == null ? "" : baseUrl.trim();
     String newCookie = cookieValue == null ? "" : cookieValue.trim();
-    String newLevel = normalizeLevel(level != null && !level.isEmpty() ? level : this.songLevel, disableAiAudioState);
+    String newLevel =
+        normalizeLevel(
+            level != null && !level.isEmpty() ? level : this.songLevel, disableAiAudioState);
 
     // 任一上下文变化都要清缓存：
     // - level 变 → URL 文件/码率/endpoint 不同
@@ -260,7 +263,8 @@ public final class PlaybackUrlResolver {
 
         int httpCode = connection.getResponseCode();
         if (httpCode != HttpURLConnection.HTTP_OK) {
-          Log.w(TAG, "resolveSync songId=" + songId + " level=" + requestLevel + " http=" + httpCode);
+          Log.w(
+              TAG, "resolveSync songId=" + songId + " level=" + requestLevel + " http=" + httpCode);
           hadNetworkFailure = true;
         } else {
           hadBusinessResponse = true;
@@ -272,7 +276,9 @@ public final class PlaybackUrlResolver {
             if (first != null) {
               String url = first.optString("url", "");
               if (!first.isNull("freeTrialInfo") && !allowTrial) {
-                Log.w(TAG, "resolveSync songId=" + songId + " level=" + requestLevel + " trial skipped");
+                Log.w(
+                    TAG,
+                    "resolveSync songId=" + songId + " level=" + requestLevel + " trial skipped");
                 continue;
               }
               if (!url.isEmpty() && !"null".equals(url)) {
@@ -316,8 +322,8 @@ public final class PlaybackUrlResolver {
   /**
    * 在内部线程池上异步解析 songId 的播放 URL，结果通过回调返回（运行在池线程，调用方自行 post 主线程）。
    *
-   * <p>用于 NEXT/PREV 等需要立即播放的场景，避免共享 PlaybackManager 单线程 networkExecutor 与
-   * favorite 请求互锁，同时享用 inFlight 去重 + cache 命中。
+   * <p>用于 NEXT/PREV 等需要立即播放的场景，避免共享 PlaybackManager 单线程 networkExecutor 与 favorite 请求互锁，同时享用
+   * inFlight 去重 + cache 命中。
    *
    * @param songId 待解析的 songId
    * @param callback 解析回调（参数为 URL 或 null）
@@ -340,9 +346,7 @@ public final class PlaybackUrlResolver {
    * @param onResolved 解析完成回调（运行在池线程，需自行 post 到主线程）
    */
   public void prefetchAsync(
-      PlaybackQueue.Track track,
-      PlaybackQueue queue,
-      @Nullable Runnable onResolved) {
+      PlaybackQueue.Track track, PlaybackQueue queue, @Nullable Runnable onResolved) {
     if (track == null || track.songId <= 0 || track.playable()) return;
     long songId = track.songId;
     AtomicBoolean flag;
@@ -389,11 +393,7 @@ public final class PlaybackUrlResolver {
     HttpURLConnection connection = null;
     try {
       String endpoint =
-          baseUrl
-              + "/song/music/detail?id="
-              + songId
-              + "&timestamp="
-              + System.currentTimeMillis();
+          baseUrl + "/song/music/detail?id=" + songId + "&timestamp=" + System.currentTimeMillis();
       if (!cookieValue.isEmpty()) {
         endpoint += "&cookie=" + URLEncoder.encode(cookieValue, StandardCharsets.UTF_8.name());
       }

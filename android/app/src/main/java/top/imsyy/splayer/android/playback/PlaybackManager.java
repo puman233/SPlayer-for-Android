@@ -48,11 +48,9 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.SessionCommand;
 import androidx.media3.session.SessionCommands;
 import androidx.media3.session.SessionResult;
-import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -69,6 +67,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import org.json.JSONObject;
 import top.imsyy.splayer.android.MainActivity;
 import top.imsyy.splayer.android.R;
 import top.imsyy.splayer.android.cache.AudioCacheProvider;
@@ -95,31 +94,41 @@ public final class PlaybackManager {
   private final Context appContext;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private final ExecutorService artworkExecutor = Executors.newSingleThreadExecutor();
+
   /** 仅服务于 favorite 等非播放路径；URL 解析走 urlResolver 内部 2 线程池避免被 favorite 阻塞。 */
   private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
+
   /**
    * URL 解析请求 token：每次 NEXT/PREV/ENDED 触发的解析自增 token，回调时若 token 已过期（用户连点
    * 又起了一次解析）直接丢弃结果，防止旧请求覆盖播放器状态。
    */
   private final java.util.concurrent.atomic.AtomicLong resolveTokenCounter =
       new java.util.concurrent.atomic.AtomicLong();
+
   private final AtomicLong artworkTokenCounter = new AtomicLong();
 
   private ExoPlayer player;
+
   /** 暴露给 MediaSession 的包装 Player：覆写 availableCommands，让系统媒体面板始终展示上一/下一首。 */
   private Player sessionPlayer;
+
   private MediaSession mediaSession;
   private volatile PlaybackService service;
+
   /** PlaybackService 是否已通过 onCreate→attachService 启动并保持运行；用于 ensureServiceRunning 节流。 */
   private volatile boolean serviceStarted;
+
   private AndroidNativePlaybackPlugin plugin;
   private Bitmap coverBitmap;
+
   /** 封面 JPEG 编码缓存，仅在 coverBitmap 变化时重压。 */
   private byte[] coverArtworkBytes;
+
   private Typeface notificationIconTypeface;
 
   /** volatile：promotion runnable 不持 this monitor 就能读到最新值（修复 #7 避免主线程锁竞争 → ANR 抖动） */
   private volatile String currentSource = "";
+
   private String apiBaseUrl = "";
   private String cookie = "";
   private String songLevel = "exhigh";
@@ -127,72 +136,88 @@ public final class PlaybackManager {
   private boolean playSongDemo = false;
 
   /**
-   * 当前 promotion 任务 —— load() 时排 10s timer，到期仍是这首歌则把它从 prefetch 升级为
-   * promoted（正式缓存）并启动完整下载（为 automix 做准备）。<br>
+   * 当前 promotion 任务 —— load() 时排 10s timer，到期仍是这首歌则把它从 prefetch 升级为 promoted（正式缓存）并启动完整下载（为 automix
+   * 做准备）。<br>
    * 切歌 / stop / cleanup 时通过 {@link #cancelPromotion} 取消。
    *
-   * <p>volatile：Runnable 末尾在主线程内清 null，而 cancelPromotion 经 synchronized 方法可能从
-   * 其他线程进入读，需跨线程可见性保证。
+   * <p>volatile：Runnable 末尾在主线程内清 null，而 cancelPromotion 经 synchronized 方法可能从 其他线程进入读，需跨线程可见性保证。
    */
   @Nullable private volatile Runnable pendingPromotionRunnable;
+
   /** promotion 触发阈值：用户持续播放 10 秒 → 视为「真的喜欢」。 */
   private static final long PROMOTE_AFTER_MS = 10_000L;
+
   /** Java 端 URL 解析器：WebView 冻结时仍可自治取地址。 */
   private final PlaybackUrlResolver urlResolver = new PlaybackUrlResolver();
+
   private TrackMetadata currentMetadata = new TrackMetadata();
   private static final int NATIVE_ERROR_RECOVERY_MAX_ATTEMPTS = 2;
   private long nativeRecoverySongId = 0L;
   private int nativeRecoveryAttempts = 0;
+
   /**
    * Java 端自治播放队列（滑动窗口）。
    *
    * <p>JS 推 ±N 首窗口；ENDED / NEXT / PREVIOUS 均由 Java 自治。详见 .scratch/native-queue-design.md。
    */
   private final PlaybackQueue playbackQueue = new PlaybackQueue();
+
   /** 即将耗尽窗口（剩 ≤ 此数）时 emit requestUrls 让 JS 补；2 给 JS 留一定缓冲。 */
   private static final int WINDOW_REFILL_THRESHOLD = 2;
 
   private boolean controllerEnabled = true;
   private boolean desktopLyricButtonEnabled = false;
   private boolean desktopLyricEnabled = false;
+
   /** 允许与其他应用同时播放（关闭时才请求音频焦点，抢占其他应用） */
   private boolean allowMixWithOthers = true;
+
   private boolean canSkipPrevious = true;
   private boolean personalFmMode = false;
   private boolean liked = false;
   private boolean collapsed = false;
+
   /**
-   * ENDED 拦截标记：当窗口耗尽且 hasNextOutsideWindow=true 时，emit requestUrls 后置位。
-   * 下一次 updateQueueContext 收到新窗口后立即 advance + playFromQueue 续播，弥补
-   * "JS 不会主动 play"的链路缺口。
+   * ENDED 拦截标记：当窗口耗尽且 hasNextOutsideWindow=true 时，emit requestUrls 后置位。 下一次 updateQueueContext
+   * 收到新窗口后立即 advance + playFromQueue 续播，弥补 "JS 不会主动 play"的链路缺口。
    */
   private boolean pendingResumeAfterRefill = false;
+
   private boolean favoriteRequestInFlight = false;
   private long pendingSeekPositionMs = C.TIME_UNSET;
   private long pendingSeekDeadlineMs = 0L;
   private long lastKnownPositionMs = 0L;
+
   /** 已用 ExoPlayer 真实 duration 校准过的 source URL。 */
   private String durationCalibratedForSource = "";
+
   /** 悬浮歌词服务实例（运行时绑定） */
   private FloatingLyricService floatingLyricService;
+
   /** 远程状态同步：JS 端 AudioElementPlayer 驱动播放时，通知栏状态由此控制 */
   private boolean remoteMode = false;
+
   private boolean remoteIsPlaying = false;
   private long remotePositionMs = 0L;
   private long remoteDurationMs = 0L;
+
   /** Remote mode 下保持 CPU 唤醒，防止后台音频中断 */
   private PowerManager.WakeLock remoteWakeLock;
+
   /**
    * 音频频谱分析器：实现 Media3 AudioProcessor，挂在 ExoPlayer 解码链上做无权限 FFT 分析。
    *
-   * 设计成单实例随 PlaybackManager 生命周期：当前是单 ExoPlayer 架构，FFT 处理器随之单实例；
-   * 未来 Automix 复活引入双 ExoPlayer 时，需重构为 currentProcessor / nextProcessor 双实例，
-   * listener 跟随 currentPlayer 切换（参考 memory: Android Automix 复活约束）。
+   * <p>设计成单实例随 PlaybackManager 生命周期：当前是单 ExoPlayer 架构，FFT 处理器随之单实例； 未来 Automix 复活引入双 ExoPlayer
+   * 时，需重构为 currentProcessor / nextProcessor 双实例， listener 跟随 currentPlayer 切换（参考 memory: Android
+   * Automix 复活约束）。
    */
   private final FftAudioProcessor fftAudioProcessor = new FftAudioProcessor();
+
   private final EqualizerAudioProcessor equalizerAudioProcessor = new EqualizerAudioProcessor();
+
   /** 频谱是否已启用（JS 端通过 enableVisualizer 控制 listener 设置） */
   private boolean visualizerRequested = false;
+
   private final SessionCommand nextSessionCommand =
       new SessionCommand(PlaybackConstants.ACTION_NEXT, Bundle.EMPTY);
   private final SessionCommand previousSessionCommand =
@@ -425,8 +450,7 @@ public final class PlaybackManager {
   }
 
   /**
-   * 排定 promotion timer：10s 后若仍是这首歌且 ExoPlayer 处于播放态，
-   * 则把 cacheKey 升级为正式缓存 + 启动完整下载（为 automix 铺路）。
+   * 排定 promotion timer：10s 后若仍是这首歌且 ExoPlayer 处于播放态， 则把 cacheKey 升级为正式缓存 + 启动完整下载（为 automix 铺路）。
    *
    * <p>切歌 / stop / cleanup 时通过 {@link #cancelPromotion} 取消未到期的 timer。
    */
@@ -434,28 +458,32 @@ public final class PlaybackManager {
     cancelPromotion(); // 防御性：理论上 load 已调过，二次保险
     final String urlSnapshot = sourceSnapshot;
     final Runnable[] holder = new Runnable[1];
-    Runnable r = () -> {
-      // 主线程执行：currentSource 是 volatile 可直接读；player.isPlaying() / getPlayWhenReady() 必须在 applicationLooper（即主线程）调用。
-      // 修复 #7：不再持 this monitor，避免与 Capacitor 工作线程上的 synchronized load/play/pause 竞争 → 减少 ANR 抖动。
-      // 这里读 currentSource 是「快照对比」语义，跟 load() 写入的最终一致性可接受：若新一首 load 已经写入 currentSource，本 Runnable 会自然短路退出。
-      final String curSource = currentSource;
-      if (!urlSnapshot.equals(curSource)) {
-        if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
-        return;
-      }
-      if (!player.isPlaying() && !player.getPlayWhenReady()) {
-        if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
-        return;
-      }
-      // compare-and-clear：避免覆盖竞态间已经被 cancel/重排的新 Runnable 引用。
-      // pendingPromotionRunnable 是 volatile，主线程内的写入对其他线程立即可见。
-      if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
-      // 不在此处立即写 promoted 标记：若网络中断，automix 可能读到截断文件。
-      // 改由 AudioCacheProvider.prefetchUrlFull 在 CacheWriter 真正写完整后调 promote()。
-      // 本处仅触发下载，AudioCacheProvider 内部 inFlight + isPromoted 短路保证幂等。
-      AudioCacheProvider.prefetchUrlFull(appContext, urlSnapshot);
-      Log.d(TAG, "promotion scheduled (download starts): " + cacheKey);
-    };
+    Runnable r =
+        () -> {
+          // 主线程执行：currentSource 是 volatile 可直接读；player.isPlaying() / getPlayWhenReady() 必须在
+          // applicationLooper（即主线程）调用。
+          // 修复 #7：不再持 this monitor，避免与 Capacitor 工作线程上的 synchronized load/play/pause 竞争 → 减少 ANR
+          // 抖动。
+          // 这里读 currentSource 是「快照对比」语义，跟 load() 写入的最终一致性可接受：若新一首 load 已经写入 currentSource，本
+          // Runnable 会自然短路退出。
+          final String curSource = currentSource;
+          if (!urlSnapshot.equals(curSource)) {
+            if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
+            return;
+          }
+          if (!player.isPlaying() && !player.getPlayWhenReady()) {
+            if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
+            return;
+          }
+          // compare-and-clear：避免覆盖竞态间已经被 cancel/重排的新 Runnable 引用。
+          // pendingPromotionRunnable 是 volatile，主线程内的写入对其他线程立即可见。
+          if (pendingPromotionRunnable == holder[0]) pendingPromotionRunnable = null;
+          // 不在此处立即写 promoted 标记：若网络中断，automix 可能读到截断文件。
+          // 改由 AudioCacheProvider.prefetchUrlFull 在 CacheWriter 真正写完整后调 promote()。
+          // 本处仅触发下载，AudioCacheProvider 内部 inFlight + isPromoted 短路保证幂等。
+          AudioCacheProvider.prefetchUrlFull(appContext, urlSnapshot);
+          Log.d(TAG, "promotion scheduled (download starts): " + cacheKey);
+        };
     holder[0] = r;
     pendingPromotionRunnable = r;
     mainHandler.postDelayed(r, PROMOTE_AFTER_MS);
@@ -640,11 +668,7 @@ public final class PlaybackManager {
     updateNotification();
   }
 
-  /**
-   * 设置是否允许与其他应用同时播放。
-   * true：不请求音频焦点，允许与其他应用混音；
-   * false：由 ExoPlayer 独占音频焦点，开始播放会暂停其他应用。
-   */
+  /** 设置是否允许与其他应用同时播放。 true：不请求音频焦点，允许与其他应用混音； false：由 ExoPlayer 独占音频焦点，开始播放会暂停其他应用。 */
   public synchronized void setAllowMixWithOthers(boolean allow) {
     allowMixWithOthers = allow;
     if (player != null) {
@@ -674,10 +698,7 @@ public final class PlaybackManager {
     prefetchUpcomingUrls();
   }
 
-  /**
-   * 远程状态同步：JS 端 AudioElementPlayer 驱动播放时，
-   * 由 JS 主动推送播放状态，通知栏据此显示。
-   */
+  /** 远程状态同步：JS 端 AudioElementPlayer 驱动播放时， 由 JS 主动推送播放状态，通知栏据此显示。 */
   public synchronized void syncRemoteState(boolean playing, long positionMs, long durationMs) {
     ensureInitialized();
     ensureServiceRunning();
@@ -746,9 +767,7 @@ public final class PlaybackManager {
       case PlaybackConstants.ACTION_TOGGLE_PLAYBACK:
         if (remoteMode) {
           // remote 模式下转发给 JS 处理
-          emitCustomAction(
-              remoteIsPlaying ? "pause" : "play",
-              null, null, null, null, true, null);
+          emitCustomAction(remoteIsPlaying ? "pause" : "play", null, null, null, null, true, null);
         } else {
           if (player == null) {
             return;
@@ -870,13 +889,12 @@ public final class PlaybackManager {
         new DefaultRenderersFactory(appContext) {
           @Override
           protected AudioSink buildAudioSink(
-              Context context,
-              boolean enableFloatOutput,
-              boolean enableAudioTrackPlaybackParams) {
+              Context context, boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
             return new DefaultAudioSink.Builder(context)
                 .setEnableFloatOutput(enableFloatOutput)
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(new AudioProcessor[] {equalizerAudioProcessor, fftAudioProcessor})
+                .setAudioProcessors(
+                    new AudioProcessor[] {equalizerAudioProcessor, fftAudioProcessor})
                 .build();
           }
         };
@@ -887,14 +905,15 @@ public final class PlaybackManager {
         AudioCacheProvider.buildCachedDataSourceFactory(appContext);
     DefaultMediaSourceFactory mediaSourceFactory =
         new DefaultMediaSourceFactory(
-                cachedFactory,
-                new DefaultExtractorsFactory()
-                    .setConstantBitrateSeekingEnabled(true)
-                    .setConstantBitrateSeekingAlwaysEnabled(true));
+            cachedFactory,
+            new DefaultExtractorsFactory()
+                .setConstantBitrateSeekingEnabled(true)
+                .setConstantBitrateSeekingAlwaysEnabled(true));
 
-    player = new ExoPlayer.Builder(appContext, renderersFactory)
-        .setMediaSourceFactory(mediaSourceFactory)
-        .build();
+    player =
+        new ExoPlayer.Builder(appContext, renderersFactory)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build();
     player.setAudioAttributes(
         new AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -915,7 +934,8 @@ public final class PlaybackManager {
                 return;
               }
               emitEnded();
-            } else if (playbackState == Player.STATE_READY || playbackState == Player.STATE_BUFFERING) {
+            } else if (playbackState == Player.STATE_READY
+                || playbackState == Player.STATE_BUFFERING) {
               startProgressUpdates();
               if (playbackState == Player.STATE_READY) {
                 calibrateDurationFromPlayer();
@@ -938,9 +958,7 @@ public final class PlaybackManager {
 
           @Override
           public void onPositionDiscontinuity(
-              Player.PositionInfo oldPosition,
-              Player.PositionInfo newPosition,
-              int reason) {
+              Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK
                 || reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION
                 || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
@@ -1068,9 +1086,8 @@ public final class PlaybackManager {
   /**
    * 启动 PlaybackService 前台服务。
    *
-   * 节流：已 attach（onCreate 已跑过）直接返回，避免每次 load/play/syncRemoteState
-   * 都重复触发 startForegroundService —— 这会让系统 Binder 走一遭、FGS 通知重建，
-   * 在频繁 seek/切歌时表现为通知抖动 + 多次 "Background started FGS" 日志。
+   * <p>节流：已 attach（onCreate 已跑过）直接返回，避免每次 load/play/syncRemoteState 都重复触发 startForegroundService ——
+   * 这会让系统 Binder 走一遭、FGS 通知重建， 在频繁 seek/切歌时表现为通知抖动 + 多次 "Background started FGS" 日志。
    */
   private void ensureServiceRunning() {
     if (serviceStarted && service != null) {
@@ -1212,8 +1229,7 @@ public final class PlaybackManager {
    *   <li>ALL 模式 + hasPreviousOutsideWindow=true：已是末尾，JS 负责 wrap 到 0
    * </ul>
    *
-   * <p>该函数不要与 {@link #requestUrlsIfWindowExhausted()} 混淆后者是「快到边」预警，
-   * 本函数是「确实边上跳不动」必须补。
+   * <p>该函数不要与 {@link #requestUrlsIfWindowExhausted()} 混淆后者是「快到边」预警， 本函数是「确实边上跳不动」必须补。
    */
   private boolean shouldRequestUrlsForwardWrap() {
     if (playbackQueue.hasNextOutsideWindow()) return true;
@@ -1228,10 +1244,7 @@ public final class PlaybackManager {
    * @param remainAttempts 连续失败限额，超过后回落 JS
    */
   private void resolveAndPlayAsync(
-      @Nullable PlaybackQueue.Track next,
-      String source,
-      boolean forward,
-      int remainAttempts) {
+      @Nullable PlaybackQueue.Track next, String source, boolean forward, int remainAttempts) {
     if (next == null) {
       if (forward && shouldRequestUrlsForwardWrap()) {
         // 前进方向窗口耗尽：置位续播标记，让 JS 推新窗口后自动续播
@@ -1296,8 +1309,7 @@ public final class PlaybackManager {
   }
 
   /**
-   * 预解析窗口前方 3 首，让 ENDED 时直接 playable；同时对已解析的下一首 1-2 个触发音频字节预载，
-   * 锁屏 / WebView 冻结时仍能秒响。
+   * 预解析窗口前方 3 首，让 ENDED 时直接 playable；同时对已解析的下一首 1-2 个触发音频字节预载， 锁屏 / WebView 冻结时仍能秒响。
    *
    * <ul>
    *   <li>未 resolved 的 URL：urlResolver.prefetchAsync 后台解析，回调里再触发音频字节预载
@@ -1607,10 +1619,11 @@ public final class PlaybackManager {
     Notification notification = buildNotification();
     // 仅在「用户主动暂停」撤前台。ENDED / IDLE / BUFFERING 是过渡态，提前撤前台
     // 会被 Android 12+ 拒 (ForegroundServiceStartNotAllowedException)，导致 NEXT 哑火。
-    boolean userPaused = !remoteMode
-        && player != null
-        && player.getPlaybackState() == Player.STATE_READY
-        && !player.getPlayWhenReady();
+    boolean userPaused =
+        !remoteMode
+            && player != null
+            && player.getPlaybackState() == Player.STATE_READY
+            && !player.getPlayWhenReady();
     boolean remotePaused = remoteMode && !remoteIsPlaying;
     boolean shouldStayForeground = !userPaused && !remotePaused;
     try {
@@ -1654,7 +1667,8 @@ public final class PlaybackManager {
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(isEffectivelyPlaying() || isEffectivelyBuffering())
-            .setContentTitle(safeText(currentMetadata.title, appContext.getString(R.string.app_name)))
+            .setContentTitle(
+                safeText(currentMetadata.title, appContext.getString(R.string.app_name)))
             .setContentText(safeText(currentMetadata.artist, ""))
             .setLargeIcon(coverBitmap);
 
@@ -1668,49 +1682,54 @@ public final class PlaybackManager {
     int previousActionIndex = 0;
 
     if (currentMetadata.canLike) {
-      builder.addAction(buildNotificationAction(
-          liked ? ICON_GLYPH_FAVORITE_FILLED : ICON_GLYPH_FAVORITE_OUTLINE,
-          liked ? android.R.drawable.btn_star_big_on : android.R.drawable.btn_star_big_off,
-          appContext.getString(R.string.playback_notification_favorite),
-          PlaybackConstants.ACTION_FAVORITE));
+      builder.addAction(
+          buildNotificationAction(
+              liked ? ICON_GLYPH_FAVORITE_FILLED : ICON_GLYPH_FAVORITE_OUTLINE,
+              liked ? android.R.drawable.btn_star_big_on : android.R.drawable.btn_star_big_off,
+              appContext.getString(R.string.playback_notification_favorite),
+              PlaybackConstants.ACTION_FAVORITE));
       actionCount++;
     }
 
     previousActionIndex = actionCount;
-    builder.addAction(buildNotificationAction(
-        ICON_GLYPH_PREVIOUS,
-        android.R.drawable.ic_media_previous,
-        appContext.getString(R.string.playback_notification_previous),
-        PlaybackConstants.ACTION_PREVIOUS));
+    builder.addAction(
+        buildNotificationAction(
+            ICON_GLYPH_PREVIOUS,
+            android.R.drawable.ic_media_previous,
+            appContext.getString(R.string.playback_notification_previous),
+            PlaybackConstants.ACTION_PREVIOUS));
     actionCount++;
 
     playPauseActionIndex = actionCount;
     boolean effectivelyPlaying = isEffectivelyPlaying();
-    builder.addAction(buildNotificationAction(
-        effectivelyPlaying ? ICON_GLYPH_PAUSE : ICON_GLYPH_PLAY,
-        effectivelyPlaying
-            ? android.R.drawable.ic_media_pause
-            : android.R.drawable.ic_media_play,
-        appContext.getString(R.string.playback_notification_play_pause),
-        PlaybackConstants.ACTION_TOGGLE_PLAYBACK));
+    builder.addAction(
+        buildNotificationAction(
+            effectivelyPlaying ? ICON_GLYPH_PAUSE : ICON_GLYPH_PLAY,
+            effectivelyPlaying
+                ? android.R.drawable.ic_media_pause
+                : android.R.drawable.ic_media_play,
+            appContext.getString(R.string.playback_notification_play_pause),
+            PlaybackConstants.ACTION_TOGGLE_PLAYBACK));
     actionCount++;
 
     nextActionIndex = actionCount;
-    builder.addAction(buildNotificationAction(
-        ICON_GLYPH_NEXT,
-        android.R.drawable.ic_media_next,
-        appContext.getString(R.string.playback_notification_next),
-        PlaybackConstants.ACTION_NEXT));
+    builder.addAction(
+        buildNotificationAction(
+            ICON_GLYPH_NEXT,
+            android.R.drawable.ic_media_next,
+            appContext.getString(R.string.playback_notification_next),
+            PlaybackConstants.ACTION_NEXT));
     actionCount++;
 
     if (desktopLyricButtonEnabled) {
-      builder.addAction(buildNotificationAction(
-          ICON_GLYPH_LYRIC,
-          desktopLyricEnabled
-              ? android.R.drawable.presence_audio_online
-              : android.R.drawable.presence_audio_busy,
-          appContext.getString(R.string.playback_notification_desktop_lyric),
-          PlaybackConstants.ACTION_DESKTOP_LYRIC));
+      builder.addAction(
+          buildNotificationAction(
+              ICON_GLYPH_LYRIC,
+              desktopLyricEnabled
+                  ? android.R.drawable.presence_audio_online
+                  : android.R.drawable.presence_audio_busy,
+              appContext.getString(R.string.playback_notification_desktop_lyric),
+              PlaybackConstants.ACTION_DESKTOP_LYRIC));
       actionCount++;
     }
 
@@ -1792,10 +1811,7 @@ public final class PlaybackManager {
     Intent intent = new Intent(appContext, PlaybackActionReceiver.class);
     intent.setAction(action);
     return PendingIntent.getBroadcast(
-        appContext,
-        action.hashCode(),
-        intent,
-        PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+        appContext, action.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
   }
 
   private int immutableFlag() {
@@ -1840,7 +1856,8 @@ public final class PlaybackManager {
             PlaybackConstants.CHANNEL_ID,
             appContext.getString(R.string.playback_notification_channel_name),
             NotificationManager.IMPORTANCE_LOW);
-    channel.setDescription(appContext.getString(R.string.playback_notification_channel_description));
+    channel.setDescription(
+        appContext.getString(R.string.playback_notification_channel_description));
 
     NotificationManager notificationManager =
         ContextCompat.getSystemService(appContext, NotificationManager.class);
@@ -1960,8 +1977,7 @@ public final class PlaybackManager {
   /**
    * JS 端开启/关闭频谱。
    *
-   * 实现细节：FftAudioProcessor 一直挂在 ExoPlayer 解码链上，仅当 listener != null 时
-   * 才执行实际的 FFT 计算（最佳节电）。
+   * <p>实现细节：FftAudioProcessor 一直挂在 ExoPlayer 解码链上，仅当 listener != null 时 才执行实际的 FFT 计算（最佳节电）。
    */
   public synchronized boolean enableVisualizer(boolean enable) {
     visualizerRequested = enable;
@@ -1979,8 +1995,8 @@ public final class PlaybackManager {
   }
 
   /**
-   * FFT 回调（音频线程）：只写 snapshot 并请求主线程 emit，杜绝音频线程跑 base64 / bridge。
-   * coalescing：CAS 保证 mainHandler 队列同时最多 1 个 task，多余帧只覆盖 snapshot。
+   * FFT 回调（音频线程）：只写 snapshot 并请求主线程 emit，杜绝音频线程跑 base64 / bridge。 coalescing：CAS 保证 mainHandler
+   * 队列同时最多 1 个 task，多余帧只覆盖 snapshot。
    */
   private void onFftData(int[] fftBins, float lowFreq) {
     if (!visualizerRequested) return;
@@ -2122,12 +2138,14 @@ public final class PlaybackManager {
 
   private void toggleFavoriteAsync() {
     if (!currentMetadata.canLike || currentMetadata.songId <= 0) {
-      emitCustomAction("favorite", currentMetadata.songId, liked, null, null, false, "favorite_unavailable");
+      emitCustomAction(
+          "favorite", currentMetadata.songId, liked, null, null, false, "favorite_unavailable");
       return;
     }
 
     if (apiBaseUrl.isEmpty() || cookie.isEmpty()) {
-      emitCustomAction("favorite", currentMetadata.songId, liked, null, null, false, "login_required");
+      emitCustomAction(
+          "favorite", currentMetadata.songId, liked, null, null, false, "login_required");
       return;
     }
 
@@ -2195,7 +2213,8 @@ public final class PlaybackManager {
         connection.connect();
 
         int httpCode = connection.getResponseCode();
-        InputStream inputStream = httpCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
+        InputStream inputStream =
+            httpCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
         String response = readStream(inputStream);
         int businessCode = parseBusinessCode(response);
 
@@ -2207,7 +2226,8 @@ public final class PlaybackManager {
           return FavoriteRequestResult.failure("login_required");
         }
 
-        if (attempt >= FAVORITE_REQUEST_MAX_ATTEMPTS || !shouldRetryFavoriteRequest(httpCode, businessCode)) {
+        if (attempt >= FAVORITE_REQUEST_MAX_ATTEMPTS
+            || !shouldRetryFavoriteRequest(httpCode, businessCode)) {
           Log.w(
               TAG,
               "Favorite request failed, httpCode="

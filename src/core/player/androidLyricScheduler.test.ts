@@ -185,10 +185,7 @@ describe("androidLyricScheduler", () => {
       const lyric = await fetchAndroidPrioritizedLyricResult({
         isLocalSong: true,
         priority: "auto",
-        fetchers: createFetchers(
-          { amll: result("amll"), directory: directory.promise },
-          calls,
-        ),
+        fetchers: createFetchers({ amll: result("amll"), directory: directory.promise }, calls),
       });
 
       directory.reject(new Error("directory failed"));

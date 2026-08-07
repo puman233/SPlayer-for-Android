@@ -19,9 +19,7 @@ export interface AndroidLyricSchedulerOptions<TResult> {
 
 type LyricSource<TResult> = () => Promise<TResult>;
 
-type LyricRequestResult<TResult> =
-  | { fulfilled: true; result: TResult }
-  | { fulfilled: false };
+type LyricRequestResult<TResult> = { fulfilled: true; result: TResult } | { fulfilled: false };
 
 const settleLyricRequest = async <TResult>(
   fetchSource: LyricSource<TResult>,

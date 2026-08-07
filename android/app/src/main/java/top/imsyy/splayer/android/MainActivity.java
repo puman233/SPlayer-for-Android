@@ -23,9 +23,12 @@ import top.imsyy.splayer.android.share.AndroidSharePlugin;
 public class MainActivity extends BridgeActivity {
   // 供 plugin 跨类引用，避免双源硬编码
   public static final String PREF_SHOW_STATUS_BAR = "androidShowStatusBar";
+
   /** 横屏沉浸式：同时隐藏状态栏与全面屏导航手势条 */
   public static final String PREF_IMMERSIVE_LANDSCAPE = "immersiveLandscape";
+
   public static final String PREF_HIDE_NAVIGATION_BAR = "hideNavigationBar";
+
   /** 进程级 sweep 启动标记：Activity 重建（旋屏 / 配置变更）时不再重复 post Runnable。 */
   private static volatile boolean sweepBootstrapped = false;
 
@@ -55,9 +58,10 @@ public class MainActivity extends BridgeActivity {
     // 之后每 30min 周期清理；TTL=50min；期间用户重复播放该 url 会通过 PlaybackManager.load 续期。
     if (!sweepBootstrapped) {
       sweepBootstrapped = true;
-      new Handler(Looper.getMainLooper()).postDelayed(
-          () -> AudioPrefetchTtlIndex.getInstance(getApplicationContext()).startPeriodicSweep(),
-          2_000L);
+      new Handler(Looper.getMainLooper())
+          .postDelayed(
+              () -> AudioPrefetchTtlIndex.getInstance(getApplicationContext()).startPeriodicSweep(),
+              2_000L);
     }
   }
 
@@ -106,7 +110,8 @@ public class MainActivity extends BridgeActivity {
     WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
     View decorView = getWindow().getDecorView();
-    WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), decorView);
+    WindowInsetsControllerCompat controller =
+        WindowCompat.getInsetsController(getWindow(), decorView);
     boolean immersiveLandscape = isImmersiveLandscape();
     boolean hideNavigationBar = immersiveLandscape || shouldHideNavigationBar();
     boolean showStatusBar = shouldShowStatusBar() && !immersiveLandscape;
@@ -115,8 +120,7 @@ public class MainActivity extends BridgeActivity {
     // 跳过会导致竖屏底栏不再隐藏
     if (controller != null) {
       if (showStatusBar) {
-        controller.setSystemBarsBehavior(
-            WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
         controller.show(WindowInsetsCompat.Type.statusBars());
       } else {
         controller.setSystemBarsBehavior(
@@ -132,16 +136,15 @@ public class MainActivity extends BridgeActivity {
     }
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-      int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-          | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+      int flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
       if (!showStatusBar) {
-        flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        flags |= View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
       }
       if (hideNavigationBar) {
-        flags |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        flags |=
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
       }
       decorView.setSystemUiVisibility(flags);
     }

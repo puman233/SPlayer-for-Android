@@ -40,14 +40,19 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class CacheStorage {
 
   private static final String TAG = "CacheStorage";
+
   /** 默认 5GB；setting 端调用 setMaxBytes 之前的兜底值。 */
   private static final long DEFAULT_MAX_BYTES = 5L * 1024 * 1024 * 1024;
+
   /** 最低 256MB：低于此值频繁驱逐反而损伤体验。 */
   private static final long MIN_MAX_BYTES = 256L * 1024 * 1024;
+
   /** 驱逐回到 80% 水位（避免抖动反复触发）。 */
   private static final double EVICT_TARGET_RATIO = 0.8;
+
   /** 写入后随机触发驱逐检查的概率，节流 stat 调用。 */
   private static final double EVICT_PROBE_PROB = 0.1;
+
   /** 文件扩展名：所有缓存文件统一 .bin 防 MediaStore 扫描。 */
   public static final String CACHE_EXT = ".bin";
 
@@ -77,6 +82,7 @@ public final class CacheStorage {
   /**
    * 内存索引：type → 当前总字节。读 O(1) 替代扫盘。<br>
    * 维护策略：
+   *
    * <ul>
    *   <li>构造期一次性 baseline 扫描所有 type 子目录
    *   <li>{@link #write} 成功后增量加（若文件已存在则先减旧 size）
@@ -219,8 +225,7 @@ public final class CacheStorage {
    */
   private long getAudioCacheSpace() {
     try {
-      androidx.media3.datasource.cache.SimpleCache cache =
-          AudioCacheProvider.peekSimpleCache();
+      androidx.media3.datasource.cache.SimpleCache cache = AudioCacheProvider.peekSimpleCache();
       if (cache != null) return cache.getCacheSpace();
     } catch (Throwable e) {
       // SimpleCache 不可用时静默回退
@@ -240,7 +245,8 @@ public final class CacheStorage {
     if (!f.isFile()) return null;
     long fileLen = f.length();
     if (fileLen > MAX_READ_BYTES) {
-      Log.w(TAG, "read rejected: " + type + "/" + key + " size=" + fileLen + " > " + MAX_READ_BYTES);
+      Log.w(
+          TAG, "read rejected: " + type + "/" + key + " size=" + fileLen + " > " + MAX_READ_BYTES);
       return null;
     }
     long oldMtime = f.lastModified();
@@ -346,8 +352,8 @@ public final class CacheStorage {
   /**
    * 清空单类型。
    *
-   * <p>{@code exo}（音频）走 SimpleCache.removeResource：不能直接 deleteRecursive，
-   * 否则活跃 SimpleCache 实例仍报握内部 ContentIndex，后续写入或 sweep 会招致索引/磁盘不一致。
+   * <p>{@code exo}（音频）走 SimpleCache.removeResource：不能直接 deleteRecursive， 否则活跃 SimpleCache 实例仍报握内部
+   * ContentIndex，后续写入或 sweep 会招致索引/磁盘不一致。
    */
   public boolean clear(@NonNull String type) {
     if (TYPE_AUDIO.equals(type)) {
@@ -380,6 +386,7 @@ public final class CacheStorage {
    * 全局 LRU 驱逐：扫描所有类型，按 mtime 升序删除直到回到 maxBytes * 80%。
    *
    * <p>同步执行；调用方按需放到 {@link #writeExecutor}。
+   *
    * <p>驱逐时同步更新内存索引；audio 类型由 ExoPlayer 自管，这里不扫 exo/ 目录。
    */
   public synchronized void enforceLimit() {
@@ -424,8 +431,7 @@ public final class CacheStorage {
       AudioCacheProvider.enforceLimitTo(appContext, audioBudget);
     }
     Log.i(
-        TAG,
-        "enforceLimit: 非 audio 已驱逐 " + deleted + " 字节，总计回到 " + getTotalBytes() + "/" + limit);
+        TAG, "enforceLimit: 非 audio 已驱逐 " + deleted + " 字节，总计回到 " + getTotalBytes() + "/" + limit);
   }
 
   /** 计算给定 url 的缓存 key（md5 hex）。封面 / list-data 等有 url 的场景使用。 */
@@ -568,7 +574,8 @@ public final class CacheStorage {
   }
 
   /** 递归收集类型目录下所有文件，相对路径作为 key（不带 .bin 扩展）。 */
-  private void collectFiles(@Nullable File dir, @NonNull String type, @NonNull List<CacheEntry> out) {
+  private void collectFiles(
+      @Nullable File dir, @NonNull String type, @NonNull List<CacheEntry> out) {
     if (dir == null || !dir.isDirectory()) return;
     File[] children = dir.listFiles();
     if (children == null) return;
@@ -577,7 +584,8 @@ public final class CacheStorage {
         collectFiles(f, type, out);
       } else if (f.isFile()) {
         String name = f.getName();
-        String key = name.endsWith(CACHE_EXT) ? name.substring(0, name.length() - CACHE_EXT.length()) : name;
+        String key =
+            name.endsWith(CACHE_EXT) ? name.substring(0, name.length() - CACHE_EXT.length()) : name;
         out.add(new CacheEntry(type, key, f.length(), f.lastModified(), f.getAbsolutePath()));
       }
     }
