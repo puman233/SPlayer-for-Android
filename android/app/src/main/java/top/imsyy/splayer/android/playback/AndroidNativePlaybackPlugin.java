@@ -1,24 +1,18 @@
 package top.imsyy.splayer.android.playback;
 
-import android.Manifest;
 import android.app.Activity;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
-import android.net.Uri;
 import android.os.Build;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import androidx.annotation.Nullable;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
-import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import com.getcapacitor.annotation.Permission;
-import com.getcapacitor.annotation.PermissionCallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -27,13 +21,7 @@ import org.json.JSONObject;
 import top.imsyy.splayer.android.MainActivity;
 import top.imsyy.splayer.android.cache.AudioCacheProvider;
 
-@CapacitorPlugin(
-    name = "AndroidNativePlayback",
-    permissions = {
-      @Permission(
-          alias = "notifications",
-          strings = {Manifest.permission.POST_NOTIFICATIONS})
-    })
+@CapacitorPlugin(name = "AndroidNativePlayback")
 public class AndroidNativePlaybackPlugin extends Plugin {
   @Override
   public void load() {
@@ -377,26 +365,9 @@ public class AndroidNativePlaybackPlugin extends Plugin {
 
   @PluginMethod
   public void requestNotificationPermission(PluginCall call) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-      call.resolve(permissionResult(true));
-      return;
-    }
-
-    if (getPermissionState("notifications") == PermissionState.GRANTED) {
-      call.resolve(permissionResult(true));
-      return;
-    }
-
-    requestPermissionForAlias("notifications", call, "onNotificationPermissionResult");
-  }
-
-  @PermissionCallback
-  private void onNotificationPermissionResult(@Nullable PluginCall call) {
-    if (call == null) {
-      return;
-    }
-
-    call.resolve(permissionResult(getPermissionState("notifications") == PermissionState.GRANTED));
+    // 通知权限已从 Manifest 移除，直接返回结果，不再弹系统权限请求
+    boolean granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU;
+    call.resolve(permissionResult(granted));
   }
 
   // ========== 悬浮歌词相关 ==========
@@ -525,18 +496,8 @@ public class AndroidNativePlaybackPlugin extends Plugin {
 
   @PluginMethod
   public void requestOverlayPermission(PluginCall call) {
-    if (Settings.canDrawOverlays(getContext())) {
-      call.resolve(permissionResult(true));
-      return;
-    }
-    Intent intent =
-        new Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:" + getContext().getPackageName()));
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-    getContext().startActivity(intent);
-    // 用户需要手动授予，返回 false 表示需要用户操作
-    call.resolve(permissionResult(false));
+    // 悬浮窗权限已从 Manifest 移除，不再跳转系统设置页，直接返回结果
+    call.resolve(permissionResult(Settings.canDrawOverlays(getContext())));
   }
 
   public void emitEvent(String eventName, JSObject payload, boolean retainUntilConsumed) {

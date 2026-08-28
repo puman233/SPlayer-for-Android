@@ -1,7 +1,7 @@
 # 🎵 SPlayer for Android
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.0--rc.4-blue?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-3.0.5-blue?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Android%2010%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="platform">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js&logoColor=white" alt="vue">
@@ -12,6 +12,15 @@
 > 基于 [**SPlayer**](https://github.com/imsyy/SPlayer) 移植与重做的 Android 音乐播放器。保留原版精华，针对手机与平板彻底重构交互——**一个能装进口袋的 SPlayer** 🎶
 
 > 致一直关注 SPlayer for Android 的大家：这段时间开发者的身体偶有不适，心理状态也出现了一些问题，很抱歉因此推迟了这么久才更新。感谢大家的理解与耐心，我会尽快调整和恢复自己的身体与心理状态，也会在状态允许时继续维护项目。
+
+---
+
+## ⚖️ 声明
+
+- 本项目基于 [**SPlayer**](https://github.com/imsyy/SPlayer) 与 [**SPlayer-Next**](https://github.com/SPlayer-Dev/SPlayer-Next) 二次开发，遵循 **AGPL-3.0** 开源协议。
+- 本项目仅供**学习交流**使用，请勿用于商业用途。
+- 音乐资源版权归各版权方所有，请支持正版音乐。
+- 涉及解锁/试听相关的音源接口，请遵守当地法律法规并仅用于个人学习。
 
 ---
 
@@ -164,11 +173,11 @@ npx cap open android            # Android Studio 打开
 ## ❓ FAQ
 
 <details>
-<summary><b>🔑 桌面歌词打不开，提示需要权限？</b></summary>
+<summary><b>🔑 桌面歌词（悬浮歌词）怎么用？</b></summary>
 
 <br>
 
-需要授予 **SYSTEM_ALERT_WINDOW（显示在其他应用上层）** 权限。首次启用会自动引导，如果拒绝过，可以去 **系统设置 → 应用 → SPlayer → 权限** 里手动开启。
+> ⚠️ 从 v3.0.5 起，为减少权限请求，已移除悬浮窗权限（SYSTEM_ALERT_WINDOW），Android 端悬浮歌词功能不再可用。桌面端（Electron）仍可正常使用桌面歌词。
 
 </details>
 

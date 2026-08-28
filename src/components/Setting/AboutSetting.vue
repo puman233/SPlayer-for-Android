@@ -88,6 +88,19 @@
       </n-card>
     </div>
     <div class="set-list">
+      <n-h3 prefix="bar"> 免责声明 </n-h3>
+      <n-card class="set-item feedback-notice">
+        <n-flex vertical :gap="4">
+          <n-text :depth="3" style="font-size: 12px">
+            本项目基于 SPlayer / SPlayer-Next 二次开发，遵循 AGPL-3.0 协议，仅供学习交流使用。
+          </n-text>
+          <n-text :depth="3" style="font-size: 12px">
+            音乐资源版权归各版权方所有，请支持正版音乐；涉及音源接口请遵守当地法律法规。
+          </n-text>
+        </n-flex>
+      </n-card>
+    </div>
+    <div class="set-list">
       <n-h3 prefix="bar"> 特别鸣谢 </n-h3>
       <n-flex vertical :size="12" style="margin-bottom: 12px">
         <n-text :depth="3" style="margin-left: 4px; font-size: 12px" class="tip">

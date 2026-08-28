@@ -15,8 +15,13 @@ import { EMBEDDED_API_BASE_URL, restartEmbeddedApi, waitForEmbeddedApiReady } fr
 declare module "axios" {
   interface InternalAxiosRequestConfig {
     _embeddedApiRetried?: boolean;
+    /** 请求发起时间戳（性能诊断用） */
+    _startTime?: number;
   }
 }
+
+/** 慢请求阈值（毫秒），超过则输出性能日志 */
+const SLOW_REQUEST_THRESHOLD_MS = 2000;
 
 const DEV_PROXY_BASE_URL = "/api/netease";
 const ABSOLUTE_HTTP_URL_RE = /^https?:\/\//i;
@@ -117,6 +122,9 @@ server.interceptors.request.use(
   async (request) => {
     await attachApiBaseUrl(request);
 
+    // 记录请求发起时间，用于慢请求诊断
+    request._startTime = performance.now();
+
     const settingStore = useSettingStore();
     if (!request.params) request.params = {};
 
@@ -150,7 +158,17 @@ server.interceptors.request.use(
 );
 
 server.interceptors.response.use(
-  (response: AxiosResponse) => response,
+  (response: AxiosResponse) => {
+    // 慢请求诊断：仅当耗时超过阈值时输出（页面加载卡顿排查用）
+    if (response.config?._startTime) {
+      const cost = performance.now() - response.config._startTime;
+      if (cost > SLOW_REQUEST_THRESHOLD_MS) {
+        const method = (response.config.method || "GET").toUpperCase();
+        console.warn(`[perf] 慢请求 ${Math.round(cost)}ms: ${method} ${response.config.url}`);
+      }
+    }
+    return response;
+  },
   async (error: AxiosError) => {
     if (
       isCapacitorAndroid &&

@@ -49,13 +49,7 @@ export const usePlaySettings = (): SettingConfig => {
 
   const handleAndroidMediaControllerChange = async (enabled: boolean) => {
     settingStore.androidMediaControllerEnabled = enabled;
-    if (enabled && isCapacitorAndroid) {
-      try {
-        await AndroidNativePlayback.requestNotificationPermission();
-      } catch (error) {
-        console.warn("[AndroidNativePlayback] notification permission request failed", error);
-      }
-    }
+    // 通知权限已从项目移除，不再请求
     syncAndroidPlaybackContext();
   };
 

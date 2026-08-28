@@ -6,26 +6,15 @@ import { TASKBAR_IPC_CHANNELS } from "@/types/shared";
 import { isCapacitorAndroid, isElectron, isMac } from "@/utils/env";
 import { printVersion } from "@/utils/log";
 import { openUserAgreement } from "@/utils/modal";
-import { AndroidNativePlayback } from "@/plugins/androidNativePlayback";
 import { useEventListener } from "@vueuse/core";
 import { debounce } from "lodash-es";
 import { onMounted, watch } from "vue";
 
 /** 最终聚焦主窗口的延迟时间（毫秒） */
 const FINAL_FOCUS_DELAY_MS = 500;
-const ANDROID_INITIAL_PERMISSIONS_REQUESTED = "android-initial-permissions-requested";
-
+// 通知/悬浮窗权限已从项目移除（非必要权限），不再于启动时请求
 const requestInitialAndroidPermissions = async () => {
-  if (!isCapacitorAndroid || localStorage.getItem(ANDROID_INITIAL_PERMISSIONS_REQUESTED)) return;
-  // 请求过即记录，拒绝后仅在使用对应功能时再次请求
-  localStorage.setItem(ANDROID_INITIAL_PERMISSIONS_REQUESTED, "true");
-  try {
-    await AndroidNativePlayback.requestNotificationPermission();
-    const overlay = await AndroidNativePlayback.checkOverlayPermission();
-    if (!overlay.granted) await AndroidNativePlayback.requestOverlayPermission();
-  } catch (error) {
-    console.warn("Android 首次权限请求失败:", error);
-  }
+  return;
 };
 
 const runAfterStartup = (cb: () => void) => {

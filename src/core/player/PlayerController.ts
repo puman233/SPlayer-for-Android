@@ -2057,44 +2057,20 @@ class PlayerController {
     const statusStore = useStatusStore();
     if (statusStore.showDesktopLyric === show) return;
 
-    // Android 端使用悬浮歌词
+    // Android 端使用悬浮歌词（悬浮窗权限已移除，功能不可用并提示）
     if (isCapacitorAndroid) {
+      if (show) {
+        window.$message.warning("悬浮歌词需要悬浮窗权限，该权限已从本版本移除");
+        return;
+      }
       try {
-        if (show) {
-          // 检查悬浮窗权限
-          const { granted } = await AndroidNativePlayback.checkOverlayPermission();
-          if (!granted) {
-            await AndroidNativePlayback.requestOverlayPermission();
-            window.$message.info("请授予悬浮窗权限后重试");
-            return;
-          }
-          await AndroidNativePlayback.showFloatingLyric();
-          statusStore.showDesktopLyric = true;
-          // 推送当前桌面歌词配置（颜色/字号/遮罩等），服务就绪后会被应用
-          this.syncFloatingLyricConfig();
-          // 立即推送数据到 PlaybackManager 缓冲区（服务就绪后自动回放）
-          this.syncFloatingLyricData();
-          this.syncFloatingLyricSongInfo();
-          this.syncFloatingLyricProgress(statusStore.currentTime, statusStore.playStatus);
-        } else {
-          await AndroidNativePlayback.hideFloatingLyric();
-          statusStore.showDesktopLyric = false;
-        }
+        await AndroidNativePlayback.hideFloatingLyric();
+        statusStore.showDesktopLyric = false;
       } catch (e) {
         console.error("悬浮歌词操作失败:", e);
-        const errMsg = String(e);
-        if (errMsg.includes("OVERLAY_PERMISSION_DENIED")) {
-          window.$message.warning("请先授予悬浮窗权限");
-          try {
-            await AndroidNativePlayback.requestOverlayPermission();
-          } catch (error) {
-            console.warn("请求悬浮窗权限失败:", error);
-          }
-          return;
-        }
       }
       void this.syncAndroidPlaybackContext();
-      window.$message.success(`${show ? "已开启" : "已关闭"}桌面歌词`);
+      window.$message.success("已关闭桌面歌词");
       return;
     }
 

@@ -58,6 +58,10 @@ export default defineConfig({
       output: {
         manualChunks: {
           stores: ["src/stores/data.ts", "src/stores/index.ts"],
+          // 核心框架独立分包，减少首屏解析量并提升缓存复用
+          vue: ["vue", "vue-router", "pinia", "@vueuse/core"],
+          "naive-ui": ["naive-ui"],
+          axios: ["axios", "axios-retry"],
         },
       },
     },
