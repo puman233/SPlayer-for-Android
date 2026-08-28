@@ -26,10 +26,10 @@ const search = async (match: SongMatchInfo): Promise<string | null> => {
       }
     }
     if (!hasResult) return null;
-    console.warn(`⚠️ Gequbao 搜索结果均不匹配原曲: "${match.songName}"`);
+    console.warn(`[unblock] ⚠️ Gequbao 搜索结果均不匹配原曲: "${match.songName}"`);
     return null;
   } catch (error) {
-    console.error("❌ Get GequbaoSongId Error:", error);
+    console.error("[unblock] ❌ Get GequbaoSongId Error:", error);
     return null;
   }
 };
@@ -52,7 +52,7 @@ const getPlayId = async (id: string): Promise<string | null> => {
     }
     return null;
   } catch (error) {
-    console.error("❌ Get GequbaoPlayId Error:", error);
+    console.error("[unblock] ❌ Get GequbaoPlayId Error:", error);
     return null;
   }
 };
@@ -99,13 +99,13 @@ const getGequbaoSongUrl = async (match: SongMatchInfo): Promise<SongUrlResult> =
     const { data } = await axios.post(url, body, { headers });
 
     if (data.code === 1 && data.data && data.data.url) {
-      console.log("🔗 GequbaoSong URL:", data.data.url);
+      console.log("[unblock] 🔗 GequbaoSong URL:", data.data.url);
       return { code: 200, url: data.data.url };
     }
 
     return { code: 404, url: null };
   } catch (error) {
-    console.error("❌ Get GequbaoSong URL Error:", error);
+    console.error("[unblock] ❌ Get GequbaoSong URL Error:", error);
     return { code: 404, url: null };
   }
 };

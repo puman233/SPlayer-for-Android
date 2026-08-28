@@ -4,6 +4,17 @@
 
 ---
 
+## v3.0.3
+
+### 📦 体积与日志优化
+
+- 📉 **APK 体积瘦身**：构建时排除网易 API vendor 中运行时用不到的文档/静态资源（`public` 目录，约 12.8MB），APK 由 **73.8MB → 61.4MB**（减 17%）
+- 📝 **统一解锁日志前缀**：服务器端 `API/unblock/*` 所有日志统一加 `[unblock]` 前缀，logcat 过滤更便捷（`adb logcat | grep "\[unblock\]"`）
+- 🔧 修正构建顺序：`cap sync` 前清空 `dist/capacitor/nodejs-project`，避免 nodejs-project 被重复打包进 `public` 导致 APK 体积膨胀（曾膨胀至 92.9MB）
+- ✅ 瘦身后功能完整验证：搜索 / song/url / 三源解锁（netease/kuwo/bodian）全部正常，真机实测解锁返回完整 FLAC/mp3
+
+---
+
 ## v3.0.2
 
 ### 🎵 修复 VIP 歌曲 30 秒试听问题

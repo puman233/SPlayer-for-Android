@@ -29,10 +29,10 @@ const getKuwoSongId = async (match: SongMatchInfo): Promise<string | null> => {
         return songId.slice("MUSIC_".length);
       }
     }
-    console.warn(`⚠️ Kuwo 搜索结果均不匹配原曲: "${match.songName}"`);
+    console.warn(`[unblock] ⚠️ Kuwo 搜索结果均不匹配原曲: "${match.songName}"`);
     return null;
   } catch (error) {
-    console.error("❌ Get KuwoSongId Error:", error);
+    console.error("[unblock] ❌ Get KuwoSongId Error:", error);
     return null;
   }
 };
@@ -62,12 +62,12 @@ const getKuwoSongUrl = async (match: SongMatchInfo): Promise<SongUrlResult> => {
     });
     if (result.data) {
       const urlMatch = result.data.match(/http[^\s$"]+/)[0];
-      console.log("🔗 KuwoSong URL:", urlMatch);
+      console.log("[unblock] 🔗 KuwoSong URL:", urlMatch);
       return { code: 200, url: urlMatch };
     }
     return { code: 404, url: null };
   } catch (error) {
-    console.error("❌ Get KuwoSong URL Error:", error);
+    console.error("[unblock] ❌ Get KuwoSong URL Error:", error);
     return { code: 404, url: null };
   }
 };

@@ -154,6 +154,8 @@ if (normalizedBundleSource !== mainBundleSource) {
 
 await rm(vendorOutDir, { recursive: true, force: true });
 await cp(neteaseApiRoot, vendorOutDir, { recursive: true });
+// 移除运行时不需要的文档/静态资源（public 全为文档图片），显著减小 APK 体积
+await rm(path.join(vendorOutDir, "public"), { recursive: true, force: true });
 await rm(path.join(vendorOutDir, "node_modules"), { recursive: true, force: true });
 await transpileJavaScriptTree(vendorOutDir);
 await rm(vendorNodeModulesOutDir, { recursive: true, force: true });

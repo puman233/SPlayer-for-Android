@@ -84,10 +84,10 @@ const search = async (match: SongMatchInfo): Promise<string | null> => {
         return item.id;
       }
     }
-    console.warn(`⚠️ Bodian 搜索结果均不匹配原曲: "${match.songName}"`);
+    console.warn(`[unblock] ⚠️ Bodian 搜索结果均不匹配原曲: "${match.songName}"`);
     return null;
   } catch (error) {
-    console.error("❌ Get BodianSongId Error:", error);
+    console.error("[unblock] ❌ Get BodianSongId Error:", error);
     return null;
   }
 };
@@ -120,7 +120,7 @@ const sendAdFreeRequest = () => {
     });
     return axios.post(adurl, data, { headers });
   } catch (error) {
-    console.error("❌ Get Bodian Ad Free Error:", error);
+    console.error("[unblock] ❌ Get Bodian Ad Free Error:", error);
     return null;
   }
 };
@@ -154,12 +154,12 @@ const getBodianSongUrl = async (match: SongMatchInfo): Promise<SongUrlResult> =>
     const result = await axios.get(audioUrl, { headers });
     if (typeof result.data === "object") {
       const urlMatch = result.data.data.audioUrl;
-      console.log("🔗 BodianSong URL:", urlMatch);
+      console.log("[unblock] 🔗 BodianSong URL:", urlMatch);
       return { code: 200, url: urlMatch };
     }
     return { code: 404, url: null };
   } catch (error) {
-    console.error("❌ Get BodianSong URL Error:", error);
+    console.error("[unblock] ❌ Get BodianSong URL Error:", error);
     return { code: 404, url: null };
   }
 };
