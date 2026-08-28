@@ -2,6 +2,7 @@ import http, { IncomingMessage, ServerResponse } from "http";
 import https from "https";
 import { createRequire } from "module";
 import path from "path";
+import { handleUnblockRequest } from "./unblock";
 
 const DEFAULT_PORT = Number(process.env["SP_API_PORT"] || process.env["VITE_SERVER_PORT"] || 1145);
 const DEFAULT_HOST = process.env["SP_API_HOST"] || "127.0.0.1";
@@ -241,6 +242,20 @@ const handleNeteaseRoute = async (
   }
 
   const requestPath = pathname.replace(/^\/api\/netease\//, "");
+
+  // 歌曲解锁路由（/api/netease/unblock/{server}）
+  if (requestPath.startsWith("unblock/")) {
+    const server = requestPath.slice("unblock/".length);
+    try {
+      const result = await handleUnblockRequest(server, query);
+      sendJson(request, response, 200, result);
+    } catch (error) {
+      console.error("[embedded-api] Unblock request failed", server, error);
+      sendJson(request, response, 200, { code: 500, url: null });
+    }
+    return;
+  }
+
   const neteaseApi = loadNeteaseApi(requestPath);
   if (!neteaseApi) {
     sendJson(request, response, 404, { error: "API not found" });

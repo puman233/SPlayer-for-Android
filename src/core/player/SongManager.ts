@@ -324,8 +324,8 @@ class SongManager {
           .replace(/^http:/, "https:")
           .replace(/m804\.music\.126\.net/g, "m801.music.126.net")
           .replace(/m704\.music\.126\.net/g, "m701.music.126.net");
-    // 若为试听且未开启试听播放，则将 url 置为空，仅标记为试听
-    const finalUrl = isTrial && !settingStore.playSongDemo ? null : normalizedUrl;
+    // 试听片段不参与缓存/下载，避免污染本地缓存
+    const cacheableUrl = isTrial && !settingStore.playSongDemo ? null : normalizedUrl;
 
     // 获取音质：如果请求的是杜比，直接使用杜比音质，否则从返回数据判断
     let quality: QualityType | undefined;
@@ -338,18 +338,18 @@ class SongManager {
     }
 
     // 检查本地缓存
-    if (finalUrl && quality) {
+    if (cacheableUrl && quality) {
       const cachedUrl = await this.checkLocalCache(id, quality, songData?.md5);
       if (cachedUrl) {
         return { id, url: cachedUrl, isTrial, quality };
       }
     }
-    // 缓存对应音质音乐
-    if (finalUrl) {
-      this.rememberAndroidAudioUrl(id, finalUrl);
-      this.triggerCacheDownload(id, finalUrl, quality);
+    // 缓存对应音质音乐（非试听才缓存）
+    if (cacheableUrl) {
+      this.rememberAndroidAudioUrl(id, cacheableUrl);
+      this.triggerCacheDownload(id, cacheableUrl, quality);
     }
-    return { id, url: finalUrl, isTrial, quality };
+    return { id, url: normalizedUrl, isTrial, quality };
   };
 
   /**
@@ -403,16 +403,36 @@ class SongManager {
       return { id: songId, url: undefined };
     }
 
-    // 并发执行
+    // 单个音源请求超时：避免慢速/失效音源阻塞播放（Promise.allSettled 会等待所有源）
+    const UNLOCK_REQUEST_TIMEOUT_MS = 8000;
+    const withUnlockTimeout = <T>(promise: Promise<T>): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timer = window.setTimeout(
+          () => reject(new Error(`音源请求超时 (${UNLOCK_REQUEST_TIMEOUT_MS}ms)`)),
+          UNLOCK_REQUEST_TIMEOUT_MS,
+        );
+        promise.then(
+          (value) => {
+            window.clearTimeout(timer);
+            resolve(value);
+          },
+          (error) => {
+            window.clearTimeout(timer);
+            reject(error);
+          },
+        );
+      });
+
+    // 并发执行（带单源超时，失败源被跳过、继续按优先级取下一成功源）
     const results = await Promise.allSettled(
       servers.map((server) =>
-        unlockSongUrl(songId, keyWord, server, song.name, String(artistName || "")).then(
-          (result) => ({
-            server,
-            result,
-            success: result.code === 200 && !!result.url,
-          }),
-        ),
+        withUnlockTimeout(
+          unlockSongUrl(songId, keyWord, server, song.name, String(artistName || "")),
+        ).then((result) => ({
+          server,
+          result,
+          success: result.code === 200 && !!result.url,
+        })),
       ),
     );
 
@@ -531,8 +551,11 @@ class SongManager {
       // 在线歌曲：优先官方，其次解灰
       const songId = nextSong.type === "radio" ? nextSong.dj?.id : nextSong.id;
       if (!songId) return;
-      // 是否可解锁
-      const canUnlock = isElectron && nextSong.type !== "radio" && settingStore.useSongUnlock;
+      // 是否可解锁（Electron 与 Android 均支持）
+      const canUnlock =
+        (isElectron || isCapacitorAndroid) &&
+        nextSong.type !== "radio" &&
+        settingStore.useSongUnlock;
       // 先请求官方地址
       const { url: officialUrl, isTrial, quality } = await this.getOnlineUrl(songId, false);
       if (token !== this.prefetchToken) return;
@@ -569,9 +592,11 @@ class SongManager {
           return;
         }
       } else {
-        // 不可解锁，仅保留官方结果（可能为空）
-        this.nextPrefetch = { id: songId, url: officialUrl, source: "official" };
-        triggerAudioPrefetch(officialUrl);
+        // 不可解锁，仅保留官方结果（试听片段不预载）
+        if (officialUrl && !isTrial) {
+          this.nextPrefetch = { id: songId, url: officialUrl, source: "official" };
+          triggerAudioPrefetch(officialUrl);
+        }
         return this.nextPrefetch;
       }
     } catch (error) {
@@ -617,8 +642,10 @@ class SongManager {
           };
         }
       }
-      // 检查本地文件是否存在
-      const result = await window.electron.ipcRenderer.invoke("file-exists", song.path);
+      // 检查本地文件是否存在（仅 Electron 走 IPC；Android SAF 路径已提前返回）
+      const result = isElectron
+        ? await window.electron.ipcRenderer.invoke("file-exists", song.path)
+        : true;
       if (!result) {
         this.nextPrefetch = undefined;
         console.error("❌ 本地文件不存在");
@@ -661,8 +688,9 @@ class SongManager {
 
     // 在线获取
     try {
-      // 是否可解锁
-      const canUnlock = isElectron && song.type !== "radio" && settingStore.useSongUnlock;
+      // 是否可解锁（Electron 与 Android 均支持）
+      const canUnlock =
+        (isElectron || isCapacitorAndroid) && song.type !== "radio" && settingStore.useSongUnlock;
 
       // 如果指定了非官方源，直接走解锁流程
       if (forceSource && forceSource !== "auto") {
@@ -694,6 +722,11 @@ class SongManager {
         if (unlockUrl.url) {
           console.log(`🔓 [${songId}] 解锁成功`, unlockUrl);
           return unlockUrl;
+        }
+        // 解锁失败：静默回退官方音源（即使只有试听片段）
+        if (officialUrl && isTrial) {
+          console.log(`🎧 [${songId}] 解锁失败，回退官方试听`);
+          return { id: songId, url: officialUrl, quality, isUnlocked: false, source: "official" };
         }
       }
       // 最后的兜底：检查本地是否有缓存（不区分音质）

@@ -125,7 +125,7 @@ await build({
   platform: "node",
   target: ["es2019"],
   sourcemap: false,
-  minify: false,
+  minify: true,
   plugins: [
     {
       name: "strip-node-prefix",

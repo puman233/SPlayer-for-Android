@@ -56,8 +56,9 @@ const reportEmbeddedApiError = (error: unknown) => {
   console.error("[embedded-api] startup failed:", error);
   if (embeddedApiErrorShown) return;
   embeddedApiErrorShown = true;
-  window.$message?.error(`内置 API 启动失败: ${message}`, {
-    duration: 6000,
+  // 提示一次即可：后续请求会驱动 waitForEmbeddedApiReady 自动重试
+  window.$message?.error(`内置 API 启动失败，将自动重试: ${message}`, {
+    duration: 8000,
   });
 };
 

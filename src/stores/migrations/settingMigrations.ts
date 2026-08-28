@@ -30,10 +30,11 @@ export const settingMigrations: Record<number, MigrationFunction> = {
   4: () => {
     return {
       songUnlockServer: [
-        { key: SongUnlockServer.BODIAN, enabled: true },
-        { key: SongUnlockServer.GEQUBAO, enabled: true },
         { key: SongUnlockServer.NETEASE, enabled: true },
-        { key: SongUnlockServer.KUWO, enabled: false },
+        { key: SongUnlockServer.KUWO, enabled: true },
+        { key: SongUnlockServer.BODIAN, enabled: true },
+        // 歌曲宝源外部服务已失效，默认关闭（可在音源管理中手动开启）
+        { key: SongUnlockServer.GEQUBAO, enabled: false },
       ],
     };
   },

@@ -9,6 +9,8 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "top.imsyy.splayer.android"
     compileSdk = rootProject.ext.compileSdkVersion
+    // 使用本机已安装的完整 NDK（AGP 默认的 27.0.12077973 在本机不完整）
+    ndkVersion = "28.2.13676358"
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
@@ -23,8 +25,8 @@ android {
         applicationId "top.imsyy.splayer.android"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 30005
-        versionName "3.0.0-rc.4"
+        versionCode 30006
+        versionName "3.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

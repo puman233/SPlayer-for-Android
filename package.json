@@ -1,7 +1,7 @@
 {
   "name": "splayer",
   "productName": "SPlayer for Android",
-  "version": "3.0.0-rc.4",
+  "version": "3.0.0",
   "packageManager": "pnpm@10.28.1",
   "description": "Android-first SPlayer build with Capacitor and embedded local API",
   "main": "./out/main/index.js",
