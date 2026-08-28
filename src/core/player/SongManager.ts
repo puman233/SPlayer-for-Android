@@ -324,8 +324,8 @@ class SongManager {
           .replace(/^http:/, "https:")
           .replace(/m804\.music\.126\.net/g, "m801.music.126.net")
           .replace(/m704\.music\.126\.net/g, "m701.music.126.net");
-    // 试听片段不参与缓存/下载，避免污染本地缓存
-    const cacheableUrl = isTrial && !settingStore.playSongDemo ? null : normalizedUrl;
+    // 试听片段不参与缓存/下载，避免污染本地缓存（解锁命中试听缓存导致 30 秒试听）
+    const cacheableUrl = isTrial ? null : normalizedUrl;
 
     // 获取音质：如果请求的是杜比，直接使用杜比音质，否则从返回数据判断
     let quality: QualityType | undefined;
@@ -351,6 +351,16 @@ class SongManager {
     }
     return { id, url: normalizedUrl, isTrial, quality };
   };
+
+  /**
+   * 试听片段 URL 检测（防御：避免解锁源返回试听链接导致 30 秒试听）
+   * @param url 待检测 URL
+   * @returns 是否为疑似试听链接
+   */
+  private isTrialLikeUrl(url: string | null | undefined): boolean {
+    if (!url) return false;
+    return /(preview|试听|freetrial|free_trial)/i.test(url);
+  }
 
   /**
    * 获取解锁播放链接
@@ -428,11 +438,16 @@ class SongManager {
       servers.map((server) =>
         withUnlockTimeout(
           unlockSongUrl(songId, keyWord, server, song.name, String(artistName || "")),
-        ).then((result) => ({
-          server,
-          result,
-          success: result.code === 200 && !!result.url,
-        })),
+        ).then((result) => {
+          // 记录每个音源返回，便于 logcat 排查解锁链路
+          console.log(`🔎 [${songId}] 解锁源 ${server}: code=${result.code} url=${result.url}`);
+          return {
+            server,
+            result,
+            // 仅接受有效且非试听的完整链接
+            success: result.code === 200 && !!result.url && !this.isTrialLikeUrl(result.url),
+          };
+        }),
       ),
     );
 
@@ -711,23 +726,27 @@ class SongManager {
       // 如果指定了官方源，或未指定 (默认优先官方)
       // 尝试获取官方链接
       const { url: officialUrl, isTrial, quality } = await this.getOnlineUrl(songId, !!song.pc);
-      // 如果官方链接有效且非试听（或者用户接受试听）
-      if (officialUrl && (!isTrial || (isTrial && settingStore.playSongDemo))) {
-        if (isTrial) window.$message.warning("当前歌曲仅可试听");
+      // 官方链接有效且非试听：直接使用官方
+      if (officialUrl && !isTrial) {
         return { id: songId, url: officialUrl, quality, isUnlocked: false, source: "official" };
       }
-      // 如果官方失败（或被跳过），且未强制指定 auto (或者指定了 auto 但允许回退 - 即 Auto 模式)
+      // 官方为试听或失败：优先解锁获取完整版本，避免播放 30 秒试听片段
       if ((!forceSource || forceSource === "auto") && canUnlock) {
         const unlockUrl = await this.getUnlockSongUrl(song);
         if (unlockUrl.url) {
           console.log(`🔓 [${songId}] 解锁成功`, unlockUrl);
           return unlockUrl;
         }
-        // 解锁失败：静默回退官方音源（即使只有试听片段）
-        if (officialUrl && isTrial) {
+        // 解锁失败：仅当允许播放试听时才回退官方试听，避免静默播放 30 秒试听
+        if (officialUrl && isTrial && settingStore.playSongDemo) {
           console.log(`🎧 [${songId}] 解锁失败，回退官方试听`);
+          window.$message.warning("当前歌曲仅可试听");
           return { id: songId, url: officialUrl, quality, isUnlocked: false, source: "official" };
         }
+      } else if (officialUrl && isTrial && settingStore.playSongDemo) {
+        // 不可解锁（radio/关闭解锁/强制官方源）但允许播放试听
+        window.$message.warning("当前歌曲仅可试听");
+        return { id: songId, url: officialUrl, quality, isUnlocked: false, source: "official" };
       }
       // 最后的兜底：检查本地是否有缓存（不区分音质）
       if (!forceSource || forceSource === "auto") {
