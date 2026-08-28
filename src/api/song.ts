@@ -1,4 +1,4 @@
-import { isElectron } from "@/utils/env";
+import { isCapacitorAndroid, isElectron } from "@/utils/env";
 import { defaultAMLLDbServer, songLevelData } from "@/utils/meta";
 import { SongUnlockServer } from "@/core/player/SongManager";
 import { useSettingStore } from "@/stores";
@@ -71,9 +71,12 @@ export const unlockSongUrl = (
   artist?: string,
 ) => {
   const params = server === SongUnlockServer.NETEASE ? { id } : { keyword, songName, artist };
+  // Android 嵌入式服务器解锁路由为 /api/netease/unblock/{server}（baseURL 会被覆盖为 EMBEDDED_API_BASE_URL）；
+  // 桌面版为 /api/unblock/{server}，需区分平台避免路径 404
+  const url = isCapacitorAndroid ? `/unblock/${server}` : `/${server}`;
   return request({
-    baseURL: "/api/unblock",
-    url: `/${server}`,
+    baseURL: isCapacitorAndroid ? undefined : "/api/unblock",
+    url,
     params: { ...params, noCookie: true },
   });
 };

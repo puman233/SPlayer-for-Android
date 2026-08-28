@@ -4,6 +4,16 @@
 
 ---
 
+## v3.0.4
+
+### 🔓 修复解锁请求路径错误（VIP 歌曲无法播放）
+
+- 🐛 **根因**：前端 `unlockSongUrl` 固定使用 `baseURL: "/api/unblock"`（桌面版路由），但 Android 端 baseURL 会被自动覆盖为嵌入式服务器地址（含 `/api/netease` 前缀），导致解锁请求实际发往 `/api/netease/netease` → 服务器 404 → 解锁失败 → 所有 VIP 歌曲报「暂无权限播放，已跳过」
+- 🛠 **修复**：`unlockSongUrl` 按平台动态构造路径——Android 请求 `/api/netease/unblock/{server}`（匹配嵌入式服务器路由），桌面版保持 `/api/unblock/{server}` 不变
+- ✅ **真机验证**：VIP 歌曲《YELLOW》（神山羊，2:58）完整播放，netease 源返回完整 FLAC（SQ 无损），播放进度正常走完
+
+---
+
 ## v3.0.3
 
 ### 📦 体积与日志优化
