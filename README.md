@@ -25,28 +25,7 @@
 
 ---
 
-## 📸 界面预览
 
-<table>
-<tr>
-  <td align="center"><b>📱 手机</b></td>
-  <td align="center"><b>💻 平板</b></td>
-</tr>
-<tr>
-  <td><img src="./screenshots/手机主界面.jpg" width="260"></td>
-  <td><img src="./screenshots/平板主界面.jpg" width="400"></td>
-</tr>
-<tr>
-  <td><img src="./screenshots/手机播放页面1.jpg" width="260"></td>
-  <td><img src="./screenshots/平板播放界面.jpg" width="400"></td>
-</tr>
-<tr>
-  <td><img src="./screenshots/手机播放页面2.jpg" width="260"></td>
-  <td></td>
-</tr>
-</table>
-
----
 
 ## ✨ 特性一览
 
