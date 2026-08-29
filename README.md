@@ -234,27 +234,6 @@ npx cap open android            # Android Studio 打开
 
 ---
 
-## 💬 交流 & 反馈
-
-<table>
-<tr>
-  <td width="260" align="center">
-    <img src="./screenshots/QQ群二维码.jpg" width="220">
-  </td>
-  <td valign="middle">
-    <b>SPlayer for Android 交流群</b><br>
-    <br>
-    群号：<code>602750631</code><br>
-    一键加群：<a href="https://qm.qq.com/q/AjIqKftqgM">https://qm.qq.com/q/AjIqKftqgM</a><br>
-    <br>
-    群内可讨论使用问题、交流经验，也欢迎反馈 Bug。<br>
-    <b>⚠️ Bug 反馈仍建议优先</b> <a href="../../issues">提交 Issue</a>，便于跟踪与修复。
-  </td>
-</tr>
-</table>
-
----
-
 ## 🤖 CI / 发布
 
 手动触发 [`Android Release`](./.github/workflows/android-release.yml) 工作流即可分架构构建 & 发布 APK。
