@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <!-- Android 13+ (API 33+) 通知栏媒体控制需要运行时申请 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 悬浮桌面歌词（特殊权限，需跳系统设置页授权） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Android 12+ (API 31+) 隐私归因：MediaSession/通知/缓存等敏感能力分类标记，
          消除系统 "AppOps: attributionTag not declared in manifest" 警告。
          低于 API 31 的系统（含 minSdk=29 的 Android 10/11）会直接忽略该元素，不影响功能。 -->

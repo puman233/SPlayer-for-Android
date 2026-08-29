@@ -48,8 +48,49 @@ export const usePlaySettings = (): SettingConfig => {
   };
 
   const handleAndroidMediaControllerChange = async (enabled: boolean) => {
-    settingStore.androidMediaControllerEnabled = enabled;
-    // 通知权限已从项目移除，不再请求
+    // 关闭：直接生效
+    if (!enabled) {
+      settingStore.androidMediaControllerEnabled = false;
+      syncAndroidPlaybackContext();
+      return;
+    }
+    // 非 Android：直接开启
+    if (!isCapacitorAndroid) {
+      settingStore.androidMediaControllerEnabled = true;
+      syncAndroidPlaybackContext();
+      return;
+    }
+    // Android：先弹自定义确认框，再按需申请通知权限
+    const ok = await new Promise<boolean>((resolve) => {
+      window.$dialog.warning({
+        title: "开启通知栏控制",
+        content: "开启后将在通知栏和系统媒体面板显示播放控制按钮，需要通知权限。是否允许？",
+        positiveText: "允许",
+        negativeText: "取消",
+        onPositiveClick: () => resolve(true),
+        onNegativeClick: () => resolve(false),
+        onClose: () => resolve(false),
+        onMaskClick: () => resolve(false),
+      });
+    });
+    if (!ok) {
+      settingStore.androidMediaControllerEnabled = false;
+      return;
+    }
+    try {
+      // 已授权时立即返回 true；未授权时弹出系统权限对话框
+      const res = await AndroidNativePlayback.requestNotificationPermission();
+      if (res.granted) {
+        settingStore.androidMediaControllerEnabled = true;
+        window.$message.success("通知栏控制已开启");
+      } else {
+        settingStore.androidMediaControllerEnabled = false;
+        window.$message.error("无法获取通知权限，通知栏控制不可用");
+      }
+    } catch {
+      settingStore.androidMediaControllerEnabled = false;
+      window.$message.error("通知权限申请失败");
+    }
     syncAndroidPlaybackContext();
   };
 

@@ -705,6 +705,11 @@ onBeforeUnmount(() => {
   bottom: 120px;
   z-index: 10;
   pointer-events: none;
+  // 手机竖屏：避开浮岛播放栏（底栏 ~82px 含安全区 + 间距 8px + 播放栏 64px + 冗余 16px）。
+  // 浮层 teleport 到 body，无法继承 #app 上的安全区变量，故用保守固定值。
+  @media (max-width: 767px) and (orientation: portrait) {
+    bottom: 170px;
+  }
   .n-float-button {
     height: 42px;
     border: 1px solid rgba(var(--primary), 0.28);

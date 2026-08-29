@@ -1,8 +1,12 @@
 package top.imsyy.splayer.android.playback;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
@@ -13,6 +17,8 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -21,7 +27,11 @@ import org.json.JSONObject;
 import top.imsyy.splayer.android.MainActivity;
 import top.imsyy.splayer.android.cache.AudioCacheProvider;
 
-@CapacitorPlugin(name = "AndroidNativePlayback")
+@CapacitorPlugin(
+    name = "AndroidNativePlayback",
+    permissions = {
+      @Permission(alias = "notifications", strings = {Manifest.permission.POST_NOTIFICATIONS})
+    })
 public class AndroidNativePlaybackPlugin extends Plugin {
   @Override
   public void load() {
@@ -365,8 +375,30 @@ public class AndroidNativePlaybackPlugin extends Plugin {
 
   @PluginMethod
   public void requestNotificationPermission(PluginCall call) {
-    // 通知权限已从 Manifest 移除，直接返回结果，不再弹系统权限请求
-    boolean granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU;
+    // Android 13 以下无需运行时申请通知权限
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      call.resolve(permissionResult(true));
+      return;
+    }
+    if (getActivity() == null) {
+      call.reject("Activity unavailable");
+      return;
+    }
+    // 已授权直接返回
+    if (getContext().checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+        == PackageManager.PERMISSION_GRANTED) {
+      call.resolve(permissionResult(true));
+      return;
+    }
+    // 弹出系统通知权限对话框
+    requestPermissionForAlias("notifications", call, "notificationsPermissionCallback");
+  }
+
+  @PermissionCallback
+  private void notificationsPermissionCallback(PluginCall call) {
+    boolean granted =
+        getContext().checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            == PackageManager.PERMISSION_GRANTED;
     call.resolve(permissionResult(granted));
   }
 
@@ -496,8 +528,30 @@ public class AndroidNativePlaybackPlugin extends Plugin {
 
   @PluginMethod
   public void requestOverlayPermission(PluginCall call) {
-    // 悬浮窗权限已从 Manifest 移除，不再跳转系统设置页，直接返回结果
-    call.resolve(permissionResult(Settings.canDrawOverlays(getContext())));
+    Activity activity = getActivity();
+    if (activity == null) {
+      call.reject("Activity unavailable");
+      return;
+    }
+    // 已授权直接返回
+    if (Settings.canDrawOverlays(getContext())) {
+      call.resolve(permissionResult(true));
+      return;
+    }
+    // 跳转系统悬浮窗权限设置页（悬浮窗为特殊权限，无法运行时弹窗）
+    Intent intent =
+        new Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + getContext().getPackageName()));
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    try {
+      activity.startActivity(intent);
+    } catch (Exception e) {
+      call.reject("OVERLAY_SETTINGS_LAUNCH_FAILED");
+      return;
+    }
+    // 授权结果需从系统设置页返回后由前端重新 checkOverlayPermission 确认
+    call.resolve(permissionResult(false));
   }
 
   public void emitEvent(String eventName, JSObject payload, boolean retainUntilConsumed) {

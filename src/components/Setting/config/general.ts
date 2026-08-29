@@ -455,6 +455,26 @@ export const useGeneralSettings = (): SettingConfig => {
               set: (v) => (settingStore.shareUrlFormat = v),
             }),
           },
+          {
+            key: "hotReload",
+            label: "热重载",
+            type: "button",
+            description: "重新加载当前界面（保留播放列表等本地数据），用于开发调试",
+            buttonLabel: "热重载",
+            action: () => {
+              window.$dialog.warning({
+                title: "热重载",
+                content: "确定要重新加载界面吗？当前播放列表等本地数据会保留。",
+                positiveText: "重载",
+                negativeText: "取消",
+                onPositiveClick: () => {
+                  window.location.reload();
+                },
+              });
+            },
+            componentProps: { type: "primary" },
+            keywords: ["刷新", "reload", "重启界面"],
+          },
         ],
       },
       {

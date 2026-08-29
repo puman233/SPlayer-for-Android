@@ -392,6 +392,7 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 #app-layout {
+  // 安全区变量依赖 usePageZoom 挂在 #app 上的 --android-fullscreen-*，必须在此作用域才能正确取值
   --safe-area-top: max(env(safe-area-inset-top), var(--android-fullscreen-safe-top, 0px));
   --safe-area-bottom: max(env(safe-area-inset-bottom), var(--android-fullscreen-safe-bottom, 0px));
   --app-header-height: calc(72px + var(--safe-area-top));

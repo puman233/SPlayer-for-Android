@@ -474,20 +474,32 @@ watch(
   // 窄屏幕下缩小封面、减少右侧留白，避免歌手名被截断成两个字
   @media (max-width: 768px) {
     .detail {
-      height: 180px;
+      height: 196px;
+      // 减小上下留白，为下方信息/菜单腾出内容区，避免 meta 与菜单重叠
+      padding: 8px 0 8px 0;
       .cover {
+        // 固定尺寸避免依赖父容器高度，左上对齐不参与拉伸
+        width: 120px;
+        height: 120px;
         margin-right: 14px;
+        flex-shrink: 0;
+        align-self: flex-start;
       }
       .data {
+        // 移动端：歌手名强制单行，恢复绝对定位布局，避免 name 换行导致下方 meta/菜单错位
+        align-self: stretch;
+        overflow: hidden;
         padding-right: 12px;
         min-width: 0;
         .name {
-          font-size: 22px;
-          height: auto;
+          // 固定单行高度，保证下方绝对定位参考点稳定
+          height: 30px;
           min-height: 30px;
+          line-height: 30px;
+          overflow: hidden;
           &.text-hidden {
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
+            -webkit-line-clamp: 1;
+            line-clamp: 1;
           }
           .name-text {
             word-break: break-word;
@@ -497,7 +509,12 @@ watch(
           font-size: 13px;
         }
         .collapse {
-          top: 36px;
+          position: absolute;
+          top: 32px;
+          left: 0;
+          right: 0;
+          overflow: hidden;
+          margin: 0;
         }
         .meta {
           gap: 8px !important;
@@ -508,6 +525,10 @@ watch(
           }
         }
         .menu {
+          position: absolute;
+          left: 0;
+          bottom: 0;
+          width: 100%;
           .n-button {
             height: 32px;
             --n-font-size: 13px;
@@ -521,7 +542,7 @@ watch(
       }
     }
     .router-view.artist-songs {
-      padding-top: 210px;
+      padding-top: 216px;
     }
     &.small {
       .router-view.artist-songs {

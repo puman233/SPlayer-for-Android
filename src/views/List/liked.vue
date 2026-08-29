@@ -14,7 +14,24 @@
       hide-comment-tab
       @update:search-value="handleSearchUpdate"
       @play-all="playAllSongs"
-    />
+    >
+      <template #action-buttons>
+        <!-- 心动模式：随机播放喜欢的歌曲 -->
+        <n-button
+          :focusable="false"
+          :type="statusStore.shuffleMode === 'heartbeat' ? 'primary' : 'default'"
+          circle
+          strong
+          secondary
+          title="心动模式"
+          @click="openHeartMode"
+        >
+          <template #icon>
+            <SvgIcon :size="20" name="HeartBit" />
+          </template>
+        </n-button>
+      </template>
+    </ListDetail>
     <Transition name="fade" mode="out-in">
       <SongList
         v-if="!searchValue || searchData?.length"
@@ -57,9 +74,16 @@ import { useListDetail } from "@/composables/List/useListDetail";
 import { useListSearch } from "@/composables/List/useListSearch";
 import { useListScroll } from "@/composables/List/useListScroll";
 import { useListActions } from "@/composables/List/useListActions";
+import { usePlayerController } from "@/core/player/PlayerController";
 
 const dataStore = useDataStore();
 const statusStore = useStatusStore();
+const player = usePlayerController();
+
+// 开启心动模式：随机播放喜欢的歌曲
+const openHeartMode = () => {
+  void player.toggleShuffle("heartbeat");
+};
 
 // 是否激活
 const isActivated = ref<boolean>(false);

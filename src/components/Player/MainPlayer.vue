@@ -827,7 +827,8 @@ const showCreatorTip = () => window.$message.info("暂不支持查看主播主�
   width: 100%;
   background-color: var(--surface-container-hex);
   transition: bottom 0.3s;
-  z-index: 10;
+  // 高于列表浮层按钮(list-menu z-index 10)，确保播放栏永不被遮挡
+  z-index: 20;
   touch-action: pan-x;
   // 桌面/平板版控制栏：把底部安全区纳入条体，避免被系统手势条遮挡
   // phone-floating 自带浮岛定位（已含 --safe-area-bottom），此处排除

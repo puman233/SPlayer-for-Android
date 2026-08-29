@@ -1,4 +1,5 @@
 import { toRaw } from "vue";
+import { App as CapacitorApp } from "@capacitor/app";
 import { AudioErrorCode } from "@/core/audio-player/BaseAudioPlayer";
 import { useDataStore, useMusicStore, useSettingStore, useStatusStore } from "@/stores";
 import { QualityType, type AudioSourceType, type SongType } from "@/types/main";
@@ -2057,20 +2058,43 @@ class PlayerController {
     const statusStore = useStatusStore();
     if (statusStore.showDesktopLyric === show) return;
 
-    // Android 端使用悬浮歌词（悬浮窗权限已移除，功能不可用并提示）
+    // Android 端使用悬浮歌词（需要悬浮窗权限，按需动态申请）
     if (isCapacitorAndroid) {
-      if (show) {
-        window.$message.warning("悬浮歌词需要悬浮窗权限，该权限已从本版本移除");
+      if (!show) {
+        try {
+          await AndroidNativePlayback.hideFloatingLyric();
+          statusStore.showDesktopLyric = false;
+        } catch (e) {
+          console.error("悬浮歌词操作失败:", e);
+        }
+        void this.syncAndroidPlaybackContext();
+        window.$message.success("已关闭桌面歌词");
         return;
       }
+      // 开启：先检查悬浮窗权限，未授权则弹自定义确认框并引导授权
       try {
-        await AndroidNativePlayback.hideFloatingLyric();
-        statusStore.showDesktopLyric = false;
+        const overlay = await AndroidNativePlayback.checkOverlayPermission();
+        if (!overlay.granted) {
+          const ok = await this.confirmOverlayPermission();
+          if (!ok) return;
+          // 跳转系统悬浮窗权限设置页
+          await AndroidNativePlayback.requestOverlayPermission();
+          // 从系统设置页返回后重新检查（最多等待 30s）
+          await this.waitForAppResume(30000);
+          const granted = (await AndroidNativePlayback.checkOverlayPermission()).granted;
+          if (!granted) {
+            window.$message.error("未授予悬浮窗权限，桌面歌词不可用");
+            return;
+          }
+        }
+        await AndroidNativePlayback.showFloatingLyric();
+        statusStore.showDesktopLyric = true;
+        void this.syncAndroidPlaybackContext();
+        window.$message.success("已开启桌面歌词");
       } catch (e) {
-        console.error("悬浮歌词操作失败:", e);
+        console.error("开启悬浮歌词失败:", e);
+        window.$message.error("开启桌面歌词失败");
       }
-      void this.syncAndroidPlaybackContext();
-      window.$message.success("已关闭桌面歌词");
       return;
     }
 
@@ -2078,6 +2102,49 @@ class PlayerController {
     void this.syncAndroidPlaybackContext();
     playerIpc.toggleDesktopLyric(show);
     window.$message.success(`${show ? "已开启" : "已关闭"}桌面歌词`);
+  }
+
+  /** 弹出自定义样式悬浮窗权限确认框 */
+  private confirmOverlayPermission(): Promise<boolean> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = (val: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(val);
+      };
+      window.$dialog.warning({
+        title: "开启桌面歌词",
+        content: "桌面歌词需要在屏幕顶层显示滚动歌词，需要悬浮窗权限。是否前往系统设置授权？",
+        positiveText: "去授权",
+        negativeText: "取消",
+        onPositiveClick: () => done(true),
+        onNegativeClick: () => done(false),
+        onClose: () => done(false),
+        onMaskClick: () => done(false),
+      });
+    });
+  }
+
+  /** 等待 App 从后台（系统设置页）返回前台 */
+  private waitForAppResume(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      let handle: { remove: () => void } | null = null;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (handle) handle.remove();
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      void CapacitorApp.addListener("appStateChange", (state) => {
+        if (state.isActive) finish();
+      }).then((h) => {
+        handle = h;
+      });
+    });
   }
 
   /**

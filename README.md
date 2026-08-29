@@ -1,7 +1,7 @@
 # 🎵 SPlayer for Android
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.5-blue?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-3.0.6-blue?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Android%2010%2B-3DDC84?style=flat-square&logo=android&logoColor=white" alt="platform">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vue.js&logoColor=white" alt="vue">
@@ -177,7 +177,7 @@ npx cap open android            # Android Studio 打开
 
 <br>
 
-> ⚠️ 从 v3.0.5 起，为减少权限请求，已移除悬浮窗权限（SYSTEM_ALERT_WINDOW），Android 端悬浮歌词功能不再可用。桌面端（Electron）仍可正常使用桌面歌词。
+> 在 **设置 → 歌词 → 桌面歌词** 打开。首次开启会弹出悬浮窗权限申请（跳转系统设置授权），授权后歌词即可显示在其他应用上层。若拒绝授权，该功能将不可用。
 
 </details>
 
