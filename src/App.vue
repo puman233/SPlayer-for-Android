@@ -7,6 +7,9 @@
 </template>
 
 <script setup lang="ts">
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) SPlayer-Dev Contributors
+// Original source: https://github.com/SPlayer-Dev/SPlayer
 import { useDevice } from "@/composables/useDevice";
 import { useImmersive } from "@/composables/useImmersive";
 import { useAndroidBack } from "@/composables/useAndroidBack";

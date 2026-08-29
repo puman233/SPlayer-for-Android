@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) SPlayer-Dev Contributors
+// Original source: https://github.com/SPlayer-Dev/SPlayer
 import { createApp } from "vue";
 import App from "./App.vue";
 import { createPinia } from "pinia";

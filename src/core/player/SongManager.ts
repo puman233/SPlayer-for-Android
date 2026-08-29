@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) SPlayer-Dev Contributors
+// Original source: https://github.com/SPlayer-Dev/SPlayer
 import { personalFm, personalFmToTrash } from "@/api/rec";
 import { songQuality, songUrl, unlockSongUrl } from "@/api/song";
 import { useLyricManager } from "@/core/player/LyricManager";

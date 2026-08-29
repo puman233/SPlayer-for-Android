@@ -15,12 +15,19 @@
 
 ---
 
-## ⚖️ 声明
+## 📝 声明
 
-- 本项目基于 [**SPlayer**](https://github.com/imsyy/SPlayer) 与 [**SPlayer-Next**](https://github.com/SPlayer-Dev/SPlayer-Next) 二次开发，遵循 **AGPL-3.0** 开源协议。
-- 本项目仅供**学习交流**使用，请勿用于商业用途。
-- 音乐资源版权归各版权方所有，请支持正版音乐。
-- 涉及解锁/试听相关的音源接口，请遵守当地法律法规并仅用于个人学习。
+本项目基于 [SPlayer](https://github.com/SPlayer-Dev/SPlayer) 与 [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next) 进行二次开发。
+
+- **原项目许可**：本项目遵循 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) 开源协议
+- **版权归属**：原项目版权归 SPlayer-Dev 团队所有，本版本保留原版权声明
+- **修改说明**：本版本为 Android 平台移植版，已对前端与原生层进行适配和优化
+- **免责声明**：本项目仅供学习交流使用，请勿用于商业用途（不违反 AGPL-3.0 的商业使用条款，但系作者意愿）
+
+> ⚠️ 本版本为第三方非官方 Android 移植版，与 SPlayer 原项目无直接关联。
+> 部分代码由 AI Agent 辅助生成，仅供学习参考。
+
+> 音乐资源版权归各版权方所有，请支持正版音乐；涉及解锁/试听相关的音源接口，请遵守当地法律法规并仅用于个人学习。
 
 ---
 
