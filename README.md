@@ -9,22 +9,17 @@
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="typescript">
 </p>
 
-> 基于 [**SPlayer**](https://github.com/imsyy/SPlayer) 移植与重做的 Android 音乐播放器。保留原版精华，针对手机与平板彻底重构交互——**一个能装进口袋的 SPlayer** 🎶
+> **SPlayer for Android 是一款第三方非官方移植版 Android 音乐播放器**，基于 [SPlayer](https://github.com/SPlayer-Dev/SPlayer) 与 [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next) 二次开发，仅用于**个人学习与练习**，与 SPlayer 原项目无任何关联。
 
 
 ---
 
-## 📝 声明
+## ⚠️ 免责声明 (Disclaimer)
 
-本项目基于 [SPlayer](https://github.com/SPlayer-Dev/SPlayer) 与 [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next) 进行二次开发。
-
-- **原项目许可**：本项目遵循 [AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.html) 开源协议
-- **版权归属**：原项目版权归 SPlayer-Dev 团队所有，本版本保留原版权声明
-- **修改说明**：本版本为 Android 平台移植版，已对前端与原生层进行适配和优化
-- **免责声明**：本项目仅供学习交流使用，请勿用于商业用途（不违反 AGPL-3.0 的商业使用条款，但系作者意愿）
-
-> ⚠️ 本版本为第三方非官方 Android 移植版，与 SPlayer 原项目无直接关联。
-> 部分代码由 AI Agent 辅助生成，仅供学习参考。
+- **非官方性质**：本项目是**第三方非官方移植版**，与 [SPlayer](https://github.com/SPlayer-Dev/SPlayer) / [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next) 原项目及其开发者无任何直接关联，亦未获其任何形式的认可或背书。
+- **API 使用风险**：本项目可能调用第三方 API（如网易云音乐等）的非官方接口，其稳定性与可用性不受本项目控制，可能随时失效、变更或产生异常，请自行承担相应风险。
+- **责任归属**：本项目仅用于**个人学习与练习**。因使用本项目（包括但不限于播放、下载、解锁等操作）而引发的任何直接或间接损失、纠纷或法律责任，均由使用者自行承担，项目作者不承担任何责任。
+- **商业使用风险**：请勿将本项目用于商业用途或盈利行为。AGPL-3.0 协议虽允许商业使用，但本项目作者明确声明仅限学习交流，若违反由此产生的法律风险由使用者自行承担。
 
 > 音乐资源版权归各版权方所有，请支持正版音乐；涉及解锁/试听相关的音源接口，请遵守当地法律法规并仅用于个人学习。
 
@@ -326,4 +321,14 @@ npx cap open android            # Android Studio 打开
 
 ## 📄 许可证
 
-[**AGPL-3.0**](./LICENSE) —— 与上游保持一致
+本项目基于 [**AGPL-3.0**](./LICENSE)（GNU Affero General Public License v3.0）开源协议发布，与上游保持一致。
+
+- **原项目版权**：原 [SPlayer](https://github.com/SPlayer-Dev/SPlayer) / [SPlayer-Next](https://github.com/SPlayer-Dev/SPlayer-Next) 版权归原开发者团队所有，本版本保留其原始版权声明。
+- **修改说明**：本版本为 Android 平台移植版，已对前端与原生层进行适配和优化，属 AGPL-3.0 协议下的衍生作品。
+
+**AGPL-3.0 核心要求**：
+- 🔓 **开源**：任何修改、衍生或分发本项目的作品，必须同样以 AGPL-3.0 协议开源，并完整提供对应的源代码。
+- ©️ **保留版权**：不得移除或修改原始版权声明与许可信息。
+- 📦 **提供源码**：向使用者分发本项目或其修改版本时，须同时提供可获取的源代码，或提供指向源代码的明确链接。
+
+完整条款请参阅 [LICENSE](./LICENSE) 文件或 [GNU AGPL-3.0 官方文本](https://www.gnu.org/licenses/agpl-3.0.html)。
