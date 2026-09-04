@@ -359,8 +359,8 @@ onMounted(() => {
   position: relative;
   display: flex;
   width: 100%;
-  height: 75vh;
-  min-height: 75vh;
+  height: 100%;
+  min-height: 100%;
   overflow: hidden;
   .mobile-overlay {
     display: none;
@@ -459,8 +459,10 @@ onMounted(() => {
 <style lang="scss">
 .main-setting {
   position: relative;
-  width: calc(100% - 40px);
-  max-width: 1024px !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100%;
+  border-radius: 0 !important;
   overflow: hidden;
   background-color: var(--background-hex) !important;
   backdrop-filter: none !important;

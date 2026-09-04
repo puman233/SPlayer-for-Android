@@ -140,9 +140,18 @@
           v-for="(item, idx) in phoneNavItems"
           :key="item.key"
           :ref="(el) => setItemRef(el, idx)"
-          :class="['mobile-bottom-nav__item', { active: activePhoneNav === item.key }]"
+          :class="[
+            'mobile-bottom-nav__item',
+            { active: activePhoneNav === item.key },
+            { 'nav-pressed': pressedNavKey === item.key },
+            { 'nav-bounce': bounceNavKey === item.key },
+          ]"
           type="button"
-          @click="navigatePhoneNav(item.routeName)"
+          @pointerdown="startLongPress(item.key)"
+          @pointerup="endLongPress(item.key)"
+          @pointercancel="endLongPress(item.key)"
+          @pointerleave="cancelLongPress(item.key)"
+          @click="handleNavClick(item.key, item.routeName)"
         >
           <SvgIcon :name="item.icon" :size="17" />
           <span>{{ item.label }}</span>
@@ -166,6 +175,7 @@ import { useBlobURLManager } from "@/core/resource/BlobURLManager";
 import { isElectron } from "@/utils/env";
 import { useDevice } from "@/composables/useDevice";
 import { useInit } from "@/composables/useInit";
+import { triggerViewRefresh } from "@/composables/useViewRefresh";
 import MainPlayer from "@/components/Player/MainPlayer.vue";
 import FullPlayer from "@/components/Player/FullPlayer.vue";
 import PlayerProvider from "@/components/Global/PlayerProvider.vue";
@@ -352,6 +362,59 @@ const navigatePhoneNav = (routeName: (typeof phoneNavItems)[number]["routeName"]
   router.push({ name: routeName });
 };
 
+// 底部导航长按刷新：长按 2 秒触发当前界面刷新
+const LONG_PRESS_MS = 2000;
+const navTimers: Record<string, number> = {};
+const navFired: Record<string, boolean> = {};
+// 按下/弹起动画状态键
+const pressedNavKey = ref<string | null>(null);
+const bounceNavKey = ref<string | null>(null);
+
+// 长按开始
+const startLongPress = (key: string) => {
+  if (navTimers[key]) window.clearTimeout(navTimers[key]);
+  navFired[key] = false;
+  pressedNavKey.value = key;
+  navTimers[key] = window.setTimeout(() => {
+    navFired[key] = true;
+    // 触发当前页面刷新
+    triggerViewRefresh();
+    // 弹起回弹动画
+    bounceNavKey.value = key;
+    window.setTimeout(() => {
+      pressedNavKey.value = null;
+      bounceNavKey.value = null;
+    }, 320);
+  }, LONG_PRESS_MS);
+};
+
+// 长按结束（提前松开，未触发刷新）
+const endLongPress = (key: string) => {
+  if (navTimers[key]) {
+    window.clearTimeout(navTimers[key]);
+    delete navTimers[key];
+  }
+  if (!navFired[key]) pressedNavKey.value = null;
+};
+
+// 指针离开：取消长按
+const cancelLongPress = (key: string) => {
+  if (navTimers[key]) {
+    window.clearTimeout(navTimers[key]);
+    delete navTimers[key];
+  }
+  pressedNavKey.value = null;
+};
+
+// 点击：若已触发长按刷新则消费掉，不再切换 Tab
+const handleNavClick = (key: string, routeName: (typeof phoneNavItems)[number]["routeName"]) => {
+  if (navFired[key]) {
+    navFired[key] = false;
+    return;
+  }
+  navigatePhoneNav(routeName);
+};
+
 useInit();
 
 // 横竖屏切换后强制刷新布局：触发 resize 事件帮助依赖视口尺寸的组件重新计算
@@ -387,6 +450,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("orientationchange", handleOrientationChange);
   window.removeEventListener("resize", updateIndicator);
   orientationMql.removeEventListener?.("change", handleOrientationChange);
+  // 清理长按计时器，避免卸载后残留
+  Object.values(navTimers).forEach((t) => window.clearTimeout(t));
 });
 </script>
 
@@ -595,6 +660,24 @@ onBeforeUnmount(() => {
 
     &:active {
       transform: scale(0.94);
+    }
+
+    // 长按刷新：按压缩放 0.92，弹起回弹 1.0
+    &.nav-pressed {
+      transform: scale(0.92);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    &.nav-bounce {
+      animation: nav-bounce 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+  }
+
+  @keyframes nav-bounce {
+    0% {
+      transform: scale(0.92);
+    }
+    100% {
+      transform: scale(1);
     }
   }
 

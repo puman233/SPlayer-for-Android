@@ -17,9 +17,9 @@
     <RouterView v-slot="{ Component }">
       <Transition :name="`router-${settingStore.routeAnimation}`" mode="out-in">
         <KeepAlive v-if="settingStore.useKeepAlive">
-          <component :is="Component" class="router-view" />
+          <component :is="Component" :key="refreshKey" class="router-view" />
         </KeepAlive>
-        <component v-else :is="Component" class="router-view" />
+        <component v-else :is="Component" :key="refreshKey" class="router-view" />
       </Transition>
     </RouterView>
   </div>
@@ -28,6 +28,7 @@
 <script setup lang="ts">
 import { useDevice } from "@/composables/useDevice";
 import { useSettingStore } from "@/stores";
+import { useViewRefresh } from "@/composables/useViewRefresh";
 
 const router = useRouter();
 const settingStore = useSettingStore();
@@ -36,6 +37,15 @@ const { isPhone } = useDevice();
 const discoverType = ref<string>(
   (router.currentRoute.value?.name as string) || "discover-playlists",
 );
+
+// 底部导航长按刷新：发现页激活时重载当前子页
+const route = useRoute();
+const { refreshSeq } = useViewRefresh();
+const refreshKey = ref(0);
+watch(refreshSeq, () => {
+  if (!String(route.name || "").startsWith("discover")) return;
+  refreshKey.value++;
+});
 </script>
 
 <style lang="scss" scoped>

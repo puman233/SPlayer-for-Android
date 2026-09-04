@@ -33,9 +33,9 @@
     <RouterView v-slot="{ Component }">
       <Transition :name="`router-${settingStore.routeAnimation}`" mode="out-in">
         <KeepAlive v-if="settingStore.useKeepAlive">
-          <component :is="Component" class="router-view" />
+          <component :is="Component" :key="refreshKey" class="router-view" />
         </KeepAlive>
-        <component v-else :is="Component" class="router-view" />
+        <component v-else :is="Component" :key="refreshKey" class="router-view" />
       </Transition>
     </RouterView>
   </div>
@@ -44,6 +44,7 @@
 <script setup lang="ts">
 import { useDevice } from "@/composables/useDevice";
 import { useDataStore, useSettingStore } from "@/stores";
+import { useViewRefresh } from "@/composables/useViewRefresh";
 
 const router = useRouter();
 const dataStore = useDataStore();
@@ -52,6 +53,15 @@ const settingStore = useSettingStore();
 const { isPhone } = useDevice();
 
 const likeType = ref<string>((router.currentRoute.value?.name as string) || "like-playlists");
+
+// 底部导航长按刷新：收藏页激活时重载当前子页
+const route = useRoute();
+const { refreshSeq } = useViewRefresh();
+const refreshKey = ref(0);
+watch(refreshSeq, () => {
+  if (!String(route.name || "").startsWith("like")) return;
+  refreshKey.value++;
+});
 
 // 喜欢数据
 const likeData = computed(() => [

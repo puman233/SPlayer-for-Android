@@ -139,7 +139,7 @@ import { useDevice } from "@/composables/useDevice";
 import { renderIcon } from "@/utils/helper";
 import { openSetting, openThemeConfig, openScalingModal, openUpdateApp } from "@/utils/modal";
 import { useBackClosable } from "@/composables/useAndroidBack";
-import { isDev, isElectron } from "@/utils/env";
+import { isDev, isElectron, isCapacitorAndroid } from "@/utils/env";
 
 const router = useRouter();
 const settingStore = useSettingStore();
@@ -252,8 +252,7 @@ const setOptions = computed<DropdownOption[]>(() => [
     // 重启
     key: "restart",
     label: "软件热重载",
-    show: isElectron,
-    props: { onClick: () => window.electron.ipcRenderer.send("win-reload") },
+    show: isElectron || isCapacitorAndroid,
     icon: renderIcon("Restart"),
   },
   {
@@ -284,9 +283,21 @@ const setSelect = (key: string) => {
     case "setting":
       openSetting();
       break;
+    case "restart":
+      hotReload();
+      break;
     case "dev-tools":
       window.electron.ipcRenderer.send("open-dev-tools");
       break;
+  }
+};
+
+// 软件热重载：Electron 走 IPC 刷新窗口，Android/Capacitor 重载 WebView 内容
+const hotReload = () => {
+  if (isElectron) {
+    window.electron.ipcRenderer.send("win-reload");
+  } else {
+    window.location.reload();
   }
 };
 

@@ -165,7 +165,7 @@ let savedPageType: MobilePageType = "info";
         </div>
       </div>
 
-      <div v-if="hasLyric" class="page lyric-page">
+      <div v-if="hasLyric" class="page lyric-page" @pointerdown="onLyricPagePointerDown">
         <div class="lyric-header">
           <div
             class="lyric-cover"
@@ -203,8 +203,68 @@ let savedPageType: MobilePageType = "info";
             />
           </div>
         </div>
-        <div class="lyric-main">
+        <div class="lyric-main" :class="{ 'with-control': lyricControlShow }">
           <PlayerLyric />
+        </div>
+        <!-- 歌词页播放控制模块：与播放页控制栏样式一致 -->
+        <div
+          class="lyric-control"
+          :class="{ show: lyricControlShow }"
+          data-no-page-swipe
+          @click.stop
+        >
+          <div class="progress-section">
+            <span class="time" @click="toggleTimeFormat">{{ timeDisplay[0] }}</span>
+            <PlayerSlider class="player" :show-tooltip="false" />
+            <span class="time" @click="toggleTimeFormat">{{ timeDisplay[1] }}</span>
+          </div>
+          <div class="control-section">
+            <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
+              <div class="mode-btn" @click.stop="player.toggleShuffle()">
+                <SvgIcon
+                  :name="statusStore.shuffleIcon"
+                  :size="24"
+                  :depth="statusStore.shuffleMode === 'off' ? 3 : 1"
+                />
+              </div>
+            </template>
+            <div v-else class="placeholder"></div>
+            <div class="ctrl-btn" @click.stop="player.nextOrPrev('prev')">
+              <SvgIcon name="SkipPrev" :size="36" />
+            </div>
+            <n-button
+              :loading="statusStore.playLoading"
+              class="play-btn"
+              type="primary"
+              strong
+              secondary
+              circle
+              @click.stop="player.playOrPause()"
+            >
+              <template #icon>
+                <Transition name="fade" mode="out-in">
+                  <SvgIcon
+                    :key="statusStore.playStatus ? 'Pause' : 'Play'"
+                    :name="statusStore.playStatus ? 'Pause' : 'Play'"
+                    :size="40"
+                  />
+                </Transition>
+              </template>
+            </n-button>
+            <div class="ctrl-btn" @click.stop="player.nextOrPrev('next')">
+              <SvgIcon name="SkipNext" :size="36" />
+            </div>
+            <template v-if="musicStore.playSong.type !== 'radio' && !statusStore.personalFmMode">
+              <div class="mode-btn" @click.stop="player.toggleRepeat()">
+                <SvgIcon
+                  :name="statusStore.repeatIcon"
+                  :size="24"
+                  :depth="statusStore.repeatMode === 'off' ? 3 : 1"
+                />
+              </div>
+            </template>
+            <div v-else class="placeholder"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -394,6 +454,41 @@ const currentPageType = computed<MobilePageType>(() => {
   if (pageIndex.value === lyricIdx.value) return "lyric";
   return "info";
 });
+
+// 歌词页播放控制模块：显示状态与自动隐藏（3 秒无操作渐隐）
+const lyricControlShow = ref(true);
+let lyricControlTimer: number | null = null;
+const clearLyricControlTimer = () => {
+  if (lyricControlTimer) {
+    window.clearTimeout(lyricControlTimer);
+    lyricControlTimer = null;
+  }
+};
+const scheduleLyricControlHide = () => {
+  clearLyricControlTimer();
+  lyricControlTimer = window.setTimeout(() => {
+    lyricControlShow.value = false;
+  }, 3000);
+};
+const showLyricControl = () => {
+  lyricControlShow.value = true;
+  scheduleLyricControlHide();
+};
+const onLyricPagePointerDown = () => {
+  showLyricControl();
+};
+// 进入歌词页时显示并计时，离开时清理
+watch(
+  currentPageType,
+  (type) => {
+    if (type === "lyric") {
+      showLyricControl();
+    } else {
+      clearLyricControlTimer();
+    }
+  },
+  { immediate: true },
+);
 
 // 下拉关闭手势捕获区：信息页覆盖顶栏 + 封面区域；歌词页限定在歌曲信息块
 const dragHandleStyle = computed(() => {
@@ -587,6 +682,7 @@ const { lengthX: topLengthX, lengthY: topLengthY } = useSwipe(dragHandleRef, {
 onBeforeUnmount(() => {
   if (rafId) cancelAnimationFrame(rafId);
   if (pageTransitionTimer) window.clearTimeout(pageTransitionTimer);
+  clearLyricControlTimer();
   resetInlineStyles();
 });
 
@@ -1044,6 +1140,117 @@ const contentTransform = computed(() => {
       flex: 1;
       min-height: 0;
       position: relative;
+      transition: padding-bottom 0.3s;
+
+      // 控制模块显示时，预留底部空间，避免遮挡歌词
+      &.with-control {
+        padding-bottom: 150px;
+      }
+    }
+
+    // 歌词页播放控制模块：与播放页控制栏样式一致
+    .lyric-control {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      padding: 12px 20px calc(16px + var(--mobile-safe-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      opacity: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.45) 100%);
+      transition: opacity 1s;
+
+      &.show {
+        opacity: 1;
+        pointer-events: auto;
+        transition: opacity 0.3s;
+      }
+
+      .progress-section {
+        display: flex;
+        align-items: center;
+
+        .time {
+          width: 40px;
+          font-size: 12px;
+          text-align: center;
+          color: rgb(var(--main-cover-color));
+          opacity: 0.6;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .n-slider {
+          margin: 0 12px;
+        }
+      }
+
+      .control-section {
+        width: 100%;
+        max-width: 420px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        .placeholder {
+          width: 24px;
+        }
+
+        .mode-btn {
+          width: 40px;
+          height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          opacity: 0.8;
+
+          .n-icon {
+            color: rgb(var(--main-cover-color));
+          }
+        }
+
+        .ctrl-btn {
+          width: 50px;
+          height: 50px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+
+          .n-icon {
+            color: rgb(var(--main-cover-color));
+          }
+        }
+
+        .play-btn {
+          width: 60px;
+          height: 60px;
+          font-size: 26px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: transform 0.2s;
+          background-color: rgba(var(--main-cover-color), 0.2);
+          color: rgb(var(--main-cover-color));
+
+          &.n-button--primary-type {
+            --n-color: rgba(var(--main-cover-color), 0.14);
+            --n-color-hover: rgba(var(--main-cover-color), 0.2);
+            --n-color-focus: rgba(var(--main-cover-color), 0.2);
+            --n-color-pressed: rgba(var(--main-cover-color), 0.12);
+          }
+
+          &:active {
+            transform: scale(0.95);
+          }
+        }
+      }
     }
   }
 

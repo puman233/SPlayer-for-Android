@@ -37,6 +37,7 @@
     <Transition name="fade" mode="out-in">
       <SongList
         v-if="dataStore.historyList.length > 0"
+        :key="refreshKey"
         :data="dataStore.historyList"
         :loading="true"
         hiddenSize
@@ -58,9 +59,19 @@
 <script setup lang="ts">
 import { useDataStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
+import { useViewRefresh } from "@/composables/useViewRefresh";
 
 const player = usePlayerController();
 const dataStore = useDataStore();
+
+// 底部导航长按刷新：最近播放页激活时重载列表
+const route = useRoute();
+const { refreshSeq } = useViewRefresh();
+const refreshKey = ref(0);
+watch(refreshSeq, () => {
+  if (route.name !== "history") return;
+  refreshKey.value++;
+});
 
 // 清空最近播放
 const cleanHistory = () => {

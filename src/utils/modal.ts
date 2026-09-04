@@ -357,6 +357,14 @@ export const openSetting = async (type: SettingType = "general", scrollTo?: stri
     closeOnEsc: false,
     bordered: false,
     class: "main-setting",
+    // 全屏展开，右侧为具体设置项、左侧为分类导航，参照原生设置页
+    style: {
+      width: "100vw",
+      height: "100vh",
+      maxWidth: "100vw",
+      borderRadius: "0",
+      padding: "0",
+    },
     content: () => {
       return h(MainSetting, { type, scrollTo });
     },

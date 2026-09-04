@@ -4,8 +4,8 @@
       <n-h1>{{ greetings }}</n-h1>
       <n-text depth="3">由此开启好心情 ~</n-text>
     </div>
-    <HomeOnline v-if="settingStore.useOnlineService" />
-    <HomeLocal v-else />
+    <HomeOnline v-if="settingStore.useOnlineService" :key="refreshKey" />
+    <HomeLocal v-else :key="refreshKey" />
   </div>
 </template>
 
@@ -13,6 +13,7 @@
 import { useSettingStore, useDataStore } from "@/stores";
 import { getGreeting } from "@/utils/time";
 import { isLogin } from "@/utils/auth";
+import { useViewRefresh } from "@/composables/useViewRefresh";
 import HomeOnline from "./HomeOnline.vue";
 import HomeLocal from "./HomeLocal.vue";
 
@@ -23,6 +24,15 @@ const greetings = computed(() => {
   const greeting = getGreeting();
   const name = isLogin() ? dataStore.userData.name : "";
   return name ? `${greeting}，${name}` : greeting;
+});
+
+// 底部导航长按刷新：仅首页激活时重载推荐子页
+const route = useRoute();
+const { refreshSeq } = useViewRefresh();
+const refreshKey = ref(0);
+watch(refreshSeq, () => {
+  if (route.name !== "home") return;
+  refreshKey.value++;
 });
 </script>
 
