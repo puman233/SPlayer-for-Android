@@ -2090,6 +2090,11 @@ class PlayerController {
         await AndroidNativePlayback.showFloatingLyric();
         statusStore.showDesktopLyric = true;
         void this.syncAndroidPlaybackContext();
+        // 立即推送当前歌曲信息/歌词/进度/配置，避免悬浮窗短暂显示占位符
+        this.syncFloatingLyricSongInfo();
+        this.syncFloatingLyricData();
+        this.syncFloatingLyricProgress(this.getSeek(), statusStore.playStatus);
+        this.syncFloatingLyricConfig();
         window.$message.success("已开启桌面歌词");
       } catch (e) {
         console.error("开启悬浮歌词失败:", e);
