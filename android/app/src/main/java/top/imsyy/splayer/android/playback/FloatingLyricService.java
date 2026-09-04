@@ -820,10 +820,24 @@ public class FloatingLyricService extends Service {
 
     private void paintControls(Canvas c, int w, int h, float d) {
       float sz = 34 * d, gap = 20 * d;
-      float tw = sz * 5 + gap * 4, sx = (w - tw) / 2f, cy = h / 2f;
+      float tw = sz * 5 + gap * 4, sx = (w - tw) / 2f;
+      float cy = h * 0.58f; // 按钮下移，为顶部歌名留空间
       ip.setTextAlign(Paint.Align.CENTER);
       ip.setTextSize(18 * d);
       ip.setColor(0xFFFFFFFF);
+
+      // 顶部歌名-歌手（对齐桌面端 header）
+      if (!songName.isEmpty()) {
+        float oldSz = ip.getTextSize();
+        int oldColor = ip.getColor();
+        ip.setTextSize(14 * d);
+        ip.setColor(0xEEFFFFFF);
+        ip.setShadowLayer(2 * d, 0, 0, 0x80000000);
+        c.drawText(songName + " - " + artistName, w / 2f, h * 0.17f, ip);
+        ip.setTextSize(oldSz);
+        ip.setColor(oldColor);
+        ip.clearShadowLayer();
+      }
 
       drawBtn(c, rLock, sx, cy, sz, d, "🔒");
       drawBtn(c, rPrev, sx + sz + gap, cy, sz, d, "⏮");
