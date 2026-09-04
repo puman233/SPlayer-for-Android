@@ -439,6 +439,10 @@ onMounted(() => {
   orientationMql.addEventListener?.("change", handleOrientationChange);
   if (!isElectron) {
     window.addEventListener("beforeunload", (event) => {
+      // 软件热重载时跳过拦截，避免弹出“确认离开”对话框
+      if ((window as unknown as { __splayerHotReloading?: boolean }).__splayerHotReloading) {
+        return;
+      }
       event.preventDefault();
       blobURLManager.revokeAllBlobURLs();
       event.returnValue = "";

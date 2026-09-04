@@ -297,6 +297,8 @@ const hotReload = () => {
   if (isElectron) {
     window.electron.ipcRenderer.send("win-reload");
   } else {
+    // 标记热重载，绕过 beforeunload 拦截，直接重载 WebView
+    (window as unknown as { __splayerHotReloading?: boolean }).__splayerHotReloading = true;
     window.location.reload();
   }
 };
