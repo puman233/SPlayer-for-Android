@@ -470,3 +470,13 @@ audio {
     }
   }
 }
+
+// 全局弹层/下拉菜单文字可读性：白色文字与模糊/动态封面背景易混淆，补充深色半透明底与文字阴影
+.n-dropdown-menu,
+.n-popover {
+  .n-dropdown-option,
+  .n-popover__content {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  }
+}
+

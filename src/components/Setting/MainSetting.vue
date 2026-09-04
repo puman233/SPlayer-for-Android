@@ -67,7 +67,7 @@
       <n-scrollbar
         ref="setScrollbar"
         class="set-content"
-        :content-style="{ overflow: 'hidden', padding: '40px 10px' }"
+        :content-style="{ padding: '40px 10px' }"
       >
         <Transition
           name="fade"
