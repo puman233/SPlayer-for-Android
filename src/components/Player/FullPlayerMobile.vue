@@ -925,6 +925,9 @@ const contentTransform = computed(() => {
       width: 100%;
       display: flex;
       flex-direction: column;
+      // 占满信息页剩余高度，便于将控制卡底部锚定，与歌词页一致
+      flex: 1;
+      min-height: 0;
     }
 
     .song-info-bar {
@@ -991,7 +994,8 @@ const contentTransform = computed(() => {
     .progress-section {
       display: flex;
       align-items: center;
-      margin: 0 0 24px;
+      // 底部锚定：控制卡下移至信息页底部，与歌词页控制模块对齐
+      margin: auto 0 24px;
 
       .time {
         width: 40px;
