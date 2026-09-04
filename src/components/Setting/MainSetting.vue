@@ -490,11 +490,17 @@ onMounted(() => {
   }
   .n-card-content {
     padding: 0;
+    // 全屏后内容区需铺满高度，滚动容器才能正确约束
+    height: 100%;
     .setting-type {
       transition: opacity 0.2s ease-in-out;
     }
     .set-content {
       padding: 0 30px;
+      // 全屏后需约束滚动容器高度，否则内容无法向下滚动
+      height: 100%;
+      flex: 1;
+      min-height: 0;
     }
     .set-list {
       padding-top: 30px;

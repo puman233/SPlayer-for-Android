@@ -362,8 +362,8 @@ const navigatePhoneNav = (routeName: (typeof phoneNavItems)[number]["routeName"]
   router.push({ name: routeName });
 };
 
-// 底部导航长按刷新：长按 2 秒触发当前界面刷新
-const LONG_PRESS_MS = 2000;
+// 底部导航长按刷新：短暂按压即触发，响应更快
+const LONG_PRESS_MS = 700;
 const navTimers: Record<string, number> = {};
 const navFired: Record<string, boolean> = {};
 // 按下/弹起动画状态键
@@ -377,6 +377,8 @@ const startLongPress = (key: string) => {
   pressedNavKey.value = key;
   navTimers[key] = window.setTimeout(() => {
     navFired[key] = true;
+    // 触发震动，提供即时反馈
+    navigator.vibrate?.(15);
     // 触发当前页面刷新
     triggerViewRefresh();
     // 弹起回弹动画

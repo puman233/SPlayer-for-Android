@@ -1155,7 +1155,8 @@ const contentTransform = computed(() => {
       right: 0;
       bottom: 0;
       z-index: 8;
-      padding: 12px 20px calc(16px + var(--mobile-safe-bottom));
+      // 为底部翻页圆点预留空间，避免控制按键与圆点重叠
+      padding: 12px 20px calc(34px + var(--mobile-safe-bottom));
       display: flex;
       flex-direction: column;
       gap: 16px;
