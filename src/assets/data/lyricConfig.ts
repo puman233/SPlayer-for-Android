@@ -17,7 +17,7 @@ const config: LyricConfig = {
   backgroundMaskColor: "rgba(0, 0, 0, 0.5)",
   alwaysShowPlayInfo: false,
   animation: true,
-  windowWidthPercent: 92,
+  windowWidthPercent: 84, // 默认宽度为屏幕 84%（左右各 8% 边距）
   windowHeightDp: 72,
 };
 

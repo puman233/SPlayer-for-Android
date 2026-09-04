@@ -192,8 +192,11 @@ public class FloatingLyricService extends Service {
     int pct = Math.max(30, Math.min(100, windowWidthPercent));
     int hDp = Math.max(48, Math.min(240, windowHeightDp));
     int w = (int) (dm.widthPixels * (pct / 100f)), h = (int) (hDp * dm.density);
+    // 默认垂直位置：平板（最小屏幕宽度 >=600dp）在屏幕 70% 处，手机在 30% 处
+    boolean isTablet = getResources().getConfiguration().smallestScreenWidthDp >= 600;
+    int defaultY = (int) (dm.heightPixels * (isTablet ? 0.70f : 0.30f));
     int x = prefs.getInt("x", (dm.widthPixels - w) / 2);
-    int y = prefs.getInt("y", (int) (dm.heightPixels * 0.72f));
+    int y = prefs.getInt("y", defaultY);
 
     lp =
         new WindowManager.LayoutParams(
