@@ -889,7 +889,8 @@ const contentTransform = computed(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 0 20px calc(24px + var(--mobile-safe-bottom));
+    // 底部预留更多空间，确保分页圆点始终位于控制卡下方不重叠
+    padding: 0 20px calc(40px + var(--mobile-safe-bottom));
     overflow-y: auto;
 
     .cover-section {
