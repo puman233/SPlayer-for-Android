@@ -649,7 +649,7 @@ export const useSettingStore = defineStore("setting", {
     lyricsPosition: "flex-start",
     lyricsBlur: false,
     lyricsBlendMode: "screen",
-    lyricsScrollOffset: 0.25,
+    lyricsScrollOffset: 0.45,
     lyricHorizontalOffset: 10,
     lyricAlignRight: false,
     hideBracketedContent: false,
