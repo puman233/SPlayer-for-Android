@@ -118,7 +118,8 @@ const saveLogin = async (loginData: any, type: LoginType = "qr") => {
   }
 
   emit("success");
-  // 登录成功后热重载，让 UI 立即以登录状态刷新
+  // 登录成功后静默热重载，让 UI 立即以登录状态刷新（跳过 beforeunload 拦截）
+  (window as unknown as { __splayerHotReloading?: boolean }).__splayerHotReloading = true;
   setTimeout(() => window.location.reload(), 800);
 };
 

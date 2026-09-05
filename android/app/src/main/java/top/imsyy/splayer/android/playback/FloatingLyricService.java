@@ -402,7 +402,6 @@ public class FloatingLyricService extends Service {
     unlockBtnView =
         new View(this) {
           final Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
-          final Paint ip = new Paint(Paint.ANTI_ALIAS_FLAG);
 
           @Override
           protected void onDraw(Canvas c) {
@@ -414,11 +413,18 @@ public class FloatingLyricService extends Service {
                 c.drawRoundRect(0, 0, getWidth(), getHeight(), 8 * d, 8 * d, bp);
               }
             }
-            ip.setColor(0xFFFFFFFF);
-            ip.setTextAlign(Paint.Align.CENTER);
-            ip.setTextSize(16 * d);
-            Paint.FontMetrics fm = ip.getFontMetrics();
-            c.drawText("🔓", getWidth() / 2f, getHeight() / 2f - (fm.ascent + fm.descent) / 2f, ip);
+            // 复刻桌面端 SVG 解锁图标（VectorDrawable）
+            Drawable lockIcon = getResources().getDrawable(R.drawable.lyric_unlock, null);
+            if (lockIcon != null) {
+              lockIcon = lockIcon.mutate();
+              lockIcon.setTint(0xFFFFFFFF);
+              float size = Math.min(getWidth(), getHeight()) * 0.62f;
+              float half = size / 2f;
+              float cx = getWidth() / 2f, cy = getHeight() / 2f;
+              lockIcon.setBounds(
+                  (int) (cx - half), (int) (cy - half), (int) (cx + half), (int) (cy + half));
+              lockIcon.draw(c);
+            }
           }
         };
     unlockBtnView.setOnClickListener(v -> setLocked(false));
