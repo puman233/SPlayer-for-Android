@@ -953,17 +953,18 @@ const contentTransform = computed(() => {
           .info-actions {
             display: flex;
             flex-wrap: nowrap;
-            gap: 10px;
+            gap: 12px;
             align-items: center;
             flex-shrink: 0;
             margin-left: auto;
-            // 保证 More 按钮与歌单计数徽标不重叠：徽标容器留出右侧间距
+            // 保证 More 按钮与歌单计数徽标不重叠：给徽标容器足够右侧间距
             :deep(.n-badge) {
-              margin-right: 6px;
+              margin-right: 12px;
             }
 
             .action-btn {
               flex-shrink: 0;
+              min-width: 0;
             }
 
             .qa-trigger--mobile {
@@ -1486,7 +1487,7 @@ const contentTransform = computed(() => {
               flex-wrap: nowrap;
 
               :deep(.n-badge) {
-                margin-right: 8px;
+                margin-right: 16px;
               }
 
               .qa-trigger--mobile {

@@ -132,7 +132,7 @@ class MediaSessionManager {
           case "favorite": {
             if (event.success === false) {
               if (event.message === "login_required") {
-                window.$message.warning("璇峰厛鐧诲綍鍚庡啀鏀惰棌姝屾洸");
+                window.$message.warning("请先登录后再收藏歌曲");
               } else if (
                 typeof event.songId === "number" &&
                 typeof event.liked === "boolean" &&
@@ -141,7 +141,7 @@ class MediaSessionManager {
               ) {
                 void this.retryFavoriteThroughWebApi(player, event.songId, !event.liked);
               } else {
-                window.$message.error("鏀惰棌鎿嶄綔澶辫触锛岃閲嶈瘯");
+                window.$message.error("收藏操作失败，请重试");
               }
               break;
             }
@@ -208,7 +208,7 @@ class MediaSessionManager {
       await player.syncAndroidPlaybackContext();
     } catch (error) {
       console.error("[AndroidMedia] favorite fallback failed:", error);
-      window.$message.error("鏀惰棌鎿嶄綔澶辫触锛岃閲嶈瘯");
+      window.$message.error("收藏操作失败，请重试");
     }
   }
 
