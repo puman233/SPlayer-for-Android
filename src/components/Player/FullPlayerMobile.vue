@@ -952,12 +952,24 @@ const contentTransform = computed(() => {
 
           .info-actions {
             display: flex;
+            flex-wrap: nowrap;
             gap: 10px;
             align-items: center;
+            flex-shrink: 0;
+            margin-left: auto;
+            // 保证 More 按钮与歌单计数徽标不重叠：徽标容器留出右侧间距
+            :deep(.n-badge) {
+              margin-right: 6px;
+            }
+
+            .action-btn {
+              flex-shrink: 0;
+            }
 
             .qa-trigger--mobile {
               width: 36px;
               height: 36px;
+              flex-shrink: 0;
             }
           }
         }
@@ -1470,11 +1482,17 @@ const contentTransform = computed(() => {
             }
 
             .info-actions {
-              gap: 20px;
+              gap: 16px;
+              flex-wrap: nowrap;
+
+              :deep(.n-badge) {
+                margin-right: 8px;
+              }
 
               .qa-trigger--mobile {
                 width: 52px;
                 height: 52px;
+                flex-shrink: 0;
               }
             }
           }

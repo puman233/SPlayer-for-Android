@@ -2242,6 +2242,9 @@ class PlayerController {
         fontSize: config.fontSize,
         fontWeight: config.fontWeight,
         position: config.position,
+        // 宽度/高度：手机竖屏默认 84%（左右各 8% 边距），确保不超过屏幕
+        windowWidthPercent: config.windowWidthPercent,
+        windowHeightDp: config.windowHeightDp,
       }).catch(() => {});
     } catch (e) {
       console.warn("[PlayerController] syncFloatingLyricConfig failed", e);

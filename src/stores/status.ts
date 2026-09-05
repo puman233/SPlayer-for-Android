@@ -97,6 +97,8 @@ interface StatusState {
   listSortOrder: SortOrder;
   /** 桌面歌词 */
   showDesktopLyric: boolean;
+  /** 平板桌面歌词「设置」触发打开快捷面板（瞬时标记，用后即复位） */
+  desktopLyricOpenQuickActions: boolean;
   /** 任务栏歌词 */
   showTaskbarLyric: boolean;
   /** 播放器评论 */
@@ -213,6 +215,7 @@ export const useStatusStore = defineStore("status", {
     listSortField: "default",
     listSortOrder: "default",
     showDesktopLyric: false,
+    desktopLyricOpenQuickActions: false,
     showTaskbarLyric: false,
     showPlayerComment: false,
     updateCheck: false,

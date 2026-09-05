@@ -372,7 +372,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount } from "vue";
+import { computed, inject, onBeforeUnmount, watch } from "vue";
 import { useSettingStore, useStatusStore } from "@/stores";
 import { usePlayerController } from "@/core/player/PlayerController";
 import { isElectron, isCapacitorAndroid } from "@/utils/env";
@@ -393,6 +393,17 @@ const triggerClass = computed(() => ["qa-trigger", `qa-trigger--${props.variant}
 const settingStore = useSettingStore();
 const statusStore = useStatusStore();
 const player = usePlayerController();
+
+// 平板桌面歌词「设置」按钮：收到打开快捷面板指令时弹出本菜单（决策 1B）
+watch(
+  () => statusStore.desktopLyricOpenQuickActions,
+  (v) => {
+    if (v) {
+      popoverShow.value = true;
+      statusStore.desktopLyricOpenQuickActions = false;
+    }
+  },
+);
 
 // 桌面歌词仅在桌面端 / 安卓端可用
 const canUseDesktopLyric = computed(() => isElectron || isCapacitorAndroid);

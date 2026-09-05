@@ -471,14 +471,16 @@ audio {
   }
 }
 
-// 全局弹层/下拉菜单文字可读性：白色文字与模糊/动态封面背景易混淆，补充深色文字描边阴影，确保任何背景下均清晰
-.n-dropdown-menu,
-.n-popover {
-  .n-dropdown-option,
-  .n-popover__content {
-    text-shadow:
-      0 0 2px rgba(0, 0, 0, 0.9),
-      0 1px 3px rgba(0, 0, 0, 0.7);
-  }
+// 弹层/下拉菜单文字：默认不加描边阴影（图3/图4 右上角次级菜单），保持清晰美观
+.n-dropdown-menu .n-dropdown-option,
+.n-popover .n-popover__content {
+  text-shadow: none;
+}
+// 例外：歌曲播放页三点快捷菜单（图5 .quick-actions-popover）文字需要阴影，
+// 保证在动态封面/模糊背景上可读；弹层面板 box-shadow 投影由 Naive 主题保留。
+.quick-actions-popover .n-popover__content {
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.9),
+    0 1px 3px rgba(0, 0, 0, 0.7);
 }
 

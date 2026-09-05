@@ -2451,9 +2451,23 @@ public final class PlaybackManager {
     emitCustomAction("desktopLyric", null, null, false, null, true, null);
   }
 
+  /** 平板桌面歌词「设置」按钮：通知 App 打开快捷面板（决策 1B） */
+  public void emitDesktopLyricOpenSettings() {
+    emitCustomAction("desktopLyricOpenSettings", null, null, null, null, true, null);
+  }
+
   /** 设置悬浮歌词锁定 */
   public synchronized void setFloatingLyricLocked(boolean locked) {
     if (floatingLyricService != null) floatingLyricService.setLocked(locked);
+  }
+
+  /** 当前歌曲是否已收藏（供悬浮歌词红心显示） */
+  public synchronized boolean isCurrentLiked() {
+    try {
+      return liked && currentMetadata.canLike;
+    } catch (Exception e) {
+      return false;
+    }
   }
 
   static final class TrackMetadata {

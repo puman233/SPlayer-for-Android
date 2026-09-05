@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.Shader;
@@ -72,10 +73,13 @@ public class FloatingLyricService extends Service {
   String alignPosition = "both";
 
   /** 悬浮窗宽度占屏幕百分比 (30-100) */
-  int windowWidthPercent = 92;
+  int windowWidthPercent = 84;
 
   /** 悬浮窗高度 (dp) */
   int windowHeightDp = 72;
+
+  /** 平板模式：最小屏幕宽度 >=600dp，复刻桌面端 header 三栏布局 */
+  boolean tabletMode = false;
 
   /* ---------- 行切换动画 ---------- */
   private int lastLineIdx = -1;
@@ -93,7 +97,16 @@ public class FloatingLyricService extends Service {
       rPlay = new RectF(),
       rNext = new RectF(),
       rClose = new RectF(),
-      rUnlock = new RectF();
+      rUnlock = new RectF(),
+      rFavorite = new RectF(),
+      rTitle = new RectF();
+
+  // 复刻桌面端单色线稿图标
+  private static final int ICON_MUSIC = 1, ICON_PREV = 2, ICON_PLAY = 3, ICON_PAUSE = 4,
+      ICON_NEXT = 5, ICON_HEART = 6, ICON_HEART_FILLED = 7, ICON_LOCK = 8, ICON_UNLOCK = 9,
+      ICON_CLOSE = 10;
+  /** 红心收藏颜色 */
+  private static final int COLOR_HEART_LIKED = 0xFFE0446A;
 
   // ==================== 生命周期 ====================
 
@@ -186,17 +199,28 @@ public class FloatingLyricService extends Service {
 
   // ==================== View 构建 ====================
 
+  /** 把坐标限制在 [0, max] 区间；max <= 0 时回退到 0（窗口大于可用空间时贴边） */
+  private static int clampCoord(int v, int max) {
+    return Math.max(0, Math.min(v, Math.max(0, max)));
+  }
+
   private void buildView() {
     view = new LyricView(this);
     DisplayMetrics dm = getResources().getDisplayMetrics();
     int pct = Math.max(30, Math.min(100, windowWidthPercent));
     int hDp = Math.max(48, Math.min(240, windowHeightDp));
-    int w = (int) (dm.widthPixels * (pct / 100f)), h = (int) (hDp * dm.density);
-    // 默认垂直位置：平板（最小屏幕宽度 >=600dp）在屏幕 70% 处，手机在 30% 处
-    boolean isTablet = getResources().getConfiguration().smallestScreenWidthDp >= 600;
-    int defaultY = (int) (dm.heightPixels * (isTablet ? 0.70f : 0.30f));
+    // 平板模式：最小屏幕宽度 >=600dp，复刻桌面端布局
+    tabletMode = getResources().getConfiguration().smallestScreenWidthDp >= 600;
+    // 平板需要更高窗口以容纳 header + 歌词（动态智能调整）
+    int effHdp = tabletMode ? Math.max(hDp, 110) : hDp;
+    int w = (int) (dm.widthPixels * (pct / 100f)), h = (int) (effHdp * dm.density);
+    // 默认垂直位置：平板在屏幕 70% 处，手机在 30% 处
+    int defaultY = (int) (dm.heightPixels * (tabletMode ? 0.70f : 0.30f));
     int x = prefs.getInt("x", (dm.widthPixels - w) / 2);
     int y = prefs.getInt("y", defaultY);
+    // 控件不得超出屏幕边缘（含初始位置）
+    x = clampCoord(x, dm.widthPixels - w);
+    y = clampCoord(y, dm.heightPixels - h);
 
     lp =
         new WindowManager.LayoutParams(
@@ -224,11 +248,15 @@ public class FloatingLyricService extends Service {
     DisplayMetrics dm = getResources().getDisplayMetrics();
     int pct = Math.max(30, Math.min(100, windowWidthPercent));
     int hDp = Math.max(48, Math.min(240, windowHeightDp));
+    int effHdp = tabletMode ? Math.max(hDp, 110) : hDp;
     int newW = (int) (dm.widthPixels * (pct / 100f));
-    int newH = (int) (hDp * dm.density);
+    int newH = (int) (effHdp * dm.density);
     if (lp.width == newW && lp.height == newH) return;
     lp.width = newW;
     lp.height = newH;
+    // 尺寸变化后重新把位置钳制在屏幕内
+    lp.x = clampCoord(lp.x, dm.widthPixels - newW);
+    lp.y = clampCoord(lp.y, dm.heightPixels - newH);
     try {
       wm.updateViewLayout(view, lp);
     } catch (Exception ignored) {
@@ -442,6 +470,15 @@ public class FloatingLyricService extends Service {
     return (wordMode && !yrcLines.isEmpty()) ? yrcLines : lrcLines;
   }
 
+  /** 当前歌曲是否已收藏（决定红心填充/描边） */
+  boolean isCurLiked() {
+    try {
+      return PlaybackManager.getInstance(this).isCurrentLiked();
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   int findIndex(List<Line> ly, long ms) {
     int r = -1;
     for (int i = 0; i < ly.size(); i++) {
@@ -456,6 +493,16 @@ public class FloatingLyricService extends Service {
   private void onBtnTap(float x, float y) {
     if (rUnlock.contains(x, y)) {
       setLocked(false);
+      return;
+    }
+    if (rTitle.contains(x, y)) {
+      // 点击歌名区：悬浮窗自身的锁定/关闭等 header 处理（预留）
+      return;
+    }
+    if (rFavorite.contains(x, y)) {
+      // 平板红心：添加/取消收藏当前歌曲
+      PlaybackManager.getInstance(this).handleNotificationAction(PlaybackConstants.ACTION_FAVORITE);
+      postRedraw();
       return;
     }
     if (rClose.contains(x, y)) {
@@ -539,8 +586,10 @@ public class FloatingLyricService extends Service {
           float dx = e.getRawX() - tX0, dy = e.getRawY() - tY0;
           if (!dragging && (Math.abs(dx) > DRAG_SLOP || Math.abs(dy) > DRAG_SLOP)) dragging = true;
           if (dragging) {
-            lp.x = wX0 + (int) dx;
-            lp.y = wY0 + (int) dy;
+            int nx = wX0 + (int) dx, ny = wY0 + (int) dy;
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            lp.x = clampCoord(nx, dm.widthPixels - lp.width);
+            lp.y = clampCoord(ny, dm.heightPixels - lp.height);
             try {
               wm.updateViewLayout(view, lp);
             } catch (Exception ignored) {
@@ -589,11 +638,17 @@ public class FloatingLyricService extends Service {
       }
 
       if (locked) {
-        paintLyrics(c, w, h, d, sd);
+        paintLyrics(c, w, h, d, sd, 0f);
       } else if (showCtrls) {
-        paintControls(c, w, h, d);
+        if (tabletMode) {
+          // 平板复刻桌面端：header + 歌词同屏
+          float headerH = paintTabletHeader(c, w, h, d);
+          paintLyrics(c, w, h, d, sd, headerH);
+        } else {
+          paintControls(c, w, h, d);
+        }
       } else {
-        paintLyrics(c, w, h, d, sd);
+        paintLyrics(c, w, h, d, sd, 0f);
       }
 
       // 关键：播放中或正在动画中时自驱动连续重绘
@@ -608,26 +663,48 @@ public class FloatingLyricService extends Service {
 
     // ---------- 歌词绘制 ----------
 
-    private void paintLyrics(Canvas c, int w, int h, float d, float sd) {
+    /** 计算自适应字号：以用户 config 字号为基础，按区域高度/屏幕尺寸做智能调整 */
+    private float computeAdaptiveFontSize(float d, float sd, float areaH, boolean twoLine) {
       float tsz = fontSizeSp * sd;
-      tp.setTextSize(tsz);
-      // 字重：>=600 用 BOLD，否则 NORMAL
-      tp.setTypeface(
-          Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
-      tp.setShadowLayer(2 * d, 0, 0, colorShadow);
-      tp.setShader(null);
+      // 平板屏幕更大，适当放大便于阅读
+      if (tabletMode) tsz *= 1.12f;
+      // 依据歌词区域高度约束，保证单行/双行都放得下
+      float avail = areaH * 0.82f;
+      // 双行约占 2 倍行高，单行约 1.25 倍行高
+      float lineFactor = twoLine ? 2.0f : 1.25f;
+      float maxByHeight = avail / lineFactor;
+      if (tsz > maxByHeight) tsz = maxByHeight;
+      // 保证可读性下限
+      float min = 14f * sd;
+      if (tsz < min) tsz = min;
+      return tsz;
+    }
+
+    private void paintLyrics(Canvas c, int w, int h, float d, float sd, float topPad) {
+      // 顶部预留（平板 header 高度），歌词绘制在其下方区域内
+      float areaTop = Math.max(0f, topPad);
+      float areaH = Math.max(1f, h - topPad);
+      float areaMid = areaTop + areaH * 0.5f;
 
       float pad = 14 * d, maxW = w - pad * 2;
       List<Line> ly = activeLines();
       long sk = seekMs();
       int idx = ly.isEmpty() ? -1 : findIndex(ly, sk);
 
+      // 无歌词：显示占位信息
       if (ly.isEmpty() || idx < 0 || idx >= ly.size()) {
         lastLineIdx = -1;
         lineAnimStartNano = 0L;
         String txt = songName.isEmpty() ? "SPlayer" : songName + " - " + artistName;
+        float tsz = computeAdaptiveFontSize(d, sd, areaH, false);
+        tp.setTextSize(tsz);
+        // 字重：>=600 用 BOLD，否则 NORMAL
+        tp.setTypeface(
+            Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
+        tp.setShadowLayer(2 * d, 0, 0, colorShadow);
+        tp.setShader(null);
         tp.setColor(0xBBFFFFFF);
-        drawFittedText(c, txt, w, h * 0.5f, tp, maxW, pad, tsz, alignPosition);
+        drawFittedText(c, txt, w, areaMid, tp, maxW, pad, tsz, alignPosition);
         return;
       }
 
@@ -658,13 +735,24 @@ public class FloatingLyricService extends Service {
       boolean hasTran = showTran && line.tran != null && !line.tran.isEmpty();
       boolean hasNext = idx + 1 < ly.size();
       boolean twoLine = doubleLine && (hasTran || hasNext);
-      float mainY = twoLine ? h * 0.34f : h * 0.5f;
+
+      // 自适应字号（需在确定 twoLine 之后计算）
+      float tsz = computeAdaptiveFontSize(d, sd, areaH, twoLine);
+      // 歌词区域内的相对位置
+      float mainY = twoLine ? areaTop + areaH * 0.34f : areaMid;
+
+      tp.setTextSize(tsz);
+      // 字重：>=600 用 BOLD，否则 NORMAL
+      tp.setTypeface(
+          Typeface.create(Typeface.DEFAULT, fontWeight >= 600 ? Typeface.BOLD : Typeface.NORMAL));
+      tp.setShadowLayer(2 * d, 0, 0, colorShadow);
+      tp.setShader(null);
 
       // 主歌词（带切入动画：上一行淡出+上移，当前行淡入+从下方移入）
       if (animation && eased < 1f && idx - 1 >= 0) {
         Line prev = ly.get(idx - 1);
         int prevAlpha = (int) (255 * (1f - eased));
-        float prevOffset = -h * 0.4f * eased;
+        float prevOffset = -areaH * 0.4f * eased;
         int saved = c.save();
         c.translate(0, prevOffset);
         tp.setShader(null);
@@ -675,7 +763,7 @@ public class FloatingLyricService extends Service {
       }
 
       int curAlpha = animation ? (int) (255 * eased) : 255;
-      float curOffset = animation ? h * 0.4f * (1f - eased) : 0f;
+      float curOffset = animation ? areaH * 0.4f * (1f - eased) : 0f;
       int savedC = c.save();
       c.translate(0, curOffset);
       if (wordMode && !yrcLines.isEmpty() && line.words.size() > 1) {
@@ -696,7 +784,7 @@ public class FloatingLyricService extends Service {
         tp.setColor((Math.max(0, Math.min(255, subAlpha)) << 24) | (colorUnplayed & 0x00FFFFFF));
         float subSize = tsz * 0.7f;
         tp.setTextSize(subSize);
-        drawFittedText(c, sub, w, h * 0.72f, tp, maxW, pad, subSize, alignPosition);
+        drawFittedText(c, sub, w, areaTop + areaH * 0.72f, tp, maxW, pad, subSize, alignPosition);
       }
     }
 
@@ -839,19 +927,192 @@ public class FloatingLyricService extends Service {
         ip.clearShadowLayer();
       }
 
-      drawBtn(c, rLock, sx, cy, sz, d, "🔒");
-      drawBtn(c, rPrev, sx + sz + gap, cy, sz, d, "⏮");
-      drawBtn(c, rPlay, sx + (sz + gap) * 2, cy, sz, d, playing ? "⏸" : "▶");
-      drawBtn(c, rNext, sx + (sz + gap) * 3, cy, sz, d, "⏭");
-      drawBtn(c, rClose, sx + (sz + gap) * 4, cy, sz, d, "✕");
+      drawBtn(c, rLock, sx, cy, sz, d, ICON_LOCK);
+      drawBtn(c, rPrev, sx + sz + gap, cy, sz, d, ICON_PREV);
+      drawBtn(c, rPlay, sx + (sz + gap) * 2, cy, sz, d, playing ? ICON_PAUSE : ICON_PLAY);
+      drawBtn(c, rNext, sx + (sz + gap) * 3, cy, sz, d, ICON_NEXT);
+      drawBtn(c, rClose, sx + (sz + gap) * 4, cy, sz, d, ICON_CLOSE);
     }
 
-    private void drawBtn(Canvas c, RectF r, float l, float cy, float sz, float d, String icon) {
+    private void drawBtn(Canvas c, RectF r, float l, float cy, float sz, float d, int iconType) {
       r.set(l, cy - sz / 2, l + sz, cy + sz / 2);
       bp.setColor(0x40FFFFFF);
       c.drawRoundRect(r, 8 * d, 8 * d, bp);
-      Paint.FontMetrics fm = ip.getFontMetrics();
-      c.drawText(icon, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2f, ip);
+      drawVectorIcon(c, iconType, r.centerX(), r.centerY(), sz, d);
+    }
+
+    /** 复刻桌面端单色线稿图标（白/红心）。 */
+    private void drawVectorIcon(Canvas c, int iconType, float cx, float cy, float sz, float d) {
+      // 图标尺寸：约为按钮一半，保持与桌面端一致的比例
+      float s = sz * 0.5f;
+      Paint origIp = ip;
+      ip.setStrokeWidth(Math.max(2f, 2 * d));
+      ip.setStrokeCap(Paint.Cap.ROUND);
+      ip.setStrokeJoin(Paint.Join.ROUND);
+      Path p;
+      switch (iconType) {
+        case ICON_PLAY:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          p = new Path();
+          p.moveTo(cx - s * 0.35f, cy - s * 0.62f);
+          p.lineTo(cx + s * 0.55f, cy);
+          p.lineTo(cx - s * 0.35f, cy + s * 0.62f);
+          p.close();
+          c.drawPath(p, ip);
+          break;
+        case ICON_PAUSE:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          c.drawRoundRect(cx - s * 0.42f, cy - s * 0.62f, cx - s * 0.1f, cy + s * 0.62f, 3 * d, 3 * d, ip);
+          c.drawRoundRect(cx + s * 0.1f, cy - s * 0.62f, cx + s * 0.42f, cy + s * 0.62f, 3 * d, 3 * d, ip);
+          break;
+        case ICON_PREV:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          c.drawRoundRect(cx - s * 0.72f, cy - s * 0.62f, cx - s * 0.52f, cy + s * 0.62f, 3 * d, 3 * d, ip);
+          p = new Path();
+          p.moveTo(cx + s * 0.5f, cy);
+          p.lineTo(cx - s * 0.35f, cy - s * 0.62f);
+          p.lineTo(cx - s * 0.35f, cy + s * 0.62f);
+          p.close();
+          c.drawPath(p, ip);
+          break;
+        case ICON_NEXT:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          c.drawRoundRect(cx + s * 0.52f, cy - s * 0.62f, cx + s * 0.72f, cy + s * 0.62f, 3 * d, 3 * d, ip);
+          p = new Path();
+          p.moveTo(cx - s * 0.5f, cy);
+          p.lineTo(cx + s * 0.35f, cy - s * 0.62f);
+          p.lineTo(cx + s * 0.35f, cy + s * 0.62f);
+          p.close();
+          c.drawPath(p, ip);
+          break;
+        case ICON_CLOSE:
+          ip.setStyle(Paint.Style.STROKE);
+          ip.setStrokeWidth(Math.max(2f, 2.4f * d));
+          ip.setColor(0xFFFFFFFF);
+          c.drawLine(cx - s * 0.5f, cy - s * 0.5f, cx + s * 0.5f, cy + s * 0.5f, ip);
+          c.drawLine(cx + s * 0.5f, cy - s * 0.5f, cx - s * 0.5f, cy + s * 0.5f, ip);
+          break;
+        case ICON_LOCK:
+        case ICON_UNLOCK:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          c.drawRoundRect(cx - s * 0.5f, cy - s * 0.05f, cx + s * 0.5f, cy + s * 0.6f, 4 * d, 4 * d, ip);
+          ip.setStyle(Paint.Style.STROKE);
+          ip.setStrokeWidth(Math.max(2f, 2 * d));
+          if (iconType == ICON_LOCK) {
+            c.drawArc(cx - s * 0.35f, cy - s * 0.75f, cx + s * 0.35f, cy + s * 0.05f, 0, 180, false, ip);
+          } else {
+            // 解锁：锁梁打开（只保留左半弧）
+            c.drawArc(cx - s * 0.35f, cy - s * 0.75f, cx + s * 0.35f, cy + s * 0.05f, 0, 140, false, ip);
+          }
+          ip.setStyle(Paint.Style.FILL);
+          c.drawCircle(cx, cy + s * 0.26f, s * 0.1f, ip);
+          break;
+        case ICON_HEART:
+        case ICON_HEART_FILLED:
+          boolean heartFilled = iconType == ICON_HEART_FILLED;
+          p = new Path();
+          p.moveTo(cx, cy + s * 0.6f);
+          p.cubicTo(cx - s * 0.95f, cy + s * 0.05f, cx - s * 0.55f, cy - s * 0.85f, cx, cy - s * 0.28f);
+          p.cubicTo(cx + s * 0.55f, cy - s * 0.85f, cx + s * 0.95f, cy + s * 0.05f, cx, cy + s * 0.6f);
+          p.close();
+          if (heartFilled) {
+            ip.setStyle(Paint.Style.FILL);
+            ip.setColor(COLOR_HEART_LIKED);
+            c.drawPath(p, ip);
+          } else {
+            ip.setStyle(Paint.Style.STROKE);
+            ip.setStrokeWidth(Math.max(2f, 2 * d));
+            ip.setColor(COLOR_HEART_LIKED);
+            c.drawPath(p, ip);
+          }
+          break;
+        case ICON_MUSIC:
+          ip.setStyle(Paint.Style.FILL);
+          ip.setColor(0xFFFFFFFF);
+          float hx = cx - s * 0.15f;
+          c.drawOval(hx - s * 0.24f, cy + s * 0.14f, hx + s * 0.1f, cy + s * 0.48f, ip);
+          c.drawRoundRect(hx + s * 0.02f, cy - s * 0.6f, hx + s * 0.18f, cy + s * 0.32f, 2 * d, 2 * d, ip);
+          p = new Path();
+          p.moveTo(hx + s * 0.18f, cy - s * 0.6f);
+          p.quadTo(hx + s * 0.55f, cy - s * 0.4f, hx + s * 0.5f, cy - s * 0.02f);
+          p.quadTo(hx + s * 0.3f, cy - s * 0.24f, hx + s * 0.18f, cy - s * 0.34f);
+          p.close();
+          c.drawPath(p, ip);
+          break;
+      }
+      ip.setStyle(Paint.Style.FILL);
+      ip.setStrokeWidth(0);
+    }
+
+    /**
+     * 平板 header 三栏布局（复刻桌面端图1）：左：音符+歌名歌手；中：上一首/播放暂停/下一首；
+     * 右：设置/锁定/关闭。返回 header 高度（px），供歌词绘制下移。
+     */
+    private float paintTabletHeader(Canvas c, int w, int h, float d) {
+      float headerH = Math.min(h * 0.44f, 64 * d);
+      ip.setTextAlign(Paint.Align.CENTER);
+      ip.setColor(0xFFFFFFFF);
+
+      float cy = headerH * 0.5f;
+      float sz = 30 * d;
+      float gap = 16 * d;
+
+      // ---- 右侧：红心(收藏) / 锁定 / 关闭 ----
+      float rx = w - d * 12 - sz;
+      drawBtn(c, rClose, rx, cy, sz, d, ICON_CLOSE);
+      drawBtn(c, rLock, rx - sz - gap, cy, sz, d, locked ? ICON_UNLOCK : ICON_LOCK);
+      drawBtn(c, rFavorite, rx - (sz + gap) * 2, cy, sz, d, isCurLiked() ? ICON_HEART_FILLED : ICON_HEART);
+
+      // ---- 中部：上一首 / 播放暂停 / 下一首 ----
+      float cw = sz * 3 + gap * 2;
+      float cx = (w - cw) / 2f;
+      drawBtn(c, rPrev, cx, cy, sz, d, ICON_PREV);
+      drawBtn(c, rPlay, cx + sz + gap, cy, sz, d, playing ? ICON_PAUSE : ICON_PLAY);
+      drawBtn(c, rNext, cx + (sz + gap) * 2, cy, sz, d, ICON_NEXT);
+
+      // ---- 左侧：音符 + 歌名歌手 ----
+      float lx = d * 12;
+      drawVectorIcon(c, ICON_MUSIC, lx + 12 * d, cy, sz, d);
+      float iconW = 26 * d;
+      float titleX = lx + iconW;
+      float cRight = cx - d * 8;
+      float titleMaxW = cRight - titleX;
+      ip.setColor(0xEEFFFFFF);
+      ip.setShadowLayer(2 * d, 0, 0, 0x80000000);
+      if (titleMaxW > 24 * d) {
+        ip.setTextAlign(Paint.Align.LEFT);
+        float oldSz = ip.getTextSize();
+        ip.setTextSize(15 * d);
+        String title = songName.isEmpty() ? "SPlayer" : songName + " - " + artistName;
+        float tw = ip.measureText(title);
+        if (tw > titleMaxW) {
+          int cut = title.length();
+          while (cut > 1 && tw > titleMaxW) {
+            cut--;
+            tw = ip.measureText(title.substring(0, cut) + "…");
+          }
+          title = title.substring(0, cut) + "…";
+        }
+        c.drawText(
+            title,
+            titleX,
+            cy - (ip.getFontMetrics().ascent + ip.getFontMetrics().descent) / 2f,
+            ip);
+        ip.setTextSize(oldSz);
+        rTitle.set(titleX, cy - sz / 2, titleX + tw, cy + sz / 2);
+        ip.setTextAlign(Paint.Align.CENTER);
+      }
+      ip.clearShadowLayer();
+
+      // header 底部分隔线
+      bp.setColor(0x28FFFFFF);
+      c.drawRect(d * 8, headerH - d, w - d * 8, headerH, bp);
+      return headerH;
     }
 
     // ---------- 工具 ----------

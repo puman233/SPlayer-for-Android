@@ -479,10 +479,15 @@ const jumpToRadio = debounce(
     align-items: center;
     justify-content: space-between;
     width: 100%;
+    // 防止标签与右侧操作按钮（心/加/歌单/更多）挤压重叠（图2）
+    flex-wrap: nowrap;
+    gap: 8px;
   }
   .play-meta {
     padding: 4px 4px;
     opacity: 0.6;
+    flex: 1;
+    min-width: 0;
     .meta-item {
       font-size: 12px;
       border-radius: 8px;

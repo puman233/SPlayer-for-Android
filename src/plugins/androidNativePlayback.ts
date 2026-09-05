@@ -130,6 +130,8 @@ export interface AndroidNativeCustomActionEvent {
     | "favorite"
     | "desktopLyric"
     | "desktopLyricReady"
+    /** 平板桌面歌词「设置」按钮：请求打开 App 快捷面板 */
+    | "desktopLyricOpenSettings"
     | "collapse"
     | "autoNext"
     /** Java 自治切歌后通知 TS 同步 statusStore.playIndex（payload 含 playListIndex/source） */

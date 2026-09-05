@@ -69,6 +69,8 @@ export const toLogout = async (clearUserList = false): Promise<void> => {
   // 跳转首页
   router.push("/");
   window.$message.success("成功退出登录");
+  // 退出登录后热重载，让 UI 立即刷新为未登录状态
+  setTimeout(() => window.location.reload(), 600);
 };
 
 // 刷新登录
@@ -197,6 +199,8 @@ export const switchAccount = async (userId: number) => {
     window.$message.success("切换账号成功");
     // 跳转首页
     router.push("/");
+    // 切换账号后热重载，让 UI 立即以新账号刷新
+    setTimeout(() => window.location.reload(), 600);
   } catch (error) {
     console.error("Failed to switch account:", error);
     window.$message.error("切换账号失败");

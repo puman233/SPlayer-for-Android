@@ -163,6 +163,12 @@ class MediaSessionManager {
               player.toggleDesktopLyric();
             }
             break;
+          case "desktopLyricOpenSettings": {
+            // 平板桌面歌词「设置」按钮：打开 App 快捷面板
+            const statusStore = useStatusStore();
+            statusStore.desktopLyricOpenQuickActions = true;
+            break;
+          }
           case "collapse":
             break;
           case "autoNext":

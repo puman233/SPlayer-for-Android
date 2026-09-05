@@ -118,6 +118,8 @@ const saveLogin = async (loginData: any, type: LoginType = "qr") => {
   }
 
   emit("success");
+  // 登录成功后热重载，让 UI 立即以登录状态刷新
+  setTimeout(() => window.location.reload(), 800);
 };
 
 const specialLogin = (type: "uid" | "cookie" = "uid") => {
