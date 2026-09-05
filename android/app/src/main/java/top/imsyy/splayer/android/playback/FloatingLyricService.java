@@ -8,11 +8,11 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
-import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -25,9 +25,12 @@ import android.view.View;
 import android.view.WindowManager;
 import androidx.annotation.Nullable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import top.imsyy.splayer.android.R;
 
 public class FloatingLyricService extends Service {
   private static final String TAG = "FloatingLyric";
@@ -107,6 +110,9 @@ public class FloatingLyricService extends Service {
       ICON_CLOSE = 10;
   /** 红心收藏颜色 */
   private static final int COLOR_HEART_LIKED = 0xFFE0446A;
+
+  /** VectorDrawable 图标缓存，避免每帧重复加载 */
+  private final Map<Integer, Drawable> iconCache = new HashMap<>();
 
   // ==================== 生命周期 ====================
 
@@ -938,116 +944,80 @@ public class FloatingLyricService extends Service {
       r.set(l, cy - sz / 2, l + sz, cy + sz / 2);
       bp.setColor(0x40FFFFFF);
       c.drawRoundRect(r, 8 * d, 8 * d, bp);
-      drawVectorIcon(c, iconType, r.centerX(), r.centerY(), sz, d);
+      drawResIcon(c, iconType, r.centerX(), r.centerY(), sz * 0.58f);
     }
 
-    /** 复刻桌面端单色线稿图标（白/红心）。 */
-    private void drawVectorIcon(Canvas c, int iconType, float cx, float cy, float sz, float d) {
-      // 图标尺寸：约为按钮一半，保持与桌面端一致的比例
-      float s = sz * 0.5f;
-      Paint origIp = ip;
-      ip.setStrokeWidth(Math.max(2f, 2 * d));
-      ip.setStrokeCap(Paint.Cap.ROUND);
-      ip.setStrokeJoin(Paint.Join.ROUND);
-      Path p;
+    /** 用 VectorDrawable（复刻桌面端 SVG 图标）绘制按钮图标。 */
+    private void drawResIcon(Canvas c, int iconType, float cx, float cy, float sizePx) {
+      int resId;
+      int tint;
       switch (iconType) {
         case ICON_PLAY:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          p = new Path();
-          p.moveTo(cx - s * 0.35f, cy - s * 0.62f);
-          p.lineTo(cx + s * 0.55f, cy);
-          p.lineTo(cx - s * 0.35f, cy + s * 0.62f);
-          p.close();
-          c.drawPath(p, ip);
+          resId = R.drawable.lyric_play;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_PAUSE:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          c.drawRoundRect(cx - s * 0.42f, cy - s * 0.62f, cx - s * 0.1f, cy + s * 0.62f, 3 * d, 3 * d, ip);
-          c.drawRoundRect(cx + s * 0.1f, cy - s * 0.62f, cx + s * 0.42f, cy + s * 0.62f, 3 * d, 3 * d, ip);
+          resId = R.drawable.lyric_pause;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_PREV:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          c.drawRoundRect(cx - s * 0.72f, cy - s * 0.62f, cx - s * 0.52f, cy + s * 0.62f, 3 * d, 3 * d, ip);
-          p = new Path();
-          p.moveTo(cx + s * 0.5f, cy);
-          p.lineTo(cx - s * 0.35f, cy - s * 0.62f);
-          p.lineTo(cx - s * 0.35f, cy + s * 0.62f);
-          p.close();
-          c.drawPath(p, ip);
+          resId = R.drawable.lyric_prev;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_NEXT:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          c.drawRoundRect(cx + s * 0.52f, cy - s * 0.62f, cx + s * 0.72f, cy + s * 0.62f, 3 * d, 3 * d, ip);
-          p = new Path();
-          p.moveTo(cx - s * 0.5f, cy);
-          p.lineTo(cx + s * 0.35f, cy - s * 0.62f);
-          p.lineTo(cx + s * 0.35f, cy + s * 0.62f);
-          p.close();
-          c.drawPath(p, ip);
+          resId = R.drawable.lyric_next;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_CLOSE:
-          ip.setStyle(Paint.Style.STROKE);
-          ip.setStrokeWidth(Math.max(2f, 2.4f * d));
-          ip.setColor(0xFFFFFFFF);
-          c.drawLine(cx - s * 0.5f, cy - s * 0.5f, cx + s * 0.5f, cy + s * 0.5f, ip);
-          c.drawLine(cx + s * 0.5f, cy - s * 0.5f, cx - s * 0.5f, cy + s * 0.5f, ip);
+          resId = R.drawable.lyric_close;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_LOCK:
+          resId = R.drawable.lyric_lock;
+          tint = 0xFFFFFFFF;
+          break;
         case ICON_UNLOCK:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          c.drawRoundRect(cx - s * 0.5f, cy - s * 0.05f, cx + s * 0.5f, cy + s * 0.6f, 4 * d, 4 * d, ip);
-          ip.setStyle(Paint.Style.STROKE);
-          ip.setStrokeWidth(Math.max(2f, 2 * d));
-          if (iconType == ICON_LOCK) {
-            c.drawArc(cx - s * 0.35f, cy - s * 0.75f, cx + s * 0.35f, cy + s * 0.05f, 0, 180, false, ip);
-          } else {
-            // 解锁：锁梁打开（只保留左半弧）
-            c.drawArc(cx - s * 0.35f, cy - s * 0.75f, cx + s * 0.35f, cy + s * 0.05f, 0, 140, false, ip);
-          }
-          ip.setStyle(Paint.Style.FILL);
-          c.drawCircle(cx, cy + s * 0.26f, s * 0.1f, ip);
+          resId = R.drawable.lyric_unlock;
+          tint = 0xFFFFFFFF;
           break;
         case ICON_HEART:
+          resId = R.drawable.lyric_heart;
+          tint = COLOR_HEART_LIKED;
+          break;
         case ICON_HEART_FILLED:
-          boolean heartFilled = iconType == ICON_HEART_FILLED;
-          p = new Path();
-          p.moveTo(cx, cy + s * 0.6f);
-          p.cubicTo(cx - s * 0.95f, cy + s * 0.05f, cx - s * 0.55f, cy - s * 0.85f, cx, cy - s * 0.28f);
-          p.cubicTo(cx + s * 0.55f, cy - s * 0.85f, cx + s * 0.95f, cy + s * 0.05f, cx, cy + s * 0.6f);
-          p.close();
-          if (heartFilled) {
-            ip.setStyle(Paint.Style.FILL);
-            ip.setColor(COLOR_HEART_LIKED);
-            c.drawPath(p, ip);
-          } else {
-            ip.setStyle(Paint.Style.STROKE);
-            ip.setStrokeWidth(Math.max(2f, 2 * d));
-            ip.setColor(COLOR_HEART_LIKED);
-            c.drawPath(p, ip);
-          }
+          resId = R.drawable.lyric_heart_filled;
+          tint = COLOR_HEART_LIKED;
           break;
         case ICON_MUSIC:
-          ip.setStyle(Paint.Style.FILL);
-          ip.setColor(0xFFFFFFFF);
-          float hx = cx - s * 0.15f;
-          c.drawOval(hx - s * 0.24f, cy + s * 0.14f, hx + s * 0.1f, cy + s * 0.48f, ip);
-          c.drawRoundRect(hx + s * 0.02f, cy - s * 0.6f, hx + s * 0.18f, cy + s * 0.32f, 2 * d, 2 * d, ip);
-          p = new Path();
-          p.moveTo(hx + s * 0.18f, cy - s * 0.6f);
-          p.quadTo(hx + s * 0.55f, cy - s * 0.4f, hx + s * 0.5f, cy - s * 0.02f);
-          p.quadTo(hx + s * 0.3f, cy - s * 0.24f, hx + s * 0.18f, cy - s * 0.34f);
-          p.close();
-          c.drawPath(p, ip);
+          resId = R.drawable.lyric_music;
+          tint = 0xFFFFFFFF;
           break;
+        default:
+          return;
       }
-      ip.setStyle(Paint.Style.FILL);
-      ip.setStrokeWidth(0);
+      Drawable d = cachedIcon(resId);
+      if (d == null) return;
+      d.setTint(tint);
+      float half = sizePx / 2f;
+      d.setBounds((int) (cx - half), (int) (cy - half), (int) (cx + half), (int) (cy + half));
+      d.draw(c);
     }
+
+    /** 缓存 VectorDrawable，避免每帧重复加载。 */
+    private Drawable cachedIcon(int resId) {
+      Drawable d = iconCache.get(resId);
+      if (d == null) {
+        try {
+          d = getResources().getDrawable(resId, null);
+          if (d != null) d = d.mutate();
+        } catch (Exception e) {
+          d = null;
+        }
+        iconCache.put(resId, d);
+      }
+      return d;
+    }
+
 
     /**
      * 平板 header 三栏布局（复刻桌面端图1）：左：音符+歌名歌手；中：上一首/播放暂停/下一首；
@@ -1077,7 +1047,7 @@ public class FloatingLyricService extends Service {
 
       // ---- 左侧：音符 + 歌名歌手 ----
       float lx = d * 12;
-      drawVectorIcon(c, ICON_MUSIC, lx + 12 * d, cy, sz, d);
+      drawResIcon(c, ICON_MUSIC, lx + 13 * d, cy, sz * 0.48f);
       float iconW = 26 * d;
       float titleX = lx + iconW;
       float cRight = cx - d * 8;
